@@ -1,0 +1,7 @@
+# Сборка сайта Quarto
+/_site/
+/.quarto/
+/_freeze/
+**/*.quarto_ipynb
+__pycache__/
+.ipynb_checkpoints/
