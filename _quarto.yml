@@ -6,7 +6,9 @@ project:
     - Лекции/Обозначения.md
     - Лабораторный_практикум.md
     - "Лекции/Часть_I/*/лекция.md"
+    - "Лекции/Часть_I/*/лекция.qmd"
     - "Лекции/Часть_II/*/лекция.md"
+    - "Лекции/Часть_II/*/лекция.qmd"
   resources:
     - "Лекции/**/примеры.py"
     - "Лекции/I.00_Вводная_лекция/Вводная_лекция.pdf"
@@ -116,3 +118,8 @@ format:
     toc-depth: 2
     number-sections: false
     html-math-method: mathjax
+    code-tools: true
+
+execute:
+  freeze: auto
+  warning: false

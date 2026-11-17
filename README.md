@@ -13,6 +13,7 @@
 | `Лабораторный_практикум.md` | 16 лабораторных работ |
 | `index.qmd`, `_quarto.yml` | главная страница и настройка сайта (Quarto) |
 | `filters/lecture.lua` | заголовок страницы из `# …` и ссылка на `примеры.py` |
+| `tests/test_examples.py` | прогон всех `примеры.py` (`python -m pytest -q -n auto tests/`) |
 
 Лекции — обычный Markdown: их можно читать и без сайта, а `примеры.py`
 запускать как скрипты (`python примеры.py`, нужны NumPy и SciPy).
@@ -26,8 +27,9 @@ quarto preview                        # сайт с автообновление
 quarto render                         # полная сборка в _site/
 ```
 
-Push в `main` собирает сайт и публикует его на GitHub Pages
-(`.github/workflows/site.yml`).
+Push в `main` прогоняет все `примеры.py`, собирает сайт и публикует его на
+GitHub Pages (`.github/workflows/site.yml`); ошибка в любом примере
+останавливает публикацию. Раз в месяц — контрольный прогон.
 
 ## Лицензия
 

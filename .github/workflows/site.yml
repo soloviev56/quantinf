@@ -1,6 +1,8 @@
 # Сборка и публикация сайта курса.
-# На каждый push и pull request — полная сборка сайта.
+# На каждый push и pull request — прогон всех примеры.py и полная сборка сайта.
+# Ошибка в любом примере останавливает публикацию.
 # Push в main дополнительно публикует сайт на GitHub Pages.
+# Раз в месяц — контрольный прогон, чтобы заметить поломки от обновлений библиотек.
 
 name: site
 
@@ -8,6 +10,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 3 1 * *"
   workflow_dispatch:
 
 permissions:
@@ -33,6 +37,13 @@ jobs:
           environment-file: environment.yml
           activate-environment: quantinf
           miniforge-version: latest
+
+      - name: Проверка примеров (все примеры.py)
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: python -m pytest -q -n auto --durations=5 tests/
 
       - name: Сборка сайта
         run: quarto render
