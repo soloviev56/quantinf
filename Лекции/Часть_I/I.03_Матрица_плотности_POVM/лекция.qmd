@@ -1,10 +1,79 @@
-# Лекция I.3. Матрица плотности, обобщённые измерения, различимость
+---
+title: "Лекция I.3. Матрица плотности, обобщённые измерения, различимость"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.A «Математический аппарат и постулаты».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (положительные операторы, след, нормы, формула (10.1)); лекция I.2 (постулаты, сфера Блоха, теорема 6.1).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (положительные операторы, след, нормы, формула (10.1)); [лекция I.2](../../Часть_I/I.02_Постулаты_и_кубит/лекция.qmd) (постулаты, сфера Блоха, теорема 6.1).
 **Литература:** N&C, § 2.2.6, 2.4, 9.1–9.2; Watrous, гл. 2–3; Preskill, гл. 2–3; Bergou J. A. Discrimination of quantum states // J. Mod. Opt. 57, 160 (2010) — обзор по различению состояний.
-**Материалы:** `примеры.py` — численная проверка всех утверждений; задачи к семинару С2 — в § 8.
+**Материалы:** `примеры.py` — численная проверка всех утверждений; задачи к семинару С2 — в § 8. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULI = [X, Y, Z]
+ket0 = np.array([1, 0], dtype=complex)
+ket1 = np.array([0, 1], dtype=complex)
+ketp, ketm = (ket0 + ket1) / np.sqrt(2), (ket0 - ket1) / np.sqrt(2)
+
+def dag(A):
+    return A.conj().T
+
+def proj(v):
+    return np.outer(v, v.conj())
+
+def rho_bloch(r):
+    """ρ = (I + r·σ)/2."""
+    return 0.5 * (I2 + sum(r[i] * PAULI[i] for i in range(3)))
+
+def bloch(rho):
+    return np.array([np.trace(rho @ P).real for P in PAULI])
+
+def random_state(d):
+    v = rng.normal(size=d) + 1j * rng.normal(size=d)
+    return v / np.linalg.norm(v)
+
+def random_rho(d, rank=None):
+    """Случайная матрица плотности G G†/Tr (мера Гильберта–Шмидта при rank = d)."""
+    G = rng.normal(size=(d, rank or d)) + 1j * rng.normal(size=(d, rank or d))
+    R = G @ dag(G)
+    return R / np.trace(R)
+
+def is_density(rho, tol=1e-10):
+    return (np.allclose(rho, dag(rho), atol=tol) and abs(np.trace(rho) - 1) < tol
+            and np.linalg.eigvalsh((rho + dag(rho)) / 2).min() > -tol)
+
+def trace_norm(A):
+    return np.linalg.svd(A, compute_uv=False).sum()
+
+def trace_distance(r, s):
+    return 0.5 * trace_norm(r - s)
+
+def psd_sqrt(A):
+    w, V = np.linalg.eigh((A + dag(A)) / 2)
+    w[w < 1e-12] = 0                     # иначе корень из шума ~1e-16 даёт ошибку ~1e-8
+    return V @ np.diag(np.sqrt(w)) @ dag(V)
+
+def fidelity(r, s):
+    """F = (Tr sqrt(sqrt(ρ) σ sqrt(ρ)))² — с квадратом, как в нашей конвенции."""
+    sr = psd_sqrt(r)
+    return np.real(np.trace(psd_sqrt(sr @ s @ sr)))**2
+
+def random_effect(d):
+    """Случайный оператор 0 <= E <= I."""
+    G = random_rho(d) * rng.uniform(0, 4)
+    return G / max(1, np.linalg.eigvalsh(G).max())
+```
 
 **Конвенция:** верность — $F(\rho,\sigma) = \big(\operatorname{Tr}\sqrt{\sqrt\rho\,\sigma\sqrt\rho}\big)^2$. **Внимание:** в N&C верностью называется величина *без* квадрата ($\sqrt F$ в наших обозначениях). Все формулы ниже записаны в нашей конвенции.
 
@@ -70,6 +139,18 @@ $$
 
 Множество матриц плотности **выпукло**: смесь $p\rho_1 + (1-p)\rho_2$ — снова матрица плотности. Его крайние точки — чистые состояния.
 
+Проверим численно: для ансамбля из трёх случайных состояний кутрита вероятность исхода по формуле полной вероятности совпадает с $\operatorname{Tr}(P\rho)$, а $\rho$ удовлетворяет условиям теоремы 1.1:
+
+```{python}
+ens = [(0.3, random_state(3)), (0.5, random_state(3)), (0.2, random_state(3))]
+rho = sum(p * proj(v) for p, v in ens)
+P = proj(random_state(3))                                 # случайный проектор ранга 1
+p_ens = sum(p * np.vdot(v, P @ v).real for p, v in ens)
+print(f"по ансамблю: p = {p_ens:.10f};  Tr(P ρ) = {np.trace(P @ rho).real:.10f}")
+print("ρ >= 0 и Tr ρ = 1:", is_density(rho), "; собственные значения:", np.linalg.eigvalsh(rho).round(4))
+assert np.isclose(p_ens, np.trace(P @ rho).real) and is_density(rho)
+```
+
 ### 1.2. Чистота
 
 **Предложение 1.2.**
@@ -79,6 +160,18 @@ $$
 *Доказательство.* $\operatorname{Tr}\rho^2 = \sum_k\lambda_k^2$ при $\lambda_k \ge 0$, $\sum\lambda_k = 1$. Сумма квадратов равна 1, только если одно $\lambda_k = 1$, а остальные равны 0. Минимум, $1/d$, достигается при всех $\lambda_k = 1/d$ (неравенство Коши–Шварца). $\square$
 
 Величина $\operatorname{Tr}\rho^2$ — **чистота**. Более содержательная мера смешанности — энтропия фон Неймана $S(\rho) = -\operatorname{Tr}\rho\log\rho$ (лекция II.11).
+
+Проверим предложение 1.2 на 2000 случайных матрицах плотности в размерностях 2, 4, 8:
+
+```{python}
+for d in [2, 4, 8]:
+    pur = [np.trace(r @ r).real for r in (random_rho(d) for _ in range(2000))]
+    assert 1/d - 1e-12 <= min(pur) and max(pur) <= 1 + 1e-12
+    print(f"d = {d}: Tr ρ² в [{min(pur):.4f}, {max(pur):.4f}],  нижняя граница 1/d = {1/d:.4f}")
+v = random_state(4)
+print("чистое: Tr ρ² =", round(np.trace(proj(v) @ proj(v)).real, 12),
+      "; I/4: Tr ρ² =", np.trace(np.eye(4) / 4 @ np.eye(4) / 4))
+```
 
 ### 1.3. Постулаты на языке матриц плотности
 
@@ -98,6 +191,16 @@ $$
 $$
 В базисе измерения это **обнуление внедиагональных элементов** («когерентностей»). Это простейшая модель декогеренции: окружение «измеряет» систему, а мы не видим результата (II.2).
 
+Проверим численно: измерение без записи результата оставляет от случайной $\rho$ только диагональ:
+
+```{python}
+rho = random_rho(3)
+P_m = [proj(e) for e in np.eye(3, dtype=complex)]          # измерение в вычислительном базисе
+rho_after = sum(P @ rho @ P for P in P_m)
+assert np.allclose(rho_after, np.diag(np.diag(rho)))
+print("|ρ_ij| до:\n", np.abs(rho).round(3), "\n|ρ_ij| после Σ P_m ρ P_m:\n", np.abs(rho_after).round(3))
+```
+
 ### 1.4. Суперпозиция и смесь — разные вещи
 
 | | $\lvert+\rangle\langle+\rvert = \frac12\begin{pmatrix}1&1\\1&1\end{pmatrix}$ | $\frac I2 = \frac12\begin{pmatrix}1&0\\0&1\end{pmatrix}$ |
@@ -108,6 +211,14 @@ $$
 
 В базисе $Z$ они неотличимы, но различие — во внедиагональных элементах. «Кубит одновременно в 0 и 1» и «кубит в 0 или в 1, мы не знаем в каком» — физически разные утверждения, и это проверяется измерением в другом базисе.
 
+Таблица выше, вычисленная численно:
+
+```{python}
+for name, r in [("|+><+|", proj(ketp)), ("I/2", I2 / 2)]:
+    print(f"{name:7s}: P(0) в базисе Z = {np.trace(proj(ket0) @ r).real:.3f},"
+          f"  P(+) в базисе X = {np.trace(proj(ketp) @ r).real:.3f},  чистота = {np.trace(r @ r).real:.3f}")
+```
+
 ### 1.5. Неединственность разложения
 
 Одна и та же $\rho$ может получиться из разных ансамблей:
@@ -116,11 +227,37 @@ $$
 $$
 Здесь $\lvert t_k\rangle$ — трин-состояния (§3.3). Поскольку все предсказания зависят только от $\rho$, **никакой эксперимент не отличит эти ансамбли**. Состояние системы и есть $\rho$; «настоящего» ансамбля нет.
 
+Проверим численно все три разложения $I/2$:
+
+```{python}
+trine = [np.array([np.cos(np.pi * k / 3), np.sin(np.pi * k / 3)], dtype=complex) for k in range(3)]
+decomps = {"{|0>, |1>}": 0.5 * (proj(ket0) + proj(ket1)),
+           "{|+>, |->}": 0.5 * (proj(ketp) + proj(ketm)),
+           "трин":       sum(proj(t) for t in trine) / 3}
+for name, r in decomps.items():
+    print(f"{name:11s} -> ρ = I/2: {np.allclose(r, I2 / 2)}")
+```
+
 **Теорема 1.3 (Хьюстон–Йожа–Вуттерс, 1993).** Наборы ненормированных векторов $\{\lvert\tilde\psi_i\rangle = \sqrt{p_i}\lvert\psi_i\rangle\}_{i=1}^k$ и $\{\lvert\tilde\varphi_j\rangle = \sqrt{q_j}\lvert\varphi_j\rangle\}_{j=1}^k$ порождают одну и ту же $\rho = \sum_i\lvert\tilde\psi_i\rangle\langle\tilde\psi_i\rvert = \sum_j\lvert\tilde\varphi_j\rangle\langle\tilde\varphi_j\rvert$ тогда и только тогда, когда существует унитарная $k\times k$-матрица $u$ такая, что
 $$
 \lvert\tilde\psi_i\rangle = \sum_j u_{ij}\,\lvert\tilde\varphi_j\rangle .
 $$
 Если ансамбли разной длины, более короткий дополняется нулевыми векторами.
+
+Проверим теорему в «лёгкую» сторону: возьмём собственный ансамбль случайной $\rho$ кутрита, дополним его нулями до пяти векторов и перемешаем случайной унитарной матрицей $5\times5$:
+
+```{python}
+d, k = 3, 5
+rho = random_rho(d)
+w, V = np.linalg.eigh(rho)
+tilde_phi = [np.sqrt(w[i]) * V[:, i] for i in range(d)] + [np.zeros(d)] * (k - d)   # собственный ансамбль + нули
+u = np.linalg.qr(rng.normal(size=(k, k)) + 1j * rng.normal(size=(k, k)))[0]          # случайная унитарная 5×5
+tilde_psi = [sum(u[i, j] * tilde_phi[j] for j in range(k)) for i in range(k)]
+rho_new = sum(np.outer(v, v.conj()) for v in tilde_psi)
+print("вероятности нового ансамбля p_i = ||ψ̃_i||²:", np.round([np.linalg.norm(v)**2 for v in tilde_psi], 3))
+print("тот же ρ:", np.allclose(rho, rho_new))
+assert np.allclose(rho, rho_new)
+```
 
 *Доказательство в одну сторону.* $\sum_i\lvert\tilde\psi_i\rangle\langle\tilde\psi_i\rvert = \sum_{j,l}\big(\sum_i u_{ij}\bar u_{il}\big)\lvert\tilde\varphi_j\rangle\langle\tilde\varphi_l\rvert = \sum_j\lvert\tilde\varphi_j\rangle\langle\tilde\varphi_j\rvert$, так как $u^\dagger u = I$. Обратное направление: оба набора выражаются через собственный ансамбль $\rho$ (задача 4; N&C, теорема 2.6). $\square$
 
@@ -138,6 +275,20 @@ $$
 
 *Доказательство.* Разложение по базису Паули — формула (8.2) из I.1. Матрица $\mathbf r\cdot\boldsymbol\sigma$ имеет собственные значения $\pm|\mathbf r|$, поэтому $\rho \ge 0 \iff |\mathbf r| \le 1$. $\square$
 
+Проверим предложение 2.1 на 1000 случайных векторах $\mathbf r$, часть которых лежит вне шара:
+
+```{python}
+n_out = 0
+for _ in range(1000):
+    r = rng.normal(size=3) * rng.uniform(0, 1.5) / np.sqrt(3)      # часть векторов — вне шара
+    nr, rho = np.linalg.norm(r), rho_bloch(r)
+    assert np.allclose(np.linalg.eigvalsh(rho), [(1 - nr) / 2, (1 + nr) / 2])
+    assert np.isclose(np.trace(rho @ rho).real, (1 + nr**2) / 2)
+    assert is_density(rho) == (nr <= 1 + 1e-12)
+    n_out += nr > 1
+print(f"проверено на 1000 векторах r, из них {n_out} вне шара (там ρ не >= 0)")
+```
+
 Геометрия:
 - **сфера** $|\mathbf r| = 1$ — чистые состояния; **внутренность** — смешанные; **центр** — $I/2$;
 - **смесь** $p\rho_1 + (1-p)\rho_2$ — точка на отрезке между $\mathbf r_1$ и $\mathbf r_2$. Неединственность разложения видна наглядно: через внутреннюю точку проходит бесконечно много хорд;
@@ -145,6 +296,15 @@ $$
 - **измерение** вдоль оси $\mathbf n$: $p(\pm) = (1 \pm \mathbf n\cdot\mathbf r)/2$, как и раньше.
 
 **Пример.** $\rho = \frac12(\lvert0\rangle\langle0\rvert + \lvert+\rangle\langle+\rvert)$ имеет $\mathbf r = (\frac12, 0, \frac12)$, $|\mathbf r| = \frac1{\sqrt2}$ и собственные значения $\frac12\big(1 \pm \frac{1}{\sqrt2}\big) \approx 0{,}854$ и $0{,}146$. Число 0,854 — уже знакомая вероятность успеха различения $\lvert0\rangle$ и $\lvert+\rangle$ из I.2. Это не совпадение (§5).
+
+Проверим численно пример:
+
+```{python}
+mid = 0.5 * (proj(ket0) + proj(ketp))
+print("r =", bloch(mid).round(6), " |r| =", round(np.linalg.norm(bloch(mid)), 6))
+print("собственные значения:", np.linalg.eigvalsh(mid).round(6),
+      "; (1 ± 1/√2)/2 =", np.round([(1 - 1/np.sqrt(2)) / 2, (1 + 1/np.sqrt(2)) / 2], 6))
+```
 
 > Для $d > 2$ множество состояний **не** шар. Это выпуклое тело размерности $d^2 - 1$ со сложной границей: не каждая точка на сфере радиуса $\sqrt{(d-1)/d}$ в «обобщённом векторе Блоха» — допустимое состояние. Геометрия множества состояний — тема книги Bengtsson & Życzkowski.
 
@@ -181,11 +341,32 @@ E_0 = (1 - \varepsilon_0)\lvert0\rangle\langle0\rvert + \varepsilon_1\lvert1\ran
 $$
 Это POVM, но не проективное измерение. Ровно такое описание считывания используется на реальных устройствах; его «обращение» — первая ступень error mitigation (II.4, ЛР12).
 
+Проверим численно для $\varepsilon_0 = 0{,}02$, $\varepsilon_1 = 0{,}05$:
+
+```{python}
+e0, e1 = 0.02, 0.05                     # P(прочитали 1 | был 0), P(прочитали 0 | был 1)
+E0 = (1 - e0) * proj(ket0) + e1 * proj(ket1)
+E1 = I2 - E0
+assert np.allclose(E0 + E1, I2) and min(np.linalg.eigvalsh(E0).min(), np.linalg.eigvalsh(E1).min()) >= 0
+print("E0 = diag", np.diag(E0).real, "; E0² = E0?", np.allclose(E0 @ E0, E0), "— не проектор")
+```
+
 **(b) Трин-POVM.** Три состояния кубита в плоскости $xz$ сферы Блоха, под углом $120^\circ$ друг к другу:
 $$
 \lvert t_k\rangle = \cos\frac{\pi k}{3}\lvert0\rangle + \sin\frac{\pi k}{3}\lvert1\rangle,\qquad E_k = \frac23\lvert t_k\rangle\langle t_k\rvert,\quad k = 0, 1, 2 .
 $$
 Сумма векторов Блоха равна нулю, поэтому $\sum_k E_k = \frac23\cdot\frac32 I = I$. Три исхода на двумерном пространстве — проективным измерением такое не реализовать. Если измерять трин-состояния этим POVM, то $p(k\,|\,j) = \frac23$ при $k = j$ и $\frac16$ при $k \ne j$. Трин-ансамбль появится снова в задаче о доступной информации (II.12).
+
+Проверим численно: векторы Блоха трин-состояний, полнота $\sum_k E_k = I$ и таблица $p(k\,|\,j)$:
+
+```{python}
+E_tr = [2/3 * proj(t) for t in trine]
+assert np.allclose(sum(E_tr), I2)
+print("векторы Блоха трин-состояний (строки):\n", np.array([bloch(proj(t)) for t in trine]).round(3) + 0.0)
+p_kj = np.array([[np.trace(E_tr[k] @ proj(trine[j])).real for k in range(3)] for j in range(3)])
+print("p(k | j)  (строка — j, столбец — k):\n", p_kj.round(4))
+assert np.allclose(np.diag(p_kj), 2/3) and np.allclose(p_kj[~np.eye(3, dtype=bool)], 1/6)
+```
 
 **(c) Однозначное различение** — POVM с тремя исходами «$\psi$», «$\varphi$», «не знаю» (§6).
 
@@ -204,6 +385,32 @@ $$
 Для смешанных $\rho$ утверждение следует по линейности. $\square$
 
 **Смысл.** Обобщённые измерения не требуют новой физики: это унитарное взаимодействие системы со вспомогательной («пробником») и обычное проективное измерение пробника. Тензорное произведение $\mathcal H\otimes\mathcal H_A$ подробно разбирается в лекции I.4; здесь достаточно понимать его как «система плюс пробник».
+
+Проверим численно: построим по рецепту ниже унитарный $U$ для трин-POVM на «кубит + кутрит» и сравним вероятности исходов пробника с $\operatorname{Tr}(E_m\rho)$ для случайного состояния:
+
+```{python}
+def naimark_unitary(E):
+    """U на H ⊗ C^k с U(|ψ>|0>) = Σ_m sqrt(E_m)|ψ> ⊗ |m> (индекс i·k + m)."""
+    d, k = E[0].shape[0], len(E)
+    V = np.zeros((d * k, d), dtype=complex)
+    for m, Em in enumerate(E):
+        V[m::k, :] = psd_sqrt(Em)                       # строки i·k + m
+    assert np.allclose(dag(V) @ V, np.eye(d))           # изометрия
+    fixed = [j * k for j in range(d)]                   # столбцы |j>|0>
+    rest = [c for c in range(d * k) if c not in fixed]
+    Q = np.linalg.qr(np.hstack([V, rng.normal(size=(d * k, len(rest)))]))[0]
+    U = np.zeros((d * k, d * k), dtype=complex)
+    U[:, fixed], U[:, rest] = V, Q[:, d:]               # дополнение до ортонормированного базиса
+    return U
+
+U = naimark_unitary(E_tr)
+psi = random_state(2)
+out = U @ np.kron(psi, [1, 0, 0])
+p_anc = [np.sum(np.abs(out[m::3])**2) for m in range(3)]
+print("U унитарен:", np.allclose(dag(U) @ U, np.eye(6)))
+print("p(m) по пробнику:", np.round(p_anc, 6), "; Tr(E_m ρ):", np.round([np.vdot(psi, E @ psi).real for E in E_tr], 6))
+assert np.allclose(p_anc, [np.vdot(psi, E @ psi).real for E in E_tr])
+```
 
 **Рецепт для квантовой схемы.** Соберите изометрию $V$ из блоков $\sqrt{E_m}$ (матрица размера $dk\times d$), дополните её до унитарной матрицы (QR-разложение) и синтезируйте $U$ в гейтах. Если $k$ не степень двойки, добавьте нулевые элементы POVM. Ровно это делается в ЛР2 (задание 6 и дополнительное задание с трином).
 
@@ -234,6 +441,31 @@ $$
 
 *Доказательство пунктов 3 и 4.* Разложим $\rho - \sigma = Q - S$, где $Q, S \ge 0$ имеют ортогональные носители (положительная и отрицательная спектральные части). Поскольку $\operatorname{Tr}(\rho - \sigma) = 0$, имеем $\operatorname{Tr}Q = \operatorname{Tr}S = D$. Для $0 \le E \le I$ получаем $\operatorname{Tr}E(\rho - \sigma) \le \operatorname{Tr}EQ \le \operatorname{Tr}Q = D$, и равенство достигается при $E$, равном проектору на носитель $Q$. Для пункта 4 разобьём исходы на $M_+ = \{m: p_m \ge q_m\}$ и остальные. Тогда $\frac12\sum|p_m - q_m| = \sum_{m\in M_+}(p_m - q_m) = \operatorname{Tr}\big(E_+(\rho - \sigma)\big) \le D$, где $E_+ = \sum_{m\in M_+}E_m$. Пункт 5: собственные значения $\frac12(\mathbf r - \mathbf s)\cdot\boldsymbol\sigma$ равны $\pm\frac12|\mathbf r - \mathbf s|$. $\square$
 
+Проверим численно пункты 3–5 для случайной пары состояний в $\mathbb C^4$ (и формулу для кубита — на 1000 парах):
+
+```{python}
+for _ in range(1000):                                   # п. 5: кубит
+    r, s = rng.normal(size=3), rng.normal(size=3)
+    r, s = r / max(1, np.linalg.norm(r)), s / max(1, np.linalg.norm(s))
+    assert np.isclose(trace_distance(rho_bloch(r), rho_bloch(s)), np.linalg.norm(r - s) / 2)
+
+rho, sig = random_rho(4), random_rho(4)                 # п. 3: вариационная формула
+D = trace_distance(rho, sig)
+w, V = np.linalg.eigh(rho - sig)
+P_plus = V[:, w > 0] @ dag(V[:, w > 0])
+best_random = max(np.trace(random_effect(4) @ (rho - sig)).real for _ in range(2000))
+print(f"D = {D:.4f};  Tr P₊(ρ-σ) = {np.trace(P_plus @ (rho - sig)).real:.4f};  лучший из 2000 случайных E: {best_random:.4f}")
+
+tv = []                                                 # п. 4: измерения в случайных базисах
+for _ in range(500):
+    B = np.linalg.qr(rng.normal(size=(4, 4)) + 1j * rng.normal(size=(4, 4)))[0]
+    p = [np.vdot(b, rho @ b).real for b in B.T]
+    q = [np.vdot(b, sig @ b).real for b in B.T]
+    tv.append(0.5 * np.abs(np.subtract(p, q)).sum())
+print(f"½Σ|p_m - q_m| по 500 случайным базисам: максимум {max(tv):.4f} <= D")
+assert best_random <= D + 1e-12 and max(tv) <= D + 1e-12
+```
+
 Более общее и очень важное свойство: $D$ **не возрастает** под действием любого квантового канала (лекция II.1). Обработка не может сделать состояния более различимыми.
 
 ### 4.2. Верность
@@ -248,6 +480,20 @@ $$
 5. **Теорема Ульмана:** $F(\rho,\sigma) = \max|\langle\psi_\rho|\psi_\sigma\rangle|^2$ по всем очищениям (формулировка и доказательство — в лекции I.4).
 6. $F$ не убывает под действием каналов (II.1).
 
+Проверим численно свойства 2–4:
+
+```{python}
+for _ in range(1000):                                   # симметрия и формула для кубита
+    r1, r2 = random_rho(2), random_rho(2)
+    F = fidelity(r1, r2)
+    assert np.isclose(F, fidelity(r2, r1), atol=1e-8)
+    assert np.isclose(F, np.trace(r1 @ r2).real + 2 * np.sqrt(max(0, np.linalg.det(r1).real * np.linalg.det(r2).real)), atol=1e-8)
+a, b, sig = random_state(3), random_state(3), random_rho(3)
+assert np.isclose(fidelity(proj(a), sig), np.vdot(a, sig @ a).real)
+assert np.isclose(fidelity(proj(a), proj(b)), abs(np.vdot(a, b))**2)
+print("симметрия и формула для кубита — на 1000 парах; случаи чистых состояний (п. 3) — проверены")
+```
+
 Верность удобна, когда одно из состояний — «цель»: например, верность приготовленного состояния с идеальным или верность телепортации (ЛР3). В бенчмаркинге гейтов используют **инфиделити** $1 - F$.
 
 ### 4.3. Связь: неравенства Фукса–ван де Граафа
@@ -261,6 +507,30 @@ $$
 *Доказательство для чистых состояний:* $D = \sqrt{1 - |\langle\psi|\varphi\rangle|^2} = \sqrt{1 - F}$, а $1 - \sqrt F = 1 - |\langle\psi|\varphi\rangle| \le \sqrt{1 - |\langle\psi|\varphi\rangle|^2}$, так как $1 - c \le \sqrt{(1-c)(1+c)}$. Общий случай сводится к чистому через теорему Ульмана и монотонность $D$ (N&C, § 9.2.3; Fuchs & van de Graaf 1999). $\square$
 
 **Пример.** $\lvert0\rangle$ против $I/2$: $D = \frac12$, $F = \frac12$, и $0{,}293 \le 0{,}5 \le 0{,}707$.
+
+Проверим численно на случайных парах:
+
+```{python}
+#| fig-cap: "Неравенства Фукса–ван де Граафа на 2000 случайных парах ($d = 2, 3, 4$, разные ранги): все точки лежат между кривыми $1 - \\sqrt F$ и $\\sqrt{1 - F}$; на верхней кривой — пары чистых состояний."
+pts = []
+for _ in range(2000):
+    d = rng.choice([2, 3, 4])
+    r1, r2 = (random_rho(d, rank=rng.integers(1, d + 1)) for _ in range(2))
+    pts.append((fidelity(r1, r2), trace_distance(r1, r2)))
+F, D = np.array(pts).T
+assert np.all(1 - np.sqrt(F) <= D + 1e-8) and np.all(D <= np.sqrt(1 - F) + 1e-8)
+F0, D0 = fidelity(proj(ket0), I2 / 2), trace_distance(proj(ket0), I2 / 2)
+print(f"|0> против I/2: D = {D0:.3f}, F = {F0:.3f};  {1 - np.sqrt(F0):.3f} <= {D0:.3f} <= {np.sqrt(1 - F0):.3f}")
+
+f = np.linspace(0, 1, 200)
+fig, ax = plt.subplots(figsize=(5.5, 3.8))
+ax.scatter(F, D, s=4, alpha=0.4, label="случайные пары")
+ax.plot(f, np.sqrt(1 - f), "k-", label=r"$\sqrt{1 - F}$")
+ax.plot(f, 1 - np.sqrt(f), "k--", label=r"$1 - \sqrt{F}$")
+ax.plot(F0, D0, "r*", ms=12, label=r"$|0\rangle$ против $I/2$")
+ax.set_xlabel("верность $F$"); ax.set_ylabel("расстояние следа $D$"); ax.legend(loc="lower left"); ax.grid(alpha=0.3)
+plt.show()
+```
 
 Практический вывод: $D$ и $F$ эквивалентны с точностью до квадратного корня. «Верность 99 %» означает расстояние следа не больше $\sqrt{0{,}01} = 0{,}1$, а не 0,01. Это частый источник путаницы при сравнении метрик качества.
 
@@ -287,11 +557,57 @@ $$
 - Чистые состояния: $P_{\text{succ}} = \frac12\Big(1 + \sqrt{1 - 4p_0p_1|\langle\psi_0|\psi_1\rangle|^2}\Big)$.
 - $\lvert0\rangle$ против $\lvert+\rangle$ при $p_0 = \frac12$: $P_{\text{succ}} = \frac12\big(1 + \frac1{\sqrt2}\big) \approx 0{,}854$. Это совпадает с лучшим *проективным* измерением, найденным в лекции I.2 (задача 10). Теорема Хелстрома доказывает, что и никакое POVM не лучше.
 
+Проверим численно: проектор на положительную часть $\Gamma$ даёт формулу Хелстрома, случайные двухисходные POVM не лучше; формулу для чистых состояний — при $p_0 = 0{,}5;\ 0{,}7;\ 0{,}9$:
+
+```{python}
+def helstrom(p0, r0, r1):
+    return 0.5 * (1 + trace_norm(p0 * r0 - (1 - p0) * r1))
+
+worst_gap = np.inf
+for _ in range(200):
+    d = rng.choice([2, 3])
+    r0, r1, p0 = random_rho(d), random_rho(d), rng.uniform(0.05, 0.95)
+    Gam = p0 * r0 - (1 - p0) * r1
+    w, V = np.linalg.eigh(Gam)
+    E_opt = V[:, w > 0] @ dag(V[:, w > 0])              # проектор на положительную часть Γ
+    P_opt = (1 - p0) + np.trace(E_opt @ Gam).real
+    assert np.isclose(P_opt, helstrom(p0, r0, r1))
+    P_rand = max((1 - p0) + np.trace(random_effect(d) @ Gam).real for _ in range(50))
+    worst_gap = min(worst_gap, P_opt - P_rand)
+print(f"200 задач × 50 случайных POVM: случайные не лучше (минимальный запас {worst_gap:.2e})")
+for p0 in [0.5, 0.7, 0.9]:                              # чистые состояния, неравные априорные
+    a, b = random_state(2), random_state(2)
+    assert np.isclose(helstrom(p0, proj(a), proj(b)), 0.5 * (1 + np.sqrt(1 - 4 * p0 * (1 - p0) * abs(np.vdot(a, b))**2)))
+print(f"|0> против |+>: P_succ = {helstrom(0.5, proj(ket0), proj(ketp)):.6f}; (1 + 1/√2)/2 = {(1 + 1/np.sqrt(2))/2:.6f}")
+```
+
 **Много копий.** Если доступно $n$ копий, нужно различить $\rho_0^{\otimes n}$ и $\rho_1^{\otimes n}$. Для чистых состояний перекрытие перемножается, $c \to c^n$, и
 $$
 P_{\text{err}} = \frac12\Big(1 - \sqrt{1 - c^{2n}}\Big) \approx \frac{c^{2n}}{4}.
 $$
 Ошибка убывает **экспоненциально** с числом копий. Для смешанных состояний показатель экспоненты задаётся квантовой границей Чернова (Audenaert et al. 2007; Nussbaum & Szkoła 2009). Оптимальное измерение при этом в общем случае **коллективное**: оно действует на все $n$ копий сразу и использует запутывающие операции.
+
+Проверим численно для $\lvert0\rangle$ и $\lvert+\rangle$ ($c = 1/\sqrt2$): при $n \le 4$ — прямым вычислением нормы следа на $2^n$-мерном пространстве, дальше — по формуле:
+
+```{python}
+def kron_n(v, n):
+    out = np.array([1.0 + 0j])
+    for _ in range(n):
+        out = np.kron(out, v)
+    return out
+
+c = abs(np.vdot(ket0, ketp))
+print(" n   P_err (Хелстром для n копий)   формула        c^(2n)/4")
+for n in [1, 2, 4, 8, 16]:
+    formula = 0.5 * (1 - np.sqrt(1 - c**(2 * n)))
+    if n <= 4:                                          # прямой расчёт на 2^n-мерном пространстве
+        exact = 1 - helstrom(0.5, proj(kron_n(ket0, n)), proj(kron_n(ketp, n)))
+        assert np.isclose(exact, formula)
+        col = f"{exact:.3e}"
+    else:
+        col = "—"
+    print(f"{n:2d}   {col:>12s}                  {formula:.3e}      {c**(2*n)/4:.3e}")
+```
 
 > **Для трёх и более гипотез** оптимальное измерение может быть настоящим POVM, а не проективным, и замкнутой формулы, как правило, нет. Это задача полуопределённого программирования (SDP) — её решают численно (Watrous, гл. 3).
 
@@ -318,12 +634,61 @@ $$
 
 Оптимальность доказывается в обзоре Bergou (2010). Измерение по существу трёхисходное, поэтому на кубите это настоящее POVM; реализуется оно через расширение Наймарка (ЛР2, задание 6). $\square$
 
+Проверим конструкцию численно для $\lvert0\rangle$ и $\cos\alpha\lvert0\rangle + \sin\alpha\lvert1\rangle$ (задача 11): ошибок нет, успех $1 - c$, а при коэффициенте чуть больше $\frac1{1+c}$ элемент $E_?$ перестаёт быть положительным:
+
+```{python}
+def perp(v):
+    return np.array([-np.conj(v[1]), np.conj(v[0])])
+
+def idp_povm(psi, phi, coef=None):
+    c = abs(np.vdot(psi, phi))
+    t = 1 / (1 + c) if coef is None else coef
+    E_psi, E_phi = t * proj(perp(phi)), t * proj(perp(psi))
+    return E_psi, E_phi, I2 - E_psi - E_phi
+
+for alpha in [np.pi / 8, np.pi / 4, np.pi / 3]:
+    psi, phi = ket0, np.array([np.cos(alpha), np.sin(alpha)], dtype=complex)
+    c = abs(np.vdot(psi, phi))
+    E_psi, E_phi, E_q = idp_povm(psi, phi)
+    assert np.linalg.eigvalsh(E_q).min() > -1e-12                                       # E_? >= 0
+    assert np.isclose(np.vdot(phi, E_psi @ phi), 0) and np.isclose(np.vdot(psi, E_phi @ psi), 0)  # ошибок нет
+    P_idp = 0.5 * (np.vdot(psi, E_psi @ psi).real + np.vdot(phi, E_phi @ phi).real)
+    assert np.isclose(P_idp, 1 - c)
+    lam_min = np.linalg.eigvalsh(idp_povm(psi, phi, 1.01 / (1 + c))[2]).min()
+    print(f"α = {alpha/np.pi:.3f}·π: c = {c:.3f}, IDP = {P_idp:.3f}, Хелстром = {(1 + np.sqrt(1 - c**2))/2:.3f};"
+          f"  при коэффициенте 1.01/(1+c): min λ(E_?) = {lam_min:.4f}")
+    assert lam_min < 0
+```
+
 **Сравнение стратегий** при $c = 1/\sqrt2$ ($\lvert0\rangle$ и $\lvert+\rangle$):
 
 | Стратегия | Успех | Ошибка | «Не знаю» |
 |---|---:|---:|---:|
 | Хелстром | 0,854 | 0,146 | 0 |
 | Однозначное различение | 0,293 | 0 | 0,707 |
+
+Проверим таблицу численно (по построенным POVM) и посмотрим на зависимость от перекрытия:
+
+```{python}
+#| fig-cap: "Две стратегии различения двух чистых состояний с равными априорными вероятностями в зависимости от перекрытия $c = |\\langle\\psi|\\varphi\\rangle|$. Хелстром: успех $\\frac12(1 + \\sqrt{1 - c^2})$, ошибка — остальное. Однозначное различение: успех $1 - c$, ошибок нет, остальное — «не знаю». Пунктир — $c = 1/\\sqrt2$ (таблица выше)."
+E_psi, E_phi, E_q = idp_povm(ket0, ketp)
+rows = {"Хелстром": (helstrom(0.5, proj(ket0), proj(ketp)), 1 - helstrom(0.5, proj(ket0), proj(ketp)), 0.0),
+        "IDP": (0.5 * (np.vdot(ket0, E_psi @ ket0) + np.vdot(ketp, E_phi @ ketp)).real,
+                0.5 * (np.vdot(ket0, E_phi @ ket0) + np.vdot(ketp, E_psi @ ketp)).real,
+                0.5 * (np.vdot(ket0, E_q @ ket0) + np.vdot(ketp, E_q @ ketp)).real)}
+for name, (ps, pe, pq) in rows.items():
+    print(f"{name:9s}: успех {ps:.3f}, ошибка {pe:.3f}, «не знаю» {pq:.3f}")
+
+cs = np.linspace(0, 1, 201)
+fig, ax = plt.subplots(figsize=(6, 3.6))
+ax.plot(cs, (1 + np.sqrt(1 - cs**2)) / 2, label="Хелстром: успех")
+ax.plot(cs, 1 - (1 + np.sqrt(1 - cs**2)) / 2, label="Хелстром: ошибка")
+ax.plot(cs, 1 - cs, label="однозначное: успех (ошибок нет)")
+ax.axvline(1 / np.sqrt(2), ls=":", c="gray")
+ax.set_xlabel(r"перекрытие $c = |\langle\psi|\varphi\rangle|$"); ax.set_ylabel("вероятность")
+ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2, fontsize=9); ax.grid(alpha=0.3)
+plt.show()
+```
 
 **Где это используется.** Протокол QKD B92 построен на однозначном различении двух неортогональных состояний. Атаки на практическую QKD тоже используют однозначное различение (USD-атаки), в сочетании с потерями в линии (II.15).
 
@@ -369,7 +734,9 @@ $$
 12. (•••) Докажите пункт 4 предложения 4.2: $D(\rho,\sigma)$ равно максимуму классического расстояния распределений исходов по всем POVM.
 13. (•••) Для $n$ копий $\lvert0\rangle$ и $\lvert+\rangle$ найдите вероятность ошибки Хелстрома и её асимптотику. Сравните со стратегией «измерить каждую копию оптимально и проголосовать большинством» при $n = 3$. Какая стратегия лучше и почему?
 
-### Ответы и указания
+::: {.callout-tip collapse="true"}
+## Ответы и указания
+
 - **1.** Первая: $\mathbf r = (\frac12, 0, \frac12)$, собственные значения $\frac12(1 \pm \frac{1}{\sqrt2})$, чистота $\frac34$. Вторая: $\mathbf r = (1, -1, 0)$, $|\mathbf r| = \sqrt2 > 1$ — не матрица плотности. Третья: $\mathbf r = (0, 0, -\frac13)$, чистота $\frac59$.
 - **2.** $\mathbf r = (\frac12, 0, \frac12)$. Собственный ансамбль: вероятности $\frac12(1 \pm \frac{1}{\sqrt2})$, состояния — собственные векторы $H$. Другой ансамбль с равными вероятностями — концы любой хорды, серединой которой служит $\mathbf r$: векторы Блоха $\mathbf r \pm \mathbf t$ с $\mathbf t \perp \mathbf r$, $|\mathbf t|^2 = 1 - |\mathbf r|^2 = \frac12$. Например, $\mathbf t = (0, \frac{1}{\sqrt2}, 0)$ даёт состояния с векторами $(\frac12, \pm\frac{1}{\sqrt2}, \frac12)$.
 - **5.** $p(0) = (1 - \varepsilon_0)\frac{1 + r_z}{2} + \varepsilon_1\frac{1 - r_z}{2}$. Восстановление — обращение матрицы $\begin{pmatrix}1-\varepsilon_0 & \varepsilon_1\\ \varepsilon_0 & 1-\varepsilon_1\end{pmatrix}$; невозможно при $\varepsilon_0 + \varepsilon_1 = 1$.
@@ -378,12 +745,13 @@ $$
 - **10.** $P_{\text{succ}} = \frac12\big(1 + \sqrt{1 - 4p_0p_1c^2}\big)$; при $p_0 \to 0$ стремится к 1 (всегда отвечаем «1»), при $c \to 1$ — к $\max(p_0, p_1)$.
 - **11.** При $\alpha = \pi/8, \pi/4, \pi/3$: IDP $= 0{,}076;\ 0{,}293;\ 0{,}5$; Хелстром $= 0{,}691;\ 0{,}854;\ 0{,}933$.
 - **13.** $P_{\text{err}} \approx 2^{-n}/4$. Голосование по одиночным измерениям при $n = 3$: $3q^2(1-q) + q^3$ с $q = 0{,}146$, то есть $\approx 0{,}058$, а коллективное измерение даёт $\frac12\big(1 - \sqrt{7/8}\big) \approx 0{,}032$. Коллективное измерение лучше.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` проверяет:
+Ячейки на этой странице — короткие версии проверок. Полный файл `примеры.py` проверяет:
 1. совпадение вероятностей по ансамблю и по $\operatorname{Tr}(P\rho)$;
 2. границы чистоты в размерностях 2, 4, 8;
 3. различие суперпозиции и смеси;
