@@ -1,9 +1,71 @@
-# Лекция I.1. Линейная алгебра для квантовой информатики
+---
+title: "Лекция I.1. Линейная алгебра для квантовой информатики"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.A «Математический аппарат и постулаты».
 **Продолжительность:** 2 академических часа (90 мин).
 **Литература:** N&C, § 2.1; Watrous, гл. 1; de Wolf, прил. A; для углубления — Axler, *Linear Algebra Done Right*, гл. 6–7.
-**Материалы:** `примеры.py` — численная проверка всех утверждений лекции; задачи к семинару С1 — в § 12.
+**Материалы:** `примеры.py` — численная проверка всех утверждений лекции; задачи к семинару С1 — в § 12. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+import numpy as np
+from scipy.linalg import expm, sqrtm, polar
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULI = [X, Y, Z]
+H = (X + Z) / np.sqrt(2)
+S = np.diag([1, 1j])
+T = np.diag([1, np.exp(1j * np.pi / 4)])
+
+ket0 = np.array([1, 0], dtype=complex)
+ket1 = np.array([0, 1], dtype=complex)
+ketp, ketm = (ket0 + ket1) / np.sqrt(2), (ket0 - ket1) / np.sqrt(2)
+ketpi, ketmi = (ket0 + 1j * ket1) / np.sqrt(2), (ket0 - 1j * ket1) / np.sqrt(2)
+
+def dag(A):
+    """Эрмитово сопряжение A† = (A*)^T."""
+    return A.conj().T
+
+def ketbra(a, b):
+    """Внешнее произведение |a><b|."""
+    return np.outer(a, b.conj())
+
+def braket(a, b):
+    """Скалярное произведение <a|b>: np.vdot сопрягает первый аргумент."""
+    return np.vdot(a, b)
+
+def rand_vec(d):
+    return rng.normal(size=d) + 1j * rng.normal(size=d)
+
+def rand_mat(d):
+    return rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+
+def random_hermitian(d):
+    G = rand_mat(d)
+    return (G + dag(G)) / 2
+
+def random_unitary(d):
+    """Унитарная матрица по мере Хаара (QR гинибровской матрицы)."""
+    Q, R = np.linalg.qr(rand_mat(d) / np.sqrt(2))
+    return Q * (np.diag(R) / np.abs(np.diag(R)))
+
+def n_dot_sigma(n):
+    return sum(n[i] * PAULI[i] for i in range(3))
+
+def schatten(A, p):
+    """Норма Шаттена: p = 1 (следовая), 2 (Фробениуса), np.inf (операторная)."""
+    s = np.linalg.svd(A, compute_uv=False)
+    return s.max() if p == np.inf else (s ** p).sum() ** (1 / p)
+```
 
 ---
 
@@ -66,6 +128,17 @@ $$
 
 **Неравенство Коши–Шварца:** $|\langle\varphi|\psi\rangle| \le \|\varphi\|\,\|\psi\|$, равенство — тогда и только тогда, когда векторы коллинеарны. Именно поэтому вероятность $|\langle\varphi|\psi\rangle|^2$ между единичными векторами лежит в $[0,1]$.
 
+Проверим численно конвенцию и неравенство Коши–Шварца:
+
+```{python}
+a, b, c = rand_vec(2), rand_vec(2), 2 + 3j
+print("<c a|b>     =", np.round(braket(c * a, b), 6))
+print("conj(c)<a|b> =", np.round(np.conj(c) * braket(a, b), 6))
+print("np.dot (без сопряжения) даёт другое:", np.round(np.dot(c * a, b), 6))
+assert np.isclose(braket(c * a, b), np.conj(c) * braket(a, b))
+assert abs(braket(a, b)) <= np.linalg.norm(a) * np.linalg.norm(b)
+```
+
 ---
 
 ## 2. Нотация Дирака и базисы
@@ -104,6 +177,20 @@ $$
 
 Пары этих базисов **взаимно несмещённые**: $|\langle e_i|f_j\rangle|^2 = 1/2$ для любых векторов из разных базисов. Позже (лекция I.2 и QKD в II.14) это будет означать: измерение в одном базисе не даёт никакой информации о результате измерения в другом.
 
+Проверим полноту каждого базиса и взаимную несмещённость всех пар:
+
+```{python}
+bases = {"Z": (ket0, ket1), "X": (ketp, ketm), "Y": (ketpi, ketmi)}
+for name, (e0, e1) in bases.items():
+    assert np.allclose(ketbra(e0, e0) + ketbra(e1, e1), I2)   # полнота
+for n1, B1 in bases.items():
+    for n2, B2 in bases.items():
+        if n1 < n2:
+            P = np.array([[abs(braket(e, f))**2 for f in B2] for e in B1])
+            print(f"|<{n1}_i|{n2}_j>|^2 =", P.round(3).tolist())
+            assert np.allclose(P, 0.5)
+```
+
 **Переход между ортонормированными базисами** задаётся унитарной матрицей $U_{ij} = \langle e_i|f_j\rangle$. Это первая встреча с унитарными операторами (§4).
 
 ---
@@ -140,6 +227,25 @@ $$
 \tag{3.1}
 $$
 В частности, $(\mathbf n\cdot\boldsymbol\sigma)^2 = I$ для единичного $\mathbf n$. Этот факт мы используем в §6.
+
+Проверим все девять тождеств предложения 3.1, $XYZ = iI$ и формулу (3.1) для случайных векторов:
+
+```{python}
+eps = np.zeros((3, 3, 3))
+eps[0, 1, 2] = eps[1, 2, 0] = eps[2, 0, 1] = 1
+eps[0, 2, 1] = eps[2, 1, 0] = eps[1, 0, 2] = -1
+for j in range(3):
+    for k in range(3):
+        rhs = (j == k) * I2 + 1j * sum(eps[j, k, l] * PAULI[l] for l in range(3))
+        assert np.allclose(PAULI[j] @ PAULI[k], rhs)
+assert np.allclose(X @ Y @ Z, 1j * I2)
+
+va, vb = rng.normal(size=3), rng.normal(size=3)
+lhs = n_dot_sigma(va) @ n_dot_sigma(vb)
+rhs = (va @ vb) * I2 + 1j * n_dot_sigma(np.cross(va, vb))
+print("9 тождеств и XYZ = iI выполнены; ошибка формулы (3.1):", f"{np.linalg.norm(lhs - rhs):.1e}")
+assert np.allclose(lhs, rhs)
+```
 
 ### 3.3. Эрмитово сопряжение
 
@@ -193,6 +299,19 @@ $$
 
 Удобный критерий: $A \ge 0 \iff A = B^\dagger B$ для некоторого $B$. Достаточность: $\langle\psi|B^\dagger B|\psi\rangle = \|B\psi\|^2 \ge 0$. Необходимость — через спектральную теорему: $B = \sqrt A$.
 
+Проверим численно: у поворота $R$ на $90^\circ$ вещественные средние равны нулю, но на комплексном векторе среднее уже не вещественно; а $B^\dagger B$ положителен для любой $B$:
+
+```{python}
+R90 = np.array([[0, -1], [1, 0]], dtype=complex)
+v = rng.normal(size=2)                       # вещественный вектор
+psi = rand_vec(2)                            # комплексный вектор
+print("<v|R|v>   =", round((v @ R90 @ v).real, 12))
+print("<psi|R|psi> =", np.round(braket(psi, R90 @ psi), 4), "— не вещественно")
+B = rand_mat(4)
+print("min λ(B†B) =", np.linalg.eigvalsh(dag(B) @ B).min().round(4))
+assert abs(v @ R90 @ v) < 1e-12 and np.linalg.eigvalsh(dag(B) @ B).min() > -1e-12
+```
+
 **Предложение 4.4.** Для оператора $U$ на $V$ эквивалентны три условия:
 - (a) $U^\dagger U = I$;
 - (b) $U$ сохраняет скалярное произведение: $\langle U\varphi|U\psi\rangle = \langle\varphi|\psi\rangle$;
@@ -205,6 +324,22 @@ $$
 Физический смысл (b): унитарная эволюция сохраняет вероятности перехода $|\langle\varphi|\psi\rangle|^2$, а значит, сохраняет различимость состояний. Уже отсюда видно, что идеальное копирование неизвестного состояния невозможно. Теорема о запрете клонирования (I.5) — короткое следствие этого факта.
 
 **Проекторы.** Если $\{\lvert e_1\rangle,\dots,\lvert e_k\rangle\}$ — ортонормированный базис подпространства $W$, то $P_W = \sum_{i=1}^k \lvert e_i\rangle\langle e_i\rvert$. Его собственные значения — 0 и 1, и $\operatorname{rank} P = \operatorname{Tr} P = \dim W$. Оператор $I - P$ — проектор на ортогональное дополнение $W^\perp$.
+
+Проверим спектры классов из таблицы на случайных примерах:
+
+```{python}
+A = random_hermitian(4)
+U = random_unitary(4)
+print("эрмитов:   max|Im λ| =", np.abs(np.linalg.eigvals(A).imag).max().round(14))
+print("унитарный: |λ| =", np.abs(np.linalg.eigvals(U)).round(12))
+a4, b4 = rand_vec(4), rand_vec(4)
+print("унитарный сохраняет <a|b>:", np.isclose(braket(U @ a4, U @ b4), braket(a4, b4)))
+W = random_unitary(4)[:, :2]                  # ортонормированный базис 2-мерного W
+P = W @ dag(W)
+print("проектор:  λ =", np.linalg.eigvalsh(P).round(12) + 0.0, " Tr P =", np.trace(P).real.round(12))
+assert np.allclose(P @ P, P) and np.allclose(P, dag(P))
+assert np.allclose(np.abs(np.linalg.eigvals(U)), 1)
+```
 
 ---
 
@@ -231,6 +366,21 @@ $$
 **Пример.** $X = \lvert+\rangle\langle+\rvert - \lvert-\rangle\langle-\rvert$, то есть $\lambda = \pm1$, $P_\pm = \lvert\pm\rangle\langle\pm\rvert$.
 
 **Контрпример.** $N = \lvert0\rangle\langle1\rvert = \begin{pmatrix}0&1\\0&0\end{pmatrix}$ не нормален. Его единственное собственное значение — 0, а собственное подпространство одномерно. Базиса из собственных векторов нет, и $N$ не диагонализуем никаким, даже неунитарным, преобразованием. Такие операторы не бывают ни наблюдаемыми, ни гейтами, но встретятся как операторы Крауса и операторы скачков ($\sigma_- = \lvert0\rangle\langle1\rvert$ в лекции II.2).
+
+Проверим численно: эрмитов $A$ собирается из спектральных проекторов, а у $N$ матрица собственных векторов вырождена:
+
+```{python}
+lam, V = np.linalg.eigh(A)
+A_rec = sum(lam[k] * ketbra(V[:, k], V[:, k]) for k in range(4))
+print("A = Σ λ_k P_k: ошибка =", np.linalg.norm(A - A_rec).round(14))
+assert np.allclose(A, A_rec)
+
+N = np.array([[0, 1], [0, 0]], dtype=complex)
+lamN, VN = np.linalg.eig(N)
+print("N нормален?", np.allclose(N @ dag(N), dag(N) @ N))
+print("собственные значения N:", lamN.real, "; dim ker N =", 2 - np.linalg.matrix_rank(N))
+print("|det| матрицы собственных векторов N:", f"{abs(np.linalg.det(VN)):.1e}", "(≈ 0: базиса нет)")
+```
 
 **Теорема 5.2 (одновременная диагонализация).** Нормальные операторы $A$ и $B$ коммутируют тогда и только тогда, когда у них есть общий ортонормированный базис из собственных векторов.
 
@@ -281,6 +431,33 @@ $$
 - Адамар: $H = \frac{1}{\sqrt2}(X + Z) = i\, R_{\mathbf n}(\pi)$ при $\mathbf n = (1,0,1)/\sqrt2$, то есть поворот на $180^\circ$ вокруг диагонали между осями $x$ и $z$.
 - $Z = i R_z(\pi)$, $S = e^{i\pi/4}R_z(\pi/2)$, $T = e^{i\pi/8}R_z(\pi/4)$ — все фазовые гейты являются поворотами вокруг оси $z$ с точностью до глобальной фазы.
 
+Проверим численно формулу (6.1) на 100 случайных поворотах, определение 6.1 (функция через спектр) и следствия:
+
+```{python}
+def R(n, theta):
+    return expm(-1j * theta * n_dot_sigma(n) / 2)
+
+for _ in range(100):
+    n = rng.normal(size=3); n /= np.linalg.norm(n)
+    th = rng.uniform(0, 4 * np.pi)
+    assert np.allclose(R(n, th), np.cos(th/2) * I2 - 1j * np.sin(th/2) * n_dot_sigma(n))
+
+Hh, t = random_hermitian(5), 0.7
+lam, V = np.linalg.eigh(Hh)
+U_spec = V @ np.diag(np.exp(-1j * lam * t)) @ dag(V)
+print("e^{-iHt} через спектр и через ряд (expm): ошибка =", f"{np.linalg.norm(U_spec - expm(-1j*Hh*t)):.1e}")
+
+z, d = np.array([0, 0, 1.0]), np.array([1, 0, 1]) / np.sqrt(2)
+print("R_z(2π) = diag", np.diag(R(z, 2*np.pi)).real.round(12))
+checks = {"H = i R_n(π)": (H, 1j * R(d, np.pi)),
+          "Z = i R_z(π)": (Z, 1j * R(z, np.pi)),
+          "S = e^{iπ/4} R_z(π/2)": (S, np.exp(1j*np.pi/4) * R(z, np.pi/2)),
+          "T = e^{iπ/8} R_z(π/4)": (T, np.exp(1j*np.pi/8) * R(z, np.pi/4))}
+for name, (lhs, rhs) in checks.items():
+    assert np.allclose(lhs, rhs)
+    print(name, "— верно")
+```
+
 ---
 
 ## 7. Коммутаторы. Почему $e^{A+B} \neq e^A e^B$
@@ -301,7 +478,30 @@ e^{tA}e^{tB} - e^{t(A+B)} = \frac{t^2}{2}[A,B] + O(t^3).
 $$
 Более полно это описывает формула Бейкера–Кэмпбелла–Хаусдорфа: $e^{A}e^{B} = e^{A + B + \frac12[A,B] + \frac1{12}([A,[A,B]] - [B,[A,B]]) + \dots}$.
 
-**Почему это важно.** Гамильтониан модели — обычно сумма простых слагаемых, $H = \sum_j H_j$, а квантовый компьютер умеет применять только $e^{-iH_j t}$ по отдельности. Формула (7.1) говорит, что разбиение $e^{-iHt} \approx \prod_j e^{-iH_jt}$ даёт ошибку порядка $t^2\|[H_j,H_k]\|$ на шаг. Если разбить время на $r$ шагов, то получится полная ошибка $O(t^2/r)$. Это формула Троттера — основа лекции I.15. В `примеры.py` (раздел 7) видно, что при уменьшении $t$ вдвое ошибка падает в четыре раза и совпадает с $\|\tfrac{t^2}{2}[X,Z]\|$.
+**Почему это важно.** Гамильтониан модели — обычно сумма простых слагаемых, $H = \sum_j H_j$, а квантовый компьютер умеет применять только $e^{-iH_j t}$ по отдельности. Формула (7.1) говорит, что разбиение $e^{-iHt} \approx \prod_j e^{-iH_jt}$ даёт ошибку порядка $t^2\|[H_j,H_k]\|$ на шаг. Если разбить время на $r$ шагов, то получится полная ошибка $O(t^2/r)$. Это формула Троттера — основа лекции I.15. Проверим численно: при уменьшении $t$ вдвое ошибка падает в четыре раза и совпадает с $\|\tfrac{t^2}{2}[X,Z]\|$.
+
+```{python}
+comm = X @ Z - Z @ X
+for t in [0.1, 0.05, 0.025]:
+    err = np.linalg.norm(expm(-1j*t*X) @ expm(-1j*t*Z) - expm(-1j*t*(X + Z)), 2)
+    pred = np.linalg.norm(t**2 / 2 * comm, 2)
+    print(f"t = {t:5.3f}:  ошибка = {err:.3e},  ||(t²/2)[X,Z]|| = {pred:.3e}")
+```
+
+```{python}
+#| fig-cap: "Ошибка разбиения экспоненты $\\|e^{-itX}e^{-itZ} - e^{-it(X+Z)}\\|_\\infty$ и главный член (7.1) в логарифмическом масштабе: наклон 2."
+ts = np.logspace(-3, 0, 30)
+errs = [np.linalg.norm(expm(-1j*t*X) @ expm(-1j*t*Z) - expm(-1j*t*(X + Z)), 2) for t in ts]
+slope = np.polyfit(np.log(ts[:10]), np.log(errs[:10]), 1)[0]
+fig, ax = plt.subplots(figsize=(5.5, 3.6))
+ax.loglog(ts, errs, "o", ms=4, label="точная ошибка")
+ax.loglog(ts, ts**2, "-", label=r"$t^2 = \|\frac{t^2}{2}[X,Z]\|$")
+ax.set_xlabel("$t$"); ax.set_ylabel("операторная норма разности")
+ax.legend(); ax.grid(True, which="both", alpha=0.3)
+plt.show()
+print(f"наклон при малых t: {slope:.3f}")
+assert abs(slope - 2) < 0.01
+```
 
 ---
 
@@ -321,6 +521,17 @@ $$
 $$
 Среднее значение наблюдаемой выражается через оператор $\lvert\psi\rangle\langle\psi\rvert$, а не через вектор. Когда мы заменим этот оператор на произвольную матрицу плотности $\rho$ (I.3), формула $\langle A\rangle = \operatorname{Tr}(A\rho)$ останется той же.
 
+Проверим численно цикличность следа, её границы и формулу (8.1):
+
+```{python}
+A3, B3, C3 = (random_hermitian(3) for _ in range(3))
+print("|Tr(ABC) - Tr(CAB)| =", f"{abs(np.trace(A3@B3@C3) - np.trace(C3@A3@B3)):.1e}")
+print("|Tr(ABC) - Tr(BAC)| =", f"{abs(np.trace(A3@B3@C3) - np.trace(B3@A3@C3)):.3f}", "(в общем случае ≠ 0)")
+print("Tr(XYZ) =", np.trace(X @ Y @ Z), "  Tr(YXZ) =", np.trace(Y @ X @ Z))
+psi = rand_vec(3); psi /= np.linalg.norm(psi)
+assert np.isclose(np.trace(A3 @ ketbra(psi, psi)), braket(psi, A3 @ psi))   # (8.1)
+```
+
 **Определение 8.2.** Скалярное произведение Гильберта–Шмидта на пространстве операторов: $\langle A, B\rangle_{HS} = \operatorname{Tr}(A^\dagger B)$. Пространство матриц $d\times d$ — само гильбертово пространство размерности $d^2$.
 
 **Предложение 8.3 (базис Паули).** Матрицы $\{I, X, Y, Z\}/\sqrt2$ образуют ортонормированный базис пространства $M_2(\mathbb{C})$ относительно $\langle\cdot,\cdot\rangle_{HS}$. Следовательно, любая матрица $2\times2$ раскладывается как
@@ -331,6 +542,24 @@ $$
 Матрица $A$ эрмитова тогда и только тогда, когда все коэффициенты вещественны.
 
 *Доказательство.* По предложению 3.1 $\operatorname{Tr}(\sigma_j\sigma_k) = 2\delta_{jk}$ и $\operatorname{Tr}\sigma_j = 0$. Четыре ортонормированных вектора в четырёхмерном пространстве образуют базис. $\square$
+
+Проверим численно ортонормированность базиса Паули и разложение (8.2):
+
+```{python}
+basis = [M / np.sqrt(2) for M in [I2, X, Y, Z]]
+gram = np.array([[np.trace(dag(P1) @ P2) for P2 in basis] for P1 in basis])
+assert np.allclose(gram, np.eye(4))
+
+def pauli_coeffs(A):
+    return np.array([np.trace(A @ P) for P in [I2, X, Y, Z]])
+
+M = rand_mat(2)
+c = pauli_coeffs(M)
+M_rec = 0.5 * sum(ck * P for ck, P in zip(c, [I2, X, Y, Z]))
+print("ошибка разложения (8.2):", f"{np.linalg.norm(M - M_rec):.1e}")
+print("коэффициенты эрмитовой матрицы:", pauli_coeffs(random_hermitian(2)).round(4), "— вещественны")
+assert np.allclose(M, M_rec)
+```
 
 Применённая к матрице плотности кубита, формула (8.2) даёт $\rho = \tfrac12(I + \mathbf r\cdot\boldsymbol\sigma)$ с $r_j = \operatorname{Tr}(\rho\sigma_j)$. Это **вектор Блоха** (I.2–I.3). Для $n$ кубитов базисом служат $4^n$ тензорных произведений матриц Паули, нормированных на $2^{-n/2}$. На этом построены томография (II.3), каналы Паули (II.2) и стабилизаторный формализм (I.9).
 
@@ -349,6 +578,22 @@ $$
 Для нормальных операторов $s_k = |\lambda_k|$. Для ненормальных это не так: у $N = \lvert0\rangle\langle1\rvert$ спектр $\{0\}$, но сингулярное число равно 1.
 
 **Следствие 9.2 (полярное разложение).** Квадратный $A$ представим в виде $A = U\lvert A\rvert$, где $\lvert A\rvert = \sqrt{A^\dagger A} \ge 0$, а $U$ унитарен. Если $A$ обратим, то $U$ определён однозначно. Это аналог записи комплексного числа $z = e^{i\varphi}|z|$.
+
+Проверим численно: для нормального оператора $s_k = |\lambda_k|$, для $N$ — нет; полярное разложение случайной матрицы:
+
+```{python}
+V3 = random_unitary(3)
+Nm = V3 @ np.diag(rand_vec(3)) @ dag(V3)          # нормальная матрица
+print("нормальная: s =", np.linalg.svd(Nm, compute_uv=False).round(4),
+      " |λ| =", np.sort(np.abs(np.linalg.eigvals(Nm)))[::-1].round(4))
+print("N = |0><1|:  s =", np.linalg.svd(N, compute_uv=False), " λ =", np.linalg.eigvals(N).real)
+
+G = rand_mat(3)
+Up, Pp = polar(G, side="right")                 # G = Up @ Pp
+assert np.allclose(G, Up @ Pp) and np.allclose(Pp, sqrtm(dag(G) @ G))
+assert np.allclose(dag(Up) @ Up, np.eye(3))
+print("полярное разложение G = U|G|, |G| = sqrt(G†G): проверено")
+```
 
 **Где это понадобится:**
 - **Разложение Шмидта** (I.4) — это SVD матрицы коэффициентов двухчастичного вектора. Число ненулевых сингулярных чисел равно числу Шмидта и является мерой запутанности чистого состояния.
@@ -375,6 +620,26 @@ $$
 3. **Неравенство Гёльдера (частный случай):** $|\operatorname{Tr}(BA)| \le \|B\|_\infty\, \|A\|_1$.
 4. **Вариационная формула:** $\|A\|_1 = \max_{U \text{ унитарный}} |\operatorname{Tr}(UA)|$. Максимум достигается на $U = VW^\dagger$, если $A = W\Sigma V^\dagger$.
 
+Проверим свойства 1–4 на случайных матрицах $4\times4$ (свойства 2–3 — на 1000 примерах):
+
+```{python}
+for _ in range(1000):
+    G, Bm = rand_mat(4), rand_mat(4)
+    n1, n2, ninf = schatten(G, 1), schatten(G, 2), schatten(G, np.inf)
+    assert ninf <= n2 + 1e-12 <= n1 + 2e-12                          # упорядоченность
+    assert np.isclose(n2, np.linalg.norm(G, "fro"))
+    assert abs(np.trace(Bm @ G)) <= schatten(Bm, np.inf) * n1 + 1e-9   # Гёльдер
+U1, U2 = random_unitary(4), random_unitary(4)
+assert all(np.isclose(schatten(U1 @ G @ U2, p), schatten(G, p)) for p in (1, 2, np.inf))
+
+W, s, Vh = np.linalg.svd(G)
+U_opt = dag(Vh) @ dag(W)                                             # U = V W†
+best_random = max(abs(np.trace(random_unitary(4) @ G)) for _ in range(2000))
+print(f"||G||_1 = {s.sum():.4f};  |Tr(U_opt G)| = {abs(np.trace(U_opt @ G)):.4f};"
+      f"  лучший из 2000 случайных U: {best_random:.4f}")
+assert np.isclose(abs(np.trace(U_opt @ G)), s.sum()) and best_random <= s.sum()
+```
+
 Свойство 3 ограничивает, насколько может измениться среднее любой ограниченной наблюдаемой при малом изменении состояния:
 $$
 |\operatorname{Tr}(O\rho) - \operatorname{Tr}(O\sigma)| \le \|O\|_\infty\,\|\rho - \sigma\|_1 .
@@ -388,11 +653,45 @@ $$
 $$
 Для $\lvert0\rangle$ и $\lvert+\rangle$ получаем $\sqrt2$. В лекции I.3 из этого получится граница Хелстрома.
 
+Проверим численно (10.1) для $\lvert0\rangle$, $\lvert+\rangle$ и для случайных пар векторов в $\mathbb{C}^5$:
+
+```{python}
+d01 = schatten(ketbra(ket0, ket0) - ketbra(ketp, ketp), 1)
+print(f"|| |0><0| - |+><+| ||_1 = {d01:.6f},  sqrt(2) = {np.sqrt(2):.6f}")
+assert np.isclose(d01, np.sqrt(2))
+for _ in range(100):
+    psi, phi = rand_vec(5), rand_vec(5)
+    psi, phi = psi / np.linalg.norm(psi), phi / np.linalg.norm(phi)
+    lhs = schatten(ketbra(psi, psi) - ketbra(phi, phi), 1)
+    assert np.isclose(lhs, 2 * np.sqrt(1 - abs(braket(psi, phi))**2))
+print("формула (10.1) выполнена на 100 случайных парах")
+```
+
 **Пример 10.2 (расстояние между гейтами с точностью до фазы).** Унитарные $U$ и $e^{i\varphi}U$ физически неразличимы, поэтому разумная мера расстояния между гейтами — $d(U,V) = \min_\varphi \|U - e^{i\varphi}V\|_\infty$. Для $U = I$ и $V = T = \operatorname{diag}(1, e^{i\pi/4})$ собственные значения $I - e^{i\varphi}T$ равны $1 - e^{i\varphi}$ и $1 - e^{i(\varphi + \pi/4)}$. Максимум их модулей минимален при $\varphi = -\pi/8$:
 $$
 d(I,T) = |1 - e^{i\pi/8}| = 2\sin\frac{\pi}{16} \approx 0{,}390 .
 $$
 Если же не оптимизировать фазу, получится $\|I - T\|_\infty = 2\sin(\pi/8) \approx 0{,}765$ — почти вдвое больше. Именно эту меру используют в теореме Соловея–Китаева (I.8).
+
+Проверим численно, перебрав фазу $\varphi$ по сетке:
+
+```{python}
+#| fig-cap: "Операторная норма $\\|I - e^{i\\varphi}T\\|_\\infty$ как функция глобальной фазы $\\varphi$: минимум $2\\sin(\\pi/16)$ при $\\varphi = -\\pi/8$, при $\\varphi = 0$ — $2\\sin(\\pi/8)$."
+phis = np.linspace(-np.pi, np.pi, 2001)
+dists = np.array([schatten(I2 - np.exp(1j * f) * T, np.inf) for f in phis])
+k = dists.argmin()
+print(f"min_φ ||I - e^(iφ)T|| = {dists[k]:.4f} при φ = {phis[k]/np.pi:.4f}·π;"
+      f"  2 sin(π/16) = {2*np.sin(np.pi/16):.4f}")
+print(f"без оптимизации фазы: ||I - T|| = {schatten(I2 - T, np.inf):.4f};  2 sin(π/8) = {2*np.sin(np.pi/8):.4f}")
+assert abs(dists[k] - 2*np.sin(np.pi/16)) < 1e-3
+
+fig, ax = plt.subplots(figsize=(5.5, 3.4))
+ax.plot(phis / np.pi, dists)
+ax.axvline(-1/8, ls="--", c="gray")
+ax.set_xlabel(r"$\varphi/\pi$"); ax.set_ylabel(r"$\|I - e^{i\varphi}T\|_\infty$")
+ax.grid(alpha=0.3)
+plt.show()
+```
 
 ---
 
@@ -445,12 +744,14 @@ $$
 6. (••) Докажите, что у проектора собственные значения — 0 и 1 и что $\operatorname{Tr}P = \operatorname{rank}P$. Покажите, что сумма двух проекторов является проектором тогда и только тогда, когда $P_1P_2 = 0$.
 7. (••) Найдите сингулярное и полярное разложения $A = \begin{pmatrix}1&1\\0&0\end{pmatrix}$. Сравните сингулярные числа с модулями собственных значений и объясните разницу.
 8. (••) Докажите формулу (10.1) для следовой нормы разности двух чистых состояний.
-9. (••) Используя (7.1), найдите главный член разности $e^{-itX}e^{-itZ} - e^{-it(X+Z)}$. Оцените его операторную норму и сравните с численным результатом из `примеры.py`.
+9. (••) Используя (7.1), найдите главный член разности $e^{-itX}e^{-itZ} - e^{-it(X+Z)}$. Оцените его операторную норму и сравните с численным результатом из §7.
 10. (••) Вычислите $d(I, T) = \min_\varphi\|I - e^{i\varphi}T\|_\infty$ и $d(I,S)$. Во сколько раз учёт глобальной фазы уменьшает расстояние?
 11. (•••) Докажите вариационную формулу $\|A\|_1 = \max_U |\operatorname{Tr}(UA)|$. Выведите из неё неравенство треугольника для следовой нормы.
 12. (•••) Покажите, что матрица $\rho = \frac12(I + \mathbf r\cdot\boldsymbol\sigma)$ с $\mathbf r \in \mathbb{R}^3$ положительна тогда и только тогда, когда $|\mathbf r| \le 1$, и является проектором ранга 1 тогда и только тогда, когда $|\mathbf r| = 1$. Это подготовка к сфере Блоха в лекциях I.2–I.3.
 
-### Ответы и указания
+::: {.callout-tip collapse="true"}
+## Ответы и указания
+
 - **3.** $R_x(\theta) = \begin{pmatrix}\cos\frac\theta2 & -i\sin\frac\theta2\\ -i\sin\frac\theta2 & \cos\frac\theta2\end{pmatrix}$, $R_y(\theta) = \begin{pmatrix}\cos\frac\theta2 & -\sin\frac\theta2\\ \sin\frac\theta2 & \cos\frac\theta2\end{pmatrix}$, $R_z(\theta) = \operatorname{diag}(e^{-i\theta/2}, e^{i\theta/2})$.
 - **4.** Не единственен: собственные значения $H$ определены по модулю $2\pi$.
 - **5.** Например, $A = X$, $B = Y$, $C = Z$: $\operatorname{Tr}(XYZ) = 2i$, а $\operatorname{Tr}(YXZ) = -2i$.
@@ -459,12 +760,13 @@ $$
 - **10.** $d(I,T) = 2\sin(\pi/16) \approx 0{,}390$ против $\|I - T\|_\infty = 2\sin(\pi/8) \approx 0{,}765$. $d(I,S) = 2\sin(\pi/8) \approx 0{,}765$ против $\|I - S\|_\infty = \sqrt2 \approx 1{,}414$.
 - **11.** Указание: $|\operatorname{Tr}(UA)| = |\sum_k s_k\langle v_k|U|u_k\rangle| \le \sum_k s_k$.
 - **12.** Собственные значения $\rho$ равны $(1 \pm |\mathbf r|)/2$.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-Файл `примеры.py` проверяет все утверждения лекции на случайных примерах:
+Ячейки на этой странице — короткие версии проверок. Полный файл `примеры.py` проверяет все утверждения лекции на случайных примерах:
 - алгебру Паули;
 - спектральную теорему и контрпример $\sigma_-$;
 - формулу (6.1) на 100 случайных поворотах;
