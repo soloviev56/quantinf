@@ -1,12 +1,97 @@
-# Лекция I.6. Нелокальность: ЭПР и теорема Белла
+---
+title: "Лекция I.6. Нелокальность: ЭПР и теорема Белла"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.B «Составные системы, запутанность, нелокальность».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.2 (наблюдаемые, гейты Паули); лекция I.3 (матрица плотности, POVM); лекция I.4 (тензорное произведение, частичный след, отсутствие сигнала); лекция I.5 (базис Белла, состояние $\rho_p$).
+**Пререквизиты:** [лекция I.2](../../Часть_I/I.02_Постулаты_и_кубит/лекция.qmd) (наблюдаемые, гейты Паули); [лекция I.3](../../Часть_I/I.03_Матрица_плотности_POVM/лекция.qmd) (матрица плотности, POVM); [лекция I.4](../../Часть_I/I.04_Составные_системы/лекция.qmd) (тензорное произведение, частичный след, отсутствие сигнала); [лекция I.5](../../Часть_I/I.05_Протоколы_на_запутанности/лекция.qmd) (базис Белла, состояние $\rho_p$).
 **Литература:** N&C, § 2.6; Preskill, гл. 4.1–4.3; Brunner N. et al. Bell nonlocality // RMP 86, 419 (2014), разд. I–II, VI–VII.
-**Материалы:** `примеры.py` — численная проверка всех утверждений; задачи к семинару С4 и к ЛР4 — в § 11.
+**Материалы:** `примеры.py` — численная проверка всех утверждений; задачи к семинару С4 и к ЛР4 — в § 11. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения.** Порядок кубитов — как в N&C и в I.4–I.5: первый множитель старший. Наблюдаемые с исходами $\pm1$ обозначаются $A_x$ (Алиса, настройка $x$) и $B_y$ (Боб, настройка $y$); $A_x^2 = B_y^2 = I$. Корреляция $E(x,y) = \langle A_x\otimes B_y\rangle$. Наблюдаемая в плоскости $x$–$z$ сферы Блоха: $A(\alpha) = \cos\alpha\,Z + \sin\alpha\,X$.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+import numpy as np
+import matplotlib.pyplot as plt
+from itertools import product
+from scipy.optimize import minimize, brentq
+from scipy.stats import binom
+
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULI = [X, Y, Z]
+ket0 = np.array([1, 0], dtype=complex)
+ket1 = np.array([0, 1], dtype=complex)
+r2 = np.sqrt(2)
+
+def dag(A):
+    return A.conj().T
+
+def proj(v):
+    return np.outer(v, v.conj())
+
+def kron(*ops):
+    out = ops[0]
+    for o in ops[1:]:
+        out = np.kron(out, o)
+    return out
+
+Phi_p = (kron(ket0, ket0) + kron(ket1, ket1)) / r2
+Psi_m = (kron(ket0, ket1) - kron(ket1, ket0)) / r2
+rho_Phi = proj(Phi_p)
+
+def obs(theta):
+    """Наблюдаемая ±1 в плоскости x–z: cos θ Z + sin θ X."""
+    return np.cos(theta) * Z + np.sin(theta) * X
+
+def obs3(n):
+    """Наблюдаемая n·σ для вектора n (нормируется)."""
+    n = np.asarray(n, float) / np.linalg.norm(n)
+    return sum(c * P for c, P in zip(n, PAULI))
+
+def sph(th, ph):
+    return [np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)]
+
+def ev(rho, A):
+    return np.real(np.trace(rho @ A))
+
+def chsh_operator(A0, A1, B0, B1):
+    """Оператор Белла B = A0⊗(B0 + B1) + A1⊗(B0 − B1)."""
+    return kron(A0, B0) + kron(A0, B1) + kron(A1, B0) - kron(A1, B1)
+
+def h2(p):
+    p = np.clip(p, 1e-15, 1 - 1e-15)
+    return -p * np.log2(p) - (1 - p) * np.log2(1 - p)
+
+def werner(p):
+    """ρ_p = p|Φ+><Φ+| + (1 − p) I/4."""
+    return p * rho_Phi + (1 - p) * np.eye(4) / 4
+
+def random_rho(d):
+    G = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    R = G @ dag(G)
+    return R / np.trace(R)
+
+def horodecki_smax(rho):
+    """Критерий Городецких (3.3): S_max = 2 sqrt(t1² + t2²)."""
+    T = np.array([[ev(rho, kron(Pi, Pj)) for Pj in PAULI] for Pi in PAULI])
+    w = np.sort(np.linalg.eigvalsh(T.T @ T))[::-1]
+    return 2 * np.sqrt(w[0] + w[1])
+
+def random_reflection(d):
+    """Случайная наблюдаемая ±1 (A = A†, A² = I) размерности d."""
+    Q, _ = np.linalg.qr(rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d)))
+    k = rng.integers(1, d)
+    return Q @ np.diag([1] * k + [-1] * (d - k)) @ dag(Q)
+```
+
 
 ---
 
@@ -64,10 +149,29 @@ $$
 \langle\Psi^-|\,(\vec n\cdot\vec\sigma)\otimes(\vec n\cdot\vec\sigma)\,|\Psi^-\rangle = -1, \qquad
 E(\vec a,\vec b) = \langle(\vec a\cdot\vec\sigma)\otimes(\vec b\cdot\vec\sigma)\rangle = -\vec a\cdot\vec b. \tag{1.1}
 $$
-Измерив спин Алисы вдоль любого $\vec n$, мы достоверно предсказываем результат Боба вдоль того же $\vec n$. По критерию ЭПР у частицы Боба есть заранее определённые значения спина **по всем направлениям сразу**, хотя операторы $\sigma_x$ и $\sigma_z$ не коммутируют. Для $\lvert\Phi^+\rangle$ и наблюдаемых в плоскости $x$–$z$ аналогично (раздел 1 `примеры.py`)
+Измерив спин Алисы вдоль любого $\vec n$, мы достоверно предсказываем результат Боба вдоль того же $\vec n$. По критерию ЭПР у частицы Боба есть заранее определённые значения спина **по всем направлениям сразу**, хотя операторы $\sigma_x$ и $\sigma_z$ не коммутируют. Для $\lvert\Phi^+\rangle$ и наблюдаемых в плоскости $x$–$z$ аналогично
 $$
 E(\alpha,\beta) = \langle A(\alpha)\otimes A(\beta)\rangle_{\Phi^+} = \cos(\alpha-\beta). \tag{1.2}
 $$
+
+Проверим численно (1.1) и (1.2) на случайных направлениях:
+
+```{python}
+rho_s = proj(Psi_m)
+err11 = err12 = err_n = 0
+for _ in range(100):
+    a, b = rng.normal(size=3), rng.normal(size=3)
+    a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
+    err_n = max(err_n, abs(ev(rho_s, kron(obs3(a), obs3(a))) + 1))
+    err11 = max(err11, abs(ev(rho_s, kron(obs3(a), obs3(b))) + a @ b))
+    al, be = rng.uniform(0, 2 * np.pi, 2)
+    err12 = max(err12, abs(ev(rho_Phi, kron(obs(al), obs(be))) - np.cos(al - be)))
+print(f"синглет, 100 случайных n:      max |<(n·σ)⊗(n·σ)> + 1|  = {err_n:.1e}")
+print(f"синглет, 100 пар (a, b):       max |E(a, b) + a·b|       = {err11:.1e}")
+print(f"Φ+, 100 пар углов (α, β):      max |E(α, β) − cos(α − β)| = {err12:.1e}")
+assert max(err_n, err11, err12) < 1e-12
+```
+
 
 ### 1.3. Что следует из аргумента
 
@@ -112,7 +216,16 @@ $$
 $$
 \boxed{\;|S| = |E(0,0) + E(0,1) + E(1,0) - E(1,1)| \le 2\;} \tag{3.1}
 $$
-(раздел 2 `примеры.py`: перебор 16 стратегий и случайных смесей). Обратите внимание: в каждом раунде измеряется только одна пара $(x,y)$. Мы нигде не предполагали, что «$a_0$ и $a_1$ одновременно измеримы»; мы предполагали лишь, что они **существуют** как функции от $\lambda$.
+(ниже — перебор 16 стратегий и случайных смесей). Обратите внимание: в каждом раунде измеряется только одна пара $(x,y)$. Мы нигде не предполагали, что «$a_0$ и $a_1$ одновременно измеримы»; мы предполагали лишь, что они **существуют** как функции от $\lambda$.
+
+```{python}
+vals = np.array([a0 * b0 + a0 * b1 + a1 * b0 - a1 * b1 for a0, a1, b0, b1 in product([1, -1], repeat=4)])
+print("S на 16 детерминированных стратегиях:", vals, "-> множество значений", sorted(set(vals.tolist())))
+mix = [abs(rng.dirichlet(np.ones(16)) @ vals) for _ in range(200)]
+print(f"200 случайных смесей (моделей с λ): max |S| = {max(mix):.4f}")
+assert set(vals) == {-2, 2} and max(mix) <= 2
+```
+
 
 ### 3.2. Квантовое нарушение
 
@@ -127,6 +240,19 @@ S = 3\cos\frac\pi4 - \cos\frac{3\pi}4 = 2\sqrt2\approx 2{,}83 > 2. \tag{3.2}
 $$
 Удобно ввести **оператор Белла** $\mathcal B = A_0\otimes(B_0+B_1) + A_1\otimes(B_0-B_1)$: тогда $S = \operatorname{Tr}(\rho\mathcal B)$.
 
+Проверим численно:
+
+```{python}
+a_opt, b_opt = (0, np.pi / 2), (np.pi / 4, -np.pi / 4)
+Bop = chsh_operator(*[obs(t) for t in a_opt + b_opt])
+E = {(x, y): ev(rho_Phi, kron(obs(a_opt[x]), obs(b_opt[y]))) for x, y in product([0, 1], repeat=2)}
+print("E(x, y):", {k: round(float(v), 4) for k, v in E.items()})
+S_q = ev(rho_Phi, Bop)
+print(f"S = Tr(ρ B) = {S_q:.6f};  2√2 = {2 * r2:.6f}")
+assert np.isclose(S_q, 2 * r2)
+```
+
+
 ### 3.3. Игра CHSH
 
 Тот же результат удобно формулировать как **нелокальную игру**. Судья выдаёт Алисе и Бобу случайные биты $x, y$; они, не общаясь, отвечают битами $a, b$ и выигрывают, если
@@ -137,7 +263,23 @@ $$
 $$
 p_{\text{win}}^{Q} = \frac12 + \frac{\sqrt2}{4} = \cos^2\frac\pi8\approx 0{,}854
 $$
-(раздел 3 `примеры.py`: перебор классических стратегий и прямой подсчёт по проекторам). Язык игр удобен в теории сложности: из него выросли интерактивные доказательства с запутанными доказывающими, вплоть до результата $\mathrm{MIP}^* = \mathrm{RE}$ (Цзи и др., 2020; опубликовано в 2021).
+(проверка ниже: перебор классических стратегий и прямой подсчёт по проекторам). Язык игр удобен в теории сложности: из него выросли интерактивные доказательства с запутанными доказывающими, вплоть до результата $\mathrm{MIP}^* = \mathrm{RE}$ (Цзи и др., 2020; опубликовано в 2021).
+
+```{python}
+p_cl = max(np.mean([(a[x] ^ b[y]) == (x & y) for x, y in product([0, 1], repeat=2)])
+           for a in product([0, 1], repeat=2) for b in product([0, 1], repeat=2))
+pw = 0
+for x, y in product([0, 1], repeat=2):
+    for a, b in product([0, 1], repeat=2):
+        if (a ^ b) == (x & y):
+            Pa = (I2 + (-1)**a * obs(a_opt[x])) / 2              # исход a = 0 ↔ +1
+            Pb = (I2 + (-1)**b * obs(b_opt[y])) / 2
+            pw += ev(rho_Phi, kron(Pa, Pb)) / 4
+print(f"классический максимум (перебор 16 стратегий): {p_cl}")
+print(f"квантовая стратегия по проекторам: p_win = {pw:.6f};  1/2 + S/8 = {0.5 + S_q / 8:.6f};  cos²(π/8) = {np.cos(np.pi / 8)**2:.6f}")
+assert p_cl == 0.75 and np.isclose(pw, np.cos(np.pi / 8)**2)
+```
+
 
 ### 3.4. Смешанные состояния: критерий Городецких
 
@@ -145,11 +287,46 @@ $$
 $$
 S_{\max}(\rho) = 2\sqrt{t_1^2 + t_2^2}, \tag{3.3}
 $$
-где $t_1^2\ge t_2^2$ — два наибольших собственных значения $T^{\mathsf T}T$. Критерий понадобится в ЛР4. В `примеры.py` (раздел 5) он сверяется с прямой оптимизацией по восьми углам.
+где $t_1^2\ge t_2^2$ — два наибольших собственных значения $T^{\mathsf T}T$. Критерий понадобится в ЛР4. В ячейке ниже он сверяется с прямой оптимизацией по восьми углам.
 
 **Следствия.**
 - **Состояние $\rho_p$** из I.5 ($p\,\lvert\Phi^+\rangle\langle\Phi^+\rvert + (1-p)I/4$): $T = \operatorname{diag}(p,-p,p)$, поэтому $S_{\max} = 2\sqrt2\,p$. CHSH нарушается при $p > 1/\sqrt2\approx 0{,}707$, а запутанность есть уже при $p > 1/3$ (I.5, I.7). Это первая встреча с важным фактом: **запутанность и нелокальность — разные свойства**. Вернер (1989) построил явную локальную модель для всех проективных измерений при $p\le 1/2$. Сейчас известно, что локальная модель существует при $p\lesssim 0{,}68$ (Хирш и др., 2017), а неравенства с многими настройками нарушаются при $p\gtrsim 0{,}70$ (Вертеши, 2008, и позже). Точный порог неизвестен.
 - **Чистые состояния** $\cos\theta\lvert00\rangle + \sin\theta\lvert11\rangle$: $S_{\max} = 2\sqrt{1+\sin^22\theta} > 2$ при любом $\theta\in(0,\pi/2)$. Каждое запутанное чистое состояние нарушает CHSH (теорема Гизина, 1991).
+
+Проверим численно: критерий (3.3) против прямой оптимизации по четырём направлениям на сфере Блоха (восемь углов, Нелдер–Мид с перезапусками) для случайного смешанного состояния, затем — оба следствия.
+
+```{python}
+#| fig-cap: "Состояние $\\rho_p$: максимальное значение CHSH $S_{\\max} = 2\\sqrt2\\,p$ (критерий Городецких, точки — расчёт по формуле (3.3)). Запутанность появляется при $p > 1/3$, нарушение CHSH — только при $p > 1/\\sqrt2$, положительная скорость DIQKD (9.2) — при $p > 0{,}857$."
+rho_r = 0.4 * random_rho(4) + 0.6 * rho_Phi
+def neg_S_rho(t):
+    return -ev(rho_r, chsh_operator(*[obs3(sph(t[2 * i], t[2 * i + 1])) for i in range(4)]))
+s_num = -min(minimize(neg_S_rho, rng.uniform(0, np.pi, 8), method="Nelder-Mead",
+                      options=dict(maxiter=6000, xatol=1e-10, fatol=1e-12)).fun for _ in range(6))
+print(f"случайное состояние: прямая оптимизация S = {s_num:.6f}, формула (3.3) = {horodecki_smax(rho_r):.6f}")
+assert np.isclose(s_num, horodecki_smax(rho_r), atol=1e-5)
+
+ps = np.linspace(0, 1, 11)
+Sp = [horodecki_smax(werner(p)) for p in ps]
+assert np.allclose(Sp, 2 * r2 * ps)
+print("ρ_p: S_max = 2√2 p для p =", ps.round(1).tolist(), "; CHSH нарушается при p > 1/√2 =", round(1 / r2, 4))
+for th in [0.05, 0.3, np.pi / 4]:
+    psi = np.cos(th) * kron(ket0, ket0) + np.sin(th) * kron(ket1, ket1)
+    print(f"θ = {th:.3f}: S_max = {horodecki_smax(proj(psi)):.6f},  2√(1 + sin²2θ) = {2 * np.sqrt(1 + np.sin(2 * th)**2):.6f}")
+
+fig, ax = plt.subplots(figsize=(6.4, 3.8))
+ax.plot(ps, Sp, "o-", color="tab:blue", label=r"$S_{\max}(\rho_p)$")
+ax.axhline(2, color="tab:red", ls="--", label="локальная граница 2")
+for x0, txt in [(1 / 3, "запутано"), (1 / r2, "CHSH"), (0.857, "DIQKD")]:
+    ax.axvline(x0, color="gray", ls=":")
+    ax.text(x0 + 0.01, 0.15, f"{txt}\n$p = {x0:.3f}$", fontsize=9)
+ax.set_xlabel("параметр $p$")
+ax.set_ylabel(r"$S_{\max}$")
+ax.set_ylim(0, 3)
+ax.legend(loc="upper left")
+plt.tight_layout()
+plt.show()
+```
+
 
 ---
 
@@ -178,7 +355,37 @@ $$
 $$
 Поскольку $\|[A_0,A_1]\|\le 2\|A_0\|\|A_1\| = 2$, получаем $\|\mathcal B^2\|\le 8$ и $\|\mathcal B\|\le 2\sqrt2$. Из (4.2) видно, где возникает квантовое превышение: **нужна некоммутативность у обеих сторон**. Если $[A_0,A_1] = 0$, то $\mathcal B^2 = 4I$ и $|S|\le2$. Для кубитных наблюдаемых с углом $\theta$ между $A_0$ и $A_1$ имеем $\|[A_0,A_1]\| = 2\sin\theta$ и $S_{\max} = 2\sqrt{1+\sin\theta}$. Значение $2\sqrt2$ достигается только для антикоммутирующих наблюдаемых.
 
-В `примеры.py` (раздел 4) тождества (4.1), (4.2) проверяются для случайных наблюдаемых размерности 2–6, а численная оптимизация по кубитным наблюдаемым и состояниям даёт ровно $2{,}828427$.
+Проверим численно: тождества (4.1), (4.2) — для случайных наблюдаемых размерности 2–6 (по 50 наборов; в `примеры.py` — по 300), затем численный максимум по кубитным наблюдаемым и состояниям и зависимость от угла $\theta$ между $A_0$ и $A_1$.
+
+```{python}
+comm = lambda P, Q: P @ Q - Q @ P
+for d in [2, 3, 4, 6]:
+    worst = 0
+    for _ in range(50):
+        A0, A1, B0, B1 = (random_reflection(d) for _ in range(4))
+        Bd, Id, Ie = chsh_operator(A0, A1, B0, B1), np.eye(d * d), np.eye(d)
+        C = kron(A0, Ie) - kron(Ie, B0 + B1) / r2
+        D = kron(A1, Ie) - kron(Ie, B0 - B1) / r2
+        assert np.allclose(2 * r2 * Id - Bd, (C @ C + D @ D) / r2)                  # (4.1)
+        assert np.allclose(Bd @ Bd, 4 * Id - kron(comm(A0, A1), comm(B0, B1)))      # (4.2)
+        worst = max(worst, np.abs(np.linalg.eigvalsh(Bd)).max())
+    print(f"d = {d}: (4.1) и (4.2) выполнены на 50 наборах; max ||B|| = {worst:.4f} ≤ 2√2")
+
+def neg_smax(t):                       # максимум по состояниям = наибольшее собственное значение B
+    return -np.linalg.eigvalsh(chsh_operator(*[obs3(sph(t[2 * i], t[2 * i + 1])) for i in range(4)])).max()
+best = -min(minimize(neg_smax, rng.uniform(0, np.pi, 8), method="Nelder-Mead",
+                     options=dict(maxiter=4000, xatol=1e-10, fatol=1e-12)).fun for _ in range(4))
+print(f"численный максимум по кубитным наблюдаемым и состояниям: {best:.6f}")
+assert np.isclose(best, 2 * r2, atol=1e-6)
+
+def best_for_A(theta):
+    f = lambda t: -np.linalg.eigvalsh(chsh_operator(obs(0), obs(theta), obs(t[0]), obs(t[1]))).max()
+    return -min(minimize(f, rng.uniform(-np.pi, np.pi, 2), method="Nelder-Mead",
+                         options=dict(xatol=1e-10, fatol=1e-12)).fun for _ in range(4))
+for th in [0.0, 0.5, 1.0, np.pi / 2]:
+    print(f"θ = {th:.3f}: max S = {best_for_A(th):.6f},  2√(1 + sin θ) = {2 * np.sqrt(1 + np.sin(th)):.6f}")
+```
+
 
 ### 4.3. Жёсткость: самотестирование
 
@@ -194,7 +401,7 @@ $$
 $$
 \sum_b P(ab\mid xy) = \sum_b P(ab\mid xy')\quad\forall a,x,y,y', \qquad\text{и симметрично для Боба}. \tag{5.1}
 $$
-Для квантовых ящиков $P(ab\mid xy) = \operatorname{Tr}\bigl[\rho\,(\Pi^x_a\otimes\Pi^y_b)\bigr]$ это следствие $\sum_b\Pi_b^y = I$ (I.4, §2.4). В `примеры.py` (раздел 6) условие проверено на 100 случайных квантовых ящиках. Получаем вложения
+Для квантовых ящиков $P(ab\mid xy) = \operatorname{Tr}\bigl[\rho\,(\Pi^x_a\otimes\Pi^y_b)\bigr]$ это следствие $\sum_b\Pi_b^y = I$ (I.4, §2.4). В ячейке §5.2 условие проверено на 100 случайных квантовых ящиках. Получаем вложения
 $$
 \mathcal L\;\subsetneq\;\mathcal Q\;\subsetneq\;\mathcal{NS}.
 $$
@@ -208,9 +415,38 @@ P_{\text{PR}}(ab\mid xy) = \begin{cases}\tfrac12, & a\oplus b = x\wedge y,\\ 0, 
 $$
 выигрывает игру CHSH с вероятностью 1 ($S = 4$, алгебраический максимум). При этом маргиналы равны $1/2$, и сигнала нет. Оптимальная квантовая стратегия из §3.2 — это смесь PR-ящика с белым шумом с весом $1/\sqrt2$:
 $$
-P_Q = \tfrac{1}{\sqrt2}\,P_{\text{PR}} + \Bigl(1-\tfrac{1}{\sqrt2}\Bigr)\tfrac14
+P_Q = \tfrac{1}{\sqrt2}\,P_{\text{PR}} + \Bigl(1-\tfrac{1}{\sqrt2}\Bigr)\tfrac14 .
 $$
-(раздел 6 `примеры.py`).
+Проверим численно все три утверждения: отсутствие сигнала у квантовых ящиков, свойства PR-ящика и это разложение.
+
+```{python}
+def quantum_box(rho, As, Bs):
+    """P[a, b, x, y] = Tr[ρ (Π^x_a ⊗ Π^y_b)], исход a = 0 ↔ +1."""
+    P = np.zeros((2, 2, 2, 2))
+    for x, y, a, b in product([0, 1], repeat=4):
+        P[a, b, x, y] = ev(rho, kron((I2 + (-1)**a * As[x]) / 2, (I2 + (-1)**b * Bs[y]) / 2))
+    return P
+
+def S_of_box(P):
+    E = lambda x, y: sum((-1)**(a + b) * P[a, b, x, y] for a, b in product([0, 1], repeat=2))
+    return E(0, 0) + E(0, 1) + E(1, 0) - E(1, 1)
+
+def no_signalling(P):
+    pa, pb = P.sum(axis=1), P.sum(axis=0)          # [a, x, y] и [b, x, y]
+    return np.allclose(pa[:, :, 0], pa[:, :, 1]) and np.allclose(pb[:, 0, :], pb[:, 1, :])
+
+ok = all(no_signalling(quantum_box(random_rho(4), [obs3(rng.normal(size=3)) for _ in range(2)],
+                                   [obs3(rng.normal(size=3)) for _ in range(2)])) for _ in range(100))
+print("100 случайных квантовых ящиков: сигнала нет —", ok)
+PQ = quantum_box(rho_Phi, [obs(t) for t in a_opt], [obs(t) for t in b_opt])
+PR = np.zeros((2, 2, 2, 2))
+for a, b, x, y in product([0, 1], repeat=4):
+    PR[a, b, x, y] = 0.5 * ((a ^ b) == (x & y))
+print(f"PR-ящик: S = {S_of_box(PR):.0f}, маргиналы Алисы = {np.unique(PR.sum(axis=1))}, сигнала нет — {no_signalling(PR)}")
+print(f"оптимальный квантовый ящик: S = {S_of_box(PQ):.6f};  P_Q = PR/√2 + (1 − 1/√2)/4 —",
+      np.allclose(PQ, PR / r2 + (1 - 1 / r2) / 4))
+assert ok and no_signalling(PR) and np.allclose(PQ, PR / r2 + (1 - 1 / r2) / 4)
+```
 
 ### 5.3. Почему природа не даёт PR-ящиков?
 
@@ -235,7 +471,22 @@ $$
 $$
 |\langle XXX\rangle - \langle XYY\rangle - \langle YXY\rangle - \langle YYX\rangle|\le 2\ \ (\text{локально}),\qquad \text{GHZ}: 4 . \tag{6.1}
 $$
-Для $n$ кубитов отношение квантового значения к локальному растёт экспоненциально, как $2^{(n-1)/2}$ (с точностью до множителя, зависящего от чётности $n$), хотя сами эксперименты становятся всё труднее (раздел 7 `примеры.py`).
+Для $n$ кубитов отношение квантового значения к локальному растёт экспоненциально, как $2^{(n-1)/2}$ (с точностью до множителя, зависящего от чётности $n$), хотя сами эксперименты становятся всё труднее. Проверим численно случай $n = 3$:
+
+```{python}
+GHZ = (kron(ket0, ket0, ket0) + kron(ket1, ket1, ket1)) / r2
+ops = {"XXX": (X, X, X), "XYY": (X, Y, Y), "YXY": (Y, X, Y), "YYX": (Y, Y, X)}
+vals = {}
+for name, o in ops.items():
+    vals[name] = ev(proj(GHZ), kron(*o))
+    sign = 1 if name == "XXX" else -1
+    assert np.allclose(kron(*o) @ GHZ, sign * GHZ)            # GHZ — общий собственный вектор
+print("собственные значения на GHZ:", {k: round(v) for k, v in vals.items()})
+M_loc = max(abs(x1 * x2 * x3 - x1 * y2 * y3 - y1 * x2 * y3 - y1 * y2 * x3)
+            for x1, x2, x3, y1, y2, y3 in product([1, -1], repeat=6))
+print(f"неравенство Мермина: локальный максимум (перебор 64 стратегий) = {M_loc}, GHZ: {vals['XXX'] - vals['XYY'] - vals['YXY'] - vals['YYX']:.0f}")
+```
+
 
 ---
 
@@ -261,9 +512,47 @@ $$
 $$
 S(\eta) = 2\sqrt2\,\eta^2 + 2(1-\eta)^2 > 2\iff \eta > \frac{2}{1+\sqrt2} = 2(\sqrt2-1)\approx 82{,}8\,\% \tag{7.1}
 $$
-(Гарг, Мермин, 1987; раздел 9 `примеры.py`). С частично запутанными состояниями порог снижается до $2/3$ (Эберхард, 1993). Именно так поступили фотонные эксперименты 2015 г.;
+(Гарг, Мермин, 1987; проверка ниже). С частично запутанными состояниями порог снижается до $2/3$ (Эберхард, 1993). Именно так поступили фотонные эксперименты 2015 г.;
 - **свободы выбора:** настройки должны браться из генератора, независимого от источника;
 - **технические лазейки:** эффекты памяти между раундами, выбор окна совпадений.
+
+Проверим (7.1) численно: построим распределение «с потерями» из оптимального квантового ящика (несработавший детектор даёт $+1$) и сравним $S$ с формулой.
+
+```{python}
+#| fig-cap: "Лазейка детектирования: CHSH для $\\lvert\\Phi^+\\rangle$ при эффективности детекторов $\\eta$, если несработавший детектор записывается как $+1$. Линия — формула (7.1), точки — прямой расчёт по распределению с потерями. Нарушение возможно только при $\\eta > 2/(1+\\sqrt2) \\approx 82{,}8\\,\\%$."
+def S_eta(eta):
+    return 2 * r2 * eta**2 + 2 * (1 - eta)**2
+
+def lossy_box(P, eta):
+    Q = np.zeros_like(P)
+    for x, y in product([0, 1], repeat=2):
+        pa, pb = P[:, :, x, y].sum(axis=1), P[:, :, x, y].sum(axis=0)
+        for a, b in product([0, 1], repeat=2):
+            Q[a, b, x, y] += eta**2 * P[a, b, x, y]
+            Q[a, 0, x, y] += eta * (1 - eta) * pa[a] * (b == 0)      # у Боба не сработало -> +1
+            Q[0, b, x, y] += (1 - eta) * eta * pb[b] * (a == 0)      # у Алисы не сработало -> +1
+        Q[0, 0, x, y] += (1 - eta)**2
+    return Q
+
+eta_c = brentq(lambda e: S_eta(e) - 2, 0.5, 1)
+print(f"порог η* = {eta_c:.4f};  2/(1 + √2) = {2 / (1 + r2):.4f}")
+etas = np.linspace(0.5, 1, 11)
+S_direct = [S_of_box(lossy_box(PQ, e)) for e in etas]
+assert np.allclose(S_direct, S_eta(etas)) and np.isclose(eta_c, 2 / (1 + r2))
+
+ee = np.linspace(0.5, 1, 200)
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.plot(ee, S_eta(ee), color="tab:blue", label="формула (7.1)")
+ax.plot(etas, S_direct, "o", color="tab:blue", label="распределение с потерями")
+ax.axhline(2, color="tab:red", ls="--", label="локальная граница 2")
+ax.axvline(eta_c, color="gray", ls=":", label=fr"$\eta^* = {eta_c:.3f}$")
+ax.set_xlabel(r"эффективность детекторов $\eta$")
+ax.set_ylabel("$S$")
+ax.legend(loc="upper left")
+plt.tight_layout()
+plt.show()
+```
+
 
 ### 7.3. Эксперименты
 
@@ -285,6 +574,12 @@ $$
 p\text{-значение}\le\Pr[\mathrm{Bin}(n, 3/4)\ge k], \tag{7.2}
 $$
 где $k$ — число выигрышей в $n$ раундах. Для Дельфта: $k = 196$, $n = 245$ дают $p\approx 0{,}039$. Это как раз опубликованное значение (задача 10). В ЛР4 этим тестом нужно пользоваться вместо «$S$ отличается от 2 на столько-то стандартных отклонений».
+
+```{python}
+k, n = 196, 245
+print(f"Дельфт: {k} выигрышей из {n} (доля {k / n:.3f});  p-значение ≤ Pr[Bin(n, 3/4) ≥ k] = {binom.sf(k - 1, n, 0.75):.4f}")
+```
+
 
 ---
 
@@ -310,7 +605,27 @@ I\otimes Z & Z\otimes I & Z\otimes Z & \prod = +I\\
 \prod = -I & \prod = -I & \prod = -I &
 \end{array}
 $$
-В каждой строке и каждом столбце операторы коммутируют, и их произведение равно $\pm I$ (раздел 8 `примеры.py`). Неконтекстное приписывание $v = \pm1$ должно дать произведение всех девяти значений, равное $(+1)^3 = +1$ по строкам и $(-1)^3 = -1$ по столбцам. Противоречие. Квадрат **не зависит от состояния**: противоречие возникает для любого $\rho$.
+В каждой строке и каждом столбце операторы коммутируют, и их произведение равно $\pm I$ (проверка ниже). Неконтекстное приписывание $v = \pm1$ должно дать произведение всех девяти значений, равное $(+1)^3 = +1$ по строкам и $(-1)^3 = -1$ по столбцам. Противоречие. Квадрат **не зависит от состояния**: противоречие возникает для любого $\rho$.
+
+Проверим численно коммутативность, произведения и отсутствие неконтекстных таблиц:
+
+```{python}
+sq = [[kron(X, I2), kron(I2, X), kron(X, X)],
+      [kron(I2, Z), kron(Z, I2), kron(Z, Z)],
+      [-kron(X, Z), -kron(Z, X), kron(Y, Y)]]
+I4 = np.eye(4)
+for i in range(3):
+    row, col = sq[i], [sq[j][i] for j in range(3)]
+    for grp in (row, col):
+        assert all(np.allclose(P @ Q, Q @ P) for P, Q in product(grp, repeat=2))
+    print(f"строка {i + 1}: произведение = {'+I' if np.allclose(row[0] @ row[1] @ row[2], I4) else '?'};  "
+          f"столбец {i + 1}: произведение = {'−I' if np.allclose(col[0] @ col[1] @ col[2], -I4) else '?'}")
+n_ok = sum(all(np.prod(m[i]) == 1 for i in range(3)) and all(np.prod(m[:, j]) == -1 for j in range(3))
+           for m in (np.array(v).reshape(3, 3) for v in product([1, -1], repeat=9)))
+print("таблиц ±1, удовлетворяющих всем шести условиям (перебор 2⁹):", n_ok)
+assert n_ok == 0
+```
+
 
 ### 8.3. Игра «магический квадрат»
 
@@ -319,7 +634,35 @@ $$
 - Боб получает номер столбца $c$ и выдаёт три значения с произведением $-1$;
 - они выигрывают, если на пересечении $(r,c)$ значения совпадают.
 
-Классически не больше $8/9$: таблица $3\times3$, согласованная со всеми шестью условиями, не существует, поэтому хотя бы одна клетка из девяти проигрывает (полный перебор в `примеры.py`). Квантовая стратегия: у Алисы и Боба две пары $\lvert\Phi^+\rangle$, и каждый измеряет наблюдаемые своей строки (столбца) на своих двух кубитах. Все девять операторов вещественны и симметричны, поэтому $(O\otimes I)\lvert\Phi^+\rangle^{\otimes2} = (I\otimes O)\lvert\Phi^+\rangle^{\otimes2}$ (I.4, §4.1, «трюк с транспонированием»). Исходы общей наблюдаемой совпадают, и $p_{\text{win}} = 1$. Это дополнительное задание ЛР4.
+Классически не больше $8/9$: таблица $3\times3$, согласованная со всеми шестью условиями, не существует, поэтому хотя бы одна клетка из девяти проигрывает (полный перебор — ниже). Квантовая стратегия: у Алисы и Боба две пары $\lvert\Phi^+\rangle$, и каждый измеряет наблюдаемые своей строки (столбца) на своих двух кубитах. Все девять операторов вещественны и симметричны, поэтому $(O\otimes I)\lvert\Phi^+\rangle^{\otimes2} = (I\otimes O)\lvert\Phi^+\rangle^{\otimes2}$ (I.4, §4.1, «трюк с транспонированием»). Исходы общей наблюдаемой совпадают, и $p_{\text{win}} = 1$. Это дополнительное задание ЛР4.
+
+Проверим численно оба утверждения:
+
+```{python}
+rows_even = [s for s in product([1, -1], repeat=3) if np.prod(s) == 1]
+cols_odd = [s for s in product([1, -1], repeat=3) if np.prod(s) == -1]
+best_cl = max(sum(A[r][c] == B[c][r] for r, c in product(range(3), repeat=2))
+              for A in product(rows_even, repeat=3) for B in product(cols_odd, repeat=3))
+print(f"классический максимум (перебор 64 × 64 детерминированных стратегий): {best_cl}/9")
+
+psi2 = np.kron(Phi_p, Phi_p).reshape(2, 2, 2, 2).transpose(0, 2, 1, 3).reshape(16)   # порядок A1 A2 B1 B2
+def eig_projectors(ops, signs_list):
+    """Совместные проекторы коммутирующих ±1-наблюдаемых на наборы исходов."""
+    out = {}
+    for s in signs_list:
+        P = np.eye(4)
+        for O, si in zip(ops, s):
+            P = P @ (np.eye(4) + si * O) / 2
+        out[s] = P
+    return out
+p_win = 0
+for r, c in product(range(3), repeat=2):
+    PA, PB = eig_projectors(sq[r], rows_even), eig_projectors([sq[j][c] for j in range(3)], cols_odd)
+    p_win += sum(ev(proj(psi2), kron(Pa, Pb)) for sa, Pa in PA.items() for sb, Pb in PB.items() if sa[c] == sb[r]) / 9
+print(f"квантовая стратегия на двух парах Φ+: p_win = {p_win:.6f}")
+assert best_cl == 8 and np.isclose(p_win, 1)
+```
+
 
 ### 8.4. Контекстуальность как ресурс
 
@@ -335,7 +678,7 @@ $$
 $$
 H_{\min}(a\mid x)\ \ge\ 1 - \log_2\!\Bigl(1 + \sqrt{2 - S^2/4}\Bigr)\ \text{бит на раунд}. \tag{9.1}
 $$
-При $S = 2$ граница даёт 0, при $S = 2\sqrt2$ — 1 бит. Это **заверенная случайность**: её не мог заранее знать даже изготовитель устройства (раздел 10 `примеры.py`).
+При $S = 2$ граница даёт 0, при $S = 2\sqrt2$ — 1 бит. Это **заверенная случайность**: её не мог заранее знать даже изготовитель устройства (таблица в конце раздела).
 - **Распределение ключа (DIQKD).** Для протокола на CHSH скорость ключа при коллективных атаках (Асин и др., 2007)
 $$
 r\ \ge\ 1 - h(Q) - h\!\left(\frac{1+\sqrt{(S/2)^2-1}}{2}\right), \tag{9.2}
@@ -344,6 +687,22 @@ $$
 - **Самотестирование** (§4.3) позволяет по статистике заверять и сами измерения и состояния. Например, можно проверить, что недоверенное квантовое устройство действительно выполнило заданное вычисление.
 
 Цена протоколов без доверия к устройствам — лазейки §7.2. Здесь их закрытие — вопрос не оснований физики, а **безопасности**. Например, лазейку детектирования противник использует для атаки.
+
+Проверим численно (9.1) и порог DIQKD (9.2) для $\rho_p$:
+
+```{python}
+def hmin_DI(S):
+    return 1 - np.log2(1 + np.sqrt(max(0.0, 2 - S**2 / 4)))          # (9.1)
+
+def r_DIQKD(S, Q):
+    return 1 - h2(Q) - h2((1 + np.sqrt(max(0.0, (S / 2)**2 - 1))) / 2)    # (9.2)
+
+for S in [2.0, 2.2, 2.4, 2.6, 2 * r2]:
+    print(f"S = {S:.3f}: H_min(a|x) ≥ {hmin_DI(S):.3f} бит на раунд")
+p_star = brentq(lambda p: r_DIQKD(2 * r2 * p, (1 - p) / 2), 1 / r2 + 1e-6, 0.999)
+print(f"DIQKD на ρ_p: r > 0 при p > {p_star:.4f}  (Q < {(1 - p_star) / 2:.4f}, S > {2 * r2 * p_star:.4f})")
+```
+
 
 ---
 
@@ -393,7 +752,9 @@ $$
 12. (•••) Докажите, что в игре «магический квадрат» классический максимум равен $8/9$, и приведите стратегию, его достигающую.
 13. (•••) Используя (9.2), найдите порог $Q$ для DIQKD на $\rho_p$ (ответ около $7{,}1\,\%$). Сравните с порогом BB84 ($\approx 11\,\%$; II.14) и объясните разницу.
 
-### Ответы и указания
+::: {.callout-tip collapse="true"}
+## Ответы и указания
+
 - **2.** Восемь стратегий с $S = +2$, восемь с $S = -2$. Остальные неравенства получаются заменами $x\to x\oplus1$, $y\to y\oplus1$, $a\to -a$; минус «переезжает» на другой член.
 - **3.** Для синглета $E = -\cos(\alpha-\beta)$: те же углы, что в §3.2, дают $S = -2\sqrt2$.
 - **4.** $(B_0+B_1)(B_0-B_1) = -[B_0,B_1]$. Для кубитов $[A(0),A(\theta)] = 2i\sin\theta\,Y$, поэтому $\|[A_0,A_1]\| = 2\sin\theta$, $\|\mathcal B\|^2\le 4 + 4\sin\theta$; равенство достигается при оптимальных $B$.
@@ -404,12 +765,13 @@ $$
 - **11.** Смена знака в одной клетке меняет знак ровно одного произведения по строке и одного по столбцу. Поэтому произведение всех шести знаков ($-1$ для квадрата из §8.2) не меняется при любой расстановке знаков.
 - **12.** Детерминированная стратегия — две таблицы: у Алисы строки с произведением $+1$, у Боба столбцы с произведением $-1$. Произведение всех девяти клеток таблицы Алисы равно $+1$, Боба — $-1$, поэтому таблицы расходятся хотя бы в одной клетке, и выигрыш не больше $8/9$ (смеси не помогают). Достигающая стратегия: Алиса отвечает по таблице со строками $(+,+,+)$, $(+,+,+)$, $(+,-,-)$; Боб — по той же таблице, но в клетке $(3,1)$ ставит $-1$. Тогда все столбцы Боба имеют произведение $-1$, и проигрыш только при $(r,c) = (3,1)$.
 - **13.** $Q\approx 7{,}15\,\%$. В DIQKD оценка утечки опирается только на $S$, а не на доверенную модель измерений, поэтому она хуже.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` проверяет:
+Ячейки на этой странице — короткие версии проверок (§4.2 — облегчённая: 50 наборов наблюдаемых вместо 300 и меньше перезапусков оптимизации). Полный файл `примеры.py` проверяет:
 1. корреляции синглета и $\lvert\Phi^+\rangle$: формулы (1.1), (1.2);
 2. локальную границу: перебор 16 стратегий, случайные смеси;
 3. квантовое нарушение $2\sqrt2$ и игру CHSH: $3/4$ против $\cos^2(\pi/8)$;
