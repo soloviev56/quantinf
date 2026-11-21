@@ -1,16 +1,133 @@
-# Лекция I.9. Группа Паули, группа Клиффорда, стабилизаторный формализм
+---
+title: "Лекция I.9. Группа Паули, группа Клиффорда, стабилизаторный формализм"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.C «Схемы, универсальность, стабилизаторы, сложность».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (алгебра Паули, предложение 3.1; базис Паули и скалярное произведение Гильберта–Шмидта, §8); лекция I.4 (разложение Шмидта и энтропия запутанности, §3; MPS, §6); лекция I.5 (телепортация гейта $T$ и клиффордовы коррекции, §6); лекция I.6 (GHZ как общий собственный вектор паули-операторов, §6); лекция I.8 (гейты $H$, $S$, $T$, CNOT, CZ; замечание о неуниверсальности $\{H, S, \mathrm{CNOT}\}$, §4.3).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (алгебра Паули, предложение 3.1; базис Паули и скалярное произведение Гильберта–Шмидта, §8); [лекция I.4](../../Часть_I/I.04_Составные_системы/лекция.qmd) (разложение Шмидта и энтропия запутанности, §3; MPS, §6); [лекция I.5](../../Часть_I/I.05_Протоколы_на_запутанности/лекция.qmd) (телепортация гейта $T$ и клиффордовы коррекции, §6); [лекция I.6](../../Часть_I/I.06_Нелокальность_Белл/лекция.qmd) (GHZ как общий собственный вектор паули-операторов, §6); [лекция I.8](../../Часть_I/I.08_Схемы_и_универсальность/лекция.qmd) (гейты $H$, $S$, $T$, CNOT, CZ; замечание о неуниверсальности $\{H, S, \mathrm{CNOT}\}$, §4.3).
 **Литература:** N&C, § 10.5.1–10.5.4; Gottesman D. Stabilizer codes and quantum error correction. — PhD thesis, Caltech, 1997, гл. 3; Gottesman D. The Heisenberg representation of quantum computers // arXiv:quant-ph/9807006 (1998); Aaronson S., Gottesman D. Improved simulation of stabilizer circuits // PRA 70, 052328 (2004).
-**Материалы:** `примеры.py` — численная проверка всех утверждений, включая рабочий табличный симулятор Ааронсона–Готтесмана со сверкой по вектору состояния; задачи к семинару С5 и к ЛР5 (часть Б) — в § 8.
+**Материалы:** `примеры.py` — численная проверка всех утверждений, включая рабочий табличный симулятор Ааронсона–Готтесмана со сверкой по вектору состояния; задачи к семинару С5 и к ЛР5 (часть Б) — в § 8. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §7).
 - Паули-строки пишем без знака $\otimes$: $XZI = X\otimes Z\otimes I$; $X_j$, $Z_j$ — оператор на кубите $j$.
 - Симплектическая запись: $P(\mathbf x|\mathbf z) = i^{\mathbf x\cdot\mathbf z}X^{\mathbf x}Z^{\mathbf z}$, $(\mathbf x|\mathbf z)\in\mathbb F_2^{2n}$; так $P(1|1) = iXZ = Y$.
 - Фазовый гейт $P(\varphi) = \operatorname{diag}(1, e^{i\varphi})$; $S = P(\pi/2)$, $T = P(\pi/4)$.
 - Порядок кубитов — как в I.4: первый множитель старший. Элементы группы Клиффорда считаем по модулю глобальной фазы.
+- В ячейках кода кубиты нумеруются с 0 (в тексте — с 1).
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+import time
+from math import prod, log2 as ilog2
+from itertools import product, combinations
+import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+H = (X + Z) / np.sqrt(2)
+S = np.diag([1, 1j])
+T = np.diag([1, np.exp(1j * np.pi / 4)])
+PAULI = {"I": I2, "X": X, "Y": Y, "Z": Z}
+
+def dag(A):
+    return A.conj().T
+
+def kron(*ops):
+    out = np.array([[1.0 + 0j]])
+    for o in ops:
+        out = np.kron(out, o)
+    return out
+
+def op(U, k, n):
+    """Однокубитный U на кубите k из n (кубит 0 — старший, нумерация с 0)."""
+    return kron(*[U if i == k else I2 for i in range(n)])
+
+def cnot(c, t, n):
+    P0, P1 = np.diag([1, 0]).astype(complex), np.diag([0, 1]).astype(complex)
+    return kron(*[P0 if i == c else I2 for i in range(n)]) + kron(*[P1 if i == c else (X if i == t else I2) for i in range(n)])
+
+def pauli_string(s):
+    return kron(*[PAULI[c] for c in s])
+
+def pauli_xz(x, z):
+    """P(x|z) = i^{x·z} X^x Z^z, формула (1.2)."""
+    x, z = np.asarray(x, int), np.asarray(z, int)
+    return (1j) ** int(x @ z) * kron(*[np.linalg.matrix_power(X, a) @ np.linalg.matrix_power(Z, b) for a, b in zip(x, z)])
+
+def symp(u, v, n):
+    """Симплектическая форма (1.3)."""
+    return int(u[:n] @ v[n:] + u[n:] @ v[:n]) % 2
+
+def canon(U):
+    """Ключ матрицы/вектора по модулю глобальной фазы."""
+    f = U.flatten()
+    V = f * np.exp(-1j * np.angle(f[np.argmax(np.abs(f) > 1e-9)]))
+    return (np.round(V, 6) + 0.0).tobytes()
+
+def rank2(A):
+    """Ранг двоичной матрицы над F_2."""
+    A, r = A.copy() % 2, 0
+    for c in range(A.shape[1]):
+        piv = [i for i in range(r, A.shape[0]) if A[i, c]]
+        if not piv:
+            continue
+        A[[r, piv[0]]] = A[[piv[0], r]]
+        for i in range(A.shape[0]):
+            if i != r and A[i, c]:
+                A[i] ^= A[r]
+        r += 1
+    return r
+
+# вектор состояния n кубитов: гейты без построения матриц 2^n × 2^n
+def apply1(psi, U, a, n):
+    psi = np.moveaxis(np.tensordot(U, psi.reshape([2] * n), axes=([1], [a])), 0, a)
+    return psi.reshape(-1)
+
+def apply_cx(psi, a, b, n):
+    psi = psi.reshape([2] * n).copy()
+    idx = [slice(None)] * n
+    idx[a] = 1
+    psi[tuple(idx)] = np.flip(psi[tuple(idx)], axis=b if b < a else b - 1)
+    return psi.reshape(-1)
+
+def apply_cz(psi, a, b, n):
+    p = psi.reshape([2] * n).copy()
+    idx = [slice(None)] * n
+    idx[a] = idx[b] = 1
+    p[tuple(idx)] *= -1
+    return p.reshape(-1)
+
+def random_clifford_state(n, n_gates):
+    """Случайная схема из H, S, CNOT на |0…0>; возвращает вектор и список гейтов."""
+    psi = np.zeros(2 ** n, complex)
+    psi[0] = 1
+    gates = []
+    for _ in range(n_gates):
+        k, a = rng.integers(3), int(rng.integers(n))
+        if k == 0:
+            psi = apply1(psi, H, a, n); gates.append(("H", a))
+        elif k == 1:
+            psi = apply1(psi, S, a, n); gates.append(("S", a))
+        else:
+            b = int(rng.integers(n - 1)); b += b >= a
+            psi = apply_cx(psi, a, b, n); gates.append(("CX", a, b))
+    return psi, gates
+
+def ent_entropy(psi, A, n):
+    """Энтропия запутанности и спектр Шмидта по разрезу A | остальные."""
+    B = [q for q in range(n) if q not in A]
+    s = np.linalg.svd(psi.reshape([2] * n).transpose(list(A) + B).reshape(2 ** len(A), -1), compute_uv=False) ** 2
+    s = s[s > 1e-12]
+    return -np.sum(s * np.log2(s)), s
+```
+
 
 ---
 
@@ -85,7 +202,39 @@ $$
 
 Явная формула фазы $c(u,v)$ — сумма по кубитам функции $g(x_j,z_j,x'_j,z'_j)\in\{0,\pm1\}$ (Ааронсон, Готтесман, 2004): $g = 0$ для $I$; $g = z' - x'$ для $Y$; $g = z'(2x'-1)$ для $X$; $g = x'(1-2z')$ для $Z$ в первом множителе. Она нужна табличному алгоритму (§4).
 
-В `примеры.py` (раздел 1) для $n = 3$ проверены все $64^2 = 4096$ пар: эрмитовость, критерий (1.3) и то, что произведение отличается от $P(u+v)$ фазой $i^c$.
+Проверим численно: для $n = 3$ переберём все $64^2 = 4096$ пар и проверим эрмитовость, критерий (1.3), то, что произведение отличается от $P(u+v)$ фазой $i^c$, и явную формулу для $c$.
+
+```{python}
+def g_phase(x1, z1, x2, z2):
+    """Функция g из формулы фазы (Ааронсон–Готтесман)."""
+    if x1 and z1:
+        return z2 - x2
+    if x1:
+        return z2 * (2 * x2 - 1)
+    if z1:
+        return x2 * (1 - 2 * z2)
+    return 0
+
+n = 3
+vecs = [np.array(v) for v in product([0, 1], repeat=2 * n)]
+ops = {tuple(v): pauli_xz(v[:n], v[n:]) for v in vecs}
+assert all(np.allclose(P, dag(P)) and np.allclose(P @ P, np.eye(8)) for P in ops.values())
+assert np.allclose(pauli_xz([1], [1]), Y)
+n_comm = 0
+for u in vecs:
+    for v in vecs:
+        A, B = ops[tuple(u)], ops[tuple(v)]
+        comm = np.allclose(A @ B, B @ A)
+        assert comm == (symp(u, v, n) == 0)                               # (1.3)
+        c = sum(g_phase(u[j], u[n + j], v[j], v[n + j]) for j in range(n)) % 4
+        assert np.allclose(A @ B, 1j ** c * ops[tuple((u + v) % 2)])     # P(u)P(v) = i^c P(u+v)
+        n_comm += comm
+G = np.array([[np.trace(dag(ops[tuple(u)]) @ ops[tuple(v)]) / 8 for v in vecs] for u in vecs])
+assert np.allclose(G, np.eye(64))
+print(f"n = 3: 64 оператора P(x|z) эрмитовы, P² = I;  4096 пар: (1.3) и P(u)P(v) = i^c P(u+v) выполнены")
+print(f"коммутирующих пар {n_comm}, антикоммутирующих {4096 - n_comm};  Tr(P†Q)/8 = δ_PQ")
+```
+
 
 ---
 
@@ -99,7 +248,7 @@ $$
 $$
 Глобальные фазы $e^{i\varphi}I$ лежат в $\mathcal C_n$ тривиально, поэтому дальше считаем по модулю фазы.
 
-Главные таблицы (раздел 2 `примеры.py`):
+Главные таблицы (проверка — в ячейке ниже):
 $$
 H:\ X\mapsto Z,\quad Z\mapsto X,\quad Y\mapsto -Y;\qquad
 S:\ X\mapsto Y,\quad Y\mapsto -X,\quad Z\mapsto Z; \tag{2.2}
@@ -108,6 +257,24 @@ $$
 \mathrm{CNOT}(1\to2):\quad XI\mapsto XX,\quad IX\mapsto IX,\quad ZI\mapsto ZI,\quad IZ\mapsto ZZ. \tag{2.3}
 $$
 Правило для CNOT легко запомнить: **$X$ распространяется от управляющего кубита к целевому, $Z$ — от целевого к управляющему**. Остальные образы следуют из (2.3) умножением с учётом фаз: $YI\mapsto YX$, $IY\mapsto ZY$, $YY\mapsto -XZ$, $XZ\mapsto -YY$ (задача 1). Знак минус здесь существенен: если его потерять, симуляция даст неверные исходы измерений.
+
+```{python}
+def find_pauli(img, n):
+    """Найти ±Q с img = ±Q среди паули-строк длины n."""
+    for Q in ("".join(q) for q in product("IXYZ", repeat=n)):
+        for sgn, ch in ((1, ""), (-1, "−")):
+            if np.allclose(img, sgn * pauli_string(Q)):
+                return ch + Q
+    return None
+
+for name, U in [("H", H), ("S", S)]:
+    print(f"{name}: " + ",  ".join(f"{P} ↦ {find_pauli(U @ PAULI[P] @ dag(U), 1)}" for P in "XYZ"))
+C = cnot(0, 1, 2)
+cn = {P: find_pauli(C @ pauli_string(P) @ C, 2) for P in ["XI", "IX", "ZI", "IZ", "YI", "IY", "YY", "XZ"]}
+print("CNOT(1→2): " + ",  ".join(f"{k} ↦ {v}" for k, v in cn.items()))
+assert cn == {"XI": "XX", "IX": "IX", "ZI": "ZI", "IZ": "ZZ", "YI": "YX", "IY": "ZY", "YY": "−XZ", "XZ": "−YY"}
+```
+
 
 **Почему достаточно образов $2n$ операторов.** Любая паули-строка — произведение $X_j$ и $Z_j$, а сопряжение — гомоморфизм: $U(AB)U^\dagger = (UAU^\dagger)(UBU^\dagger)$. Поэтому клиффордов оператор с точностью до фазы задаётся $2n$ образами $UX_jU^\dagger$, $UZ_jU^\dagger$ (со знаками). Образы не произвольны: сопряжение сохраняет коммутационные соотношения, то есть $UX_jU^\dagger$ и $UZ_jU^\dagger$ антикоммутируют, а все остальные пары коммутируют.
 
@@ -123,7 +290,66 @@ $$
 \lvert\mathcal C_n/U(1)\rvert = 4^n\,\lvert Sp(2n,\mathbb F_2)\rvert = 2^{n^2+2n}\prod_{j=1}^{n}(4^j-1). \tag{2.4}
 $$
 
-Для $n = 1$: $24$ — это группа вращений куба, которая переставляет шесть точек $\pm X, \pm Y, \pm Z$ на сфере Блоха. Для $n = 2$: $11\,520$. В `примеры.py` (раздел 3) группа построена поиском в ширину из $H$, $S$, CNOT: получено ровно $24$ и $11\,520$ элементов, $6$ и $720$ различных симплектических матриц и проверено $M^{\mathsf T}\Omega M = \Omega$. Это численно подтверждает все три пункта для $n\le2$.
+Для $n = 1$: $24$ — это группа вращений куба, которая переставляет шесть точек $\pm X, \pm Y, \pm Z$ на сфере Блоха. Для $n = 2$: $11\,520$. Ниже группа построена поиском в ширину из $H$, $S$, CNOT: получено ровно $24$ и $11\,520$ элементов, $6$ и $720$ различных симплектических матриц и проверено $M^{\mathsf T}\Omega M = \Omega$. Это численно подтверждает все три пункта для $n\le2$.
+
+```{python}
+def generators(n):
+    return np.array([op(H, k, n) for k in range(n)] + [op(S, k, n) for k in range(n)] +
+                    [cnot(c, t, n) for c in range(n) for t in range(n) if c != t])
+
+def keys_of(M):
+    """Ключи по модулю фазы для стопки матриц (векторизованный canon)."""
+    f = M.reshape(len(M), -1)
+    k = np.argmax(np.abs(f) > 1e-9, axis=1)
+    ph = f[np.arange(len(f)), k]
+    V = np.round(f * (np.abs(ph) / ph)[:, None], 6) + 0.0
+    return [r.tobytes() for r in V]
+
+def clifford_bfs(n):
+    gens, start = generators(n), np.eye(2 ** n, dtype=complex)[None]
+    seen, group, frontier = set(keys_of(start)), [start], start
+    while len(frontier):
+        cand = (gens[None] @ frontier[:, None]).reshape(-1, 2 ** n, 2 ** n)
+        new = []
+        for key, U in zip(keys_of(cand), cand):
+            if key not in seen:
+                seen.add(key)
+                new.append(U)
+        frontier = np.array(new) if new else np.zeros((0, 2 ** n, 2 ** n))
+        group.append(frontier)
+    return np.concatenate(group)
+
+def symplectic_images(group, n):
+    """Двоичные 2n × 2n матрицы M_U (столбцы — образы X_j, Z_j без знаков)."""
+    vs = np.array(list(product([0, 1], repeat=2 * n)))
+    Ps = np.array([pauli_xz(v[:n], v[n:]) for v in vs])
+    cols = []
+    for k in range(2 * n):
+        e = np.eye(2 * n, dtype=int)[k]
+        img = group @ pauli_xz(e[:n], e[n:]) @ group.conj().transpose(0, 2, 1)
+        ov = np.abs(np.einsum("kij,nij->nk", Ps.conj(), img)) / 2 ** n
+        assert np.allclose(ov.max(axis=1), 1)                     # образ — паули-строка: U — клиффорд
+        cols.append(vs[ov.argmax(axis=1)])
+    return np.stack(cols, axis=2)
+
+def clifford_order(n):
+    return 2 ** (n * n + 2 * n) * prod(4 ** j - 1 for j in range(1, n + 1))
+
+t0 = time.time()
+for n in (1, 2):
+    group = clifford_bfs(n)
+    Ms = symplectic_images(group, n)
+    n_sym = len({M.tobytes() for M in Ms})
+    Om = np.block([[np.zeros((n, n), int), np.eye(n, dtype=int)], [np.eye(n, dtype=int), np.zeros((n, n), int)]])
+    assert all(np.array_equal((M.T @ Om @ M) % 2, Om) for M in Ms)
+    print(f"n = {n}: |C_n/U(1)| = {len(group)} (формула (2.4): {clifford_order(n)}), "
+          f"различных M_U: {n_sym} = |Sp({2 * n}, F_2)|;  {len(group)} = {n_sym}·4^{n};  MᵀΩM = Ω для всех")
+    assert len(group) == clifford_order(n) and len(group) == n_sym * 4 ** n
+print(f"время перебора: {time.time() - t0:.1f} с")
+for n in (3, 10, 100):
+    print(f"n = {n:3d}: log2|C_n/U(1)| = {ilog2(clifford_order(n)):.1f};  2n² + 3n = {2 * n * n + 3 * n}")
+```
+
 
 **Сколько гейтов нужно для клиффорда?** Из (2.4) $\log_2\lvert\mathcal C_n\rvert\approx 2n^2 + 3n$ (например, $229{,}5$ при $n = 10$). Гейтов $H$, $S$, CNOT на $n$ кубитах — $2n + n(n-1)$ вариантов. Тот же считающий аргумент, что в I.8, §5, даёт нижнюю оценку $\Omega(n^2/\log n)$ гейтов для типичного клиффорда. Ааронсон и Готтесман (2004) показали, что $O(n^2/\log n)$ и достаточно. Важно, что **клиффордов конечное число** и любой синтезируется за полиномиальное время. Это резко отличает их от общего $U(2^n)$.
 
@@ -133,6 +359,21 @@ $$
 TXT^\dagger = \tfrac{1}{\sqrt2}(X + Y)\notin\mathcal P_1,\qquad TZT^\dagger = Z . \tag{2.5}
 $$
 Значит, $T\notin\mathcal C_1$. Но $TXT^\dagger = e^{-i\pi/4}SX$ — клиффорд (I.5, §6). Это наблюдение порождает **иерархию Клиффорда** (Готтесман, Чуанг, 1999): $\mathcal C^{(1)} = \mathcal P_n$, $\mathcal C^{(k+1)} = \{U: U\mathcal P_nU^\dagger\subseteq\mathcal C^{(k)}\}$. Тогда $\mathcal C^{(2)}$ — группа Клиффорда, а $T$ и Toffoli лежат в $\mathcal C^{(3)}$. Гейты третьего уровня телепортируются с клиффордовыми коррекциями (§5.1). С третьего уровня множества $\mathcal C^{(k)}$ уже не группы.
+
+Проверим численно (2.5) и то, что $T$ лежит в $\mathcal C^{(3)}$: образы $TXT^\dagger$, $TYT^\dagger$, $TZT^\dagger$ переводят паули-операторы в паули-операторы (с точностью до фазы).
+
+```{python}
+TXT = T @ X @ dag(T)
+print("T X T† = (X + Y)/√2?", np.allclose(TXT, (X + Y) / np.sqrt(2)), "  = e^(−iπ/4) S X?", np.allclose(TXT, np.exp(-1j * np.pi / 4) * S @ X),
+      "  T Z T† = Z?", np.allclose(T @ Z @ dag(T), Z))
+print("T X T† — паули-оператор?", find_pauli(TXT, 1) is not None)
+for P in "XYZ":
+    C3 = T @ PAULI[P] @ dag(T)
+    imgs = [find_pauli(C3 @ PAULI[Q] @ dag(C3) * ph, 1) for Q in "XYZ" for ph in (1, 1j, -1j) if find_pauli(C3 @ PAULI[Q] @ dag(C3) * ph, 1)]
+    print(f"U = T {P} T†:  U X U†, U Y U†, U Z U† (с точностью до фазы) = {imgs} — клиффорд")
+    assert len(imgs) == 3
+```
+
 
 ---
 
@@ -153,7 +394,7 @@ $$
 
 Независимость генераторов — то же самое, что линейная независимость их векторов $(\mathbf x|\mathbf z)$ над $\mathbb F_2$. Коммутативность — попарная симплектическая ортогональность. Значит, стабилизатор — это **$n$-мерное изотропное подпространство** $\mathbb F_2^{2n}$ плюс выбор знаков.
 
-**Примеры** (раздел 4 и раздел 9 `примеры.py`):
+**Примеры** (проверка — в ячейке после таблицы):
 
 | Состояние | Генераторы |
 |---|---|
@@ -165,15 +406,79 @@ $$
 
 Кластерные (графовые) состояния готовятся так: $\lvert+\rangle^{\otimes n}$, затем CZ на каждом ребре графа. Каждое стабилизаторное состояние переводится в графовое локальными клиффордами (Ван ден Нест, Деэне, Де Мур, 2004). Графовые состояния — ресурс модели вычислений на основе измерений (I.10).
 
+Проверим численно таблицу (для $n = 3$ и кластера на цепочке из 4 кубитов) и формулу проектора (3.1) для GHZ:
+
+```{python}
+def stabilizes(gens, psi):
+    return all(np.allclose((-1 if g[0] == "-" else 1) * pauli_string(g.lstrip("-")) @ psi, psi) for g in gens)
+
+ket = lambda bits: np.eye(2 ** len(bits))[int(bits, 2)].astype(complex)
+plus3 = np.ones(8) / np.sqrt(8)
+ghz = (ket("000") + ket("111")) / np.sqrt(2)
+cases = [("|000>", ["ZII", "IZI", "IIZ"], ket("000")), ("|+++>", ["XII", "IXI", "IIX"], plus3),
+         ("GHZ_3", ["XXX", "ZZI", "IZZ"], ghz)]
+for x, y in product([0, 1], repeat=2):                      # β_xy = CNOT (H ⊗ I)|xy>
+    beta = cnot(0, 1, 2) @ np.kron(H, I2) @ ket(f"{x}{y}")
+    cases.append((f"β_{x}{y}", [("-" if x else "") + "XX", ("-" if y else "") + "ZZ"], beta))
+cl4 = np.ones(16, complex) / 4
+for a in range(3):
+    cl4 = apply_cz(cl4, a, a + 1, 4)
+cases.append(("кластер 1–2–3–4", ["XZII", "ZXZI", "IZXZ", "IIZX"], cl4))
+for name, gens, psi in cases:
+    print(f"{name:16s} стабилизируется {', '.join(gens)}: {stabilizes(gens, psi)}")
+    assert stabilizes(gens, psi)
+P = np.linalg.multi_dot([(np.eye(8) + pauli_string(g)) / 2 for g in ["XXX", "ZZI", "IZZ"]])
+elems = [np.eye(8)]
+for g in ["XXX", "ZZI", "IZZ"]:
+    elems += [e @ pauli_string(g) for e in elems]
+print("(3.1) для GHZ: Π(I + g_i)/2 = (1/8) Σ g = |GHZ><GHZ|?",
+      np.allclose(P, np.outer(ghz, ghz.conj())) and np.allclose(sum(elems) / 8, P))
+```
+
+
 ### 3.2. Сколько их
 
 Стабилизаторных состояний на $n$ кубитах (Ааронсон, Готтесман, 2004)
 $$
 \lvert\mathrm{STAB}_n\rvert = 2^n\prod_{k=1}^{n}(2^k + 1):\qquad 6,\ 60,\ 1080,\ \dots \tag{3.2}
 $$
-Для $n = 1$ это шесть полюсов $\lvert0\rangle,\lvert1\rangle,\lvert\pm\rangle,\lvert\pm i\rangle$ — вершины октаэдра в шаре Блоха. Из 60 двухкубитных 36 — произведения, а 24 запутаны. В `примеры.py` все три числа получены перебором орбиты $\lvert0\dots0\rangle$ под действием $H$, $S$, CNOT. Асимптотически $\log_2\lvert\mathrm{STAB}_n\rvert\approx(n^2 + 3n)/2$. Это ничтожная доля всех состояний, но с ними можно делать почти всё, кроме универсальных вычислений.
+Для $n = 1$ это шесть полюсов $\lvert0\rangle,\lvert1\rangle,\lvert\pm\rangle,\lvert\pm i\rangle$ — вершины октаэдра в шаре Блоха. Из 60 двухкубитных 36 — произведения, а 24 запутаны. Ниже все три числа получены перебором орбиты $\lvert0\dots0\rangle$ под действием $H$, $S$, CNOT. Асимптотически $\log_2\lvert\mathrm{STAB}_n\rvert\approx(n^2 + 3n)/2$. Это ничтожная доля всех состояний, но с ними можно делать почти всё, кроме универсальных вычислений.
 
 **Ожидания.** Для любой паули-строки $P$ на стабилизаторном состоянии $\langle P\rangle\in\{0,+1,-1\}$: если $\pm P\in\mathcal S$, то $\pm1$, иначе $P$ антикоммутирует с каким-то генератором и $\langle P\rangle = 0$. Распределение исходов любого паули-измерения — либо детерминированное, либо равномерное.
+
+Проверим численно (3.2), число произведений среди двухкубитных состояний и утверждение об ожиданиях:
+
+```{python}
+def stab_states(n):
+    gens = generators(n)
+    v0 = np.zeros(2 ** n, complex)
+    v0[0] = 1
+    seen, frontier = {canon(v0): v0}, [v0]
+    while frontier:
+        new = []
+        for v in frontier:
+            for g in gens:
+                w = g @ v
+                if canon(w) not in seen:
+                    seen[canon(w)] = w
+                    new.append(w)
+        frontier = new
+    return list(seen.values())
+
+n_stab = lambda n: 2 ** n * prod(2 ** k + 1 for k in range(1, n + 1))
+STAB = {n: stab_states(n) for n in (1, 2, 3)}
+for n in (1, 2, 3):
+    print(f"n = {n}: перебор орбиты — {len(STAB[n])} состояний, формула (3.2) — {n_stab(n)}")
+    assert len(STAB[n]) == n_stab(n)
+n_prod = sum(np.linalg.matrix_rank(v.reshape(2, 2), tol=1e-9) == 1 for v in STAB[2])
+print(f"n = 2: произведений {n_prod}, запутанных {60 - n_prod}")
+for n in (10, 50):
+    print(f"n = {n}: log2|STAB_n| = {ilog2(n_stab(n)):.1f};  (n² + 3n)/2 = {(n * n + 3 * n) / 2:.0f}")
+vals = {round(np.vdot(v, pauli_string("".join(s)) @ v).real, 9) + 0.0 for v in STAB[3] for s in product("IXYZ", repeat=3)}
+print("все <P> на 1080 состояниях n = 3 по 64 паули-строкам принимают значения:", sorted(float(v) for v in vals))
+assert n_prod == 36 and vals == {-1.0, 0.0, 1.0}
+```
+
 
 ### 3.3. Эволюция и измерение
 
@@ -190,7 +495,41 @@ S(\rho_A) = \operatorname{rank}_{\mathbb F_2}M_A - \lvert A\rvert, \tag{3.3}
 $$
 и все ненулевые коэффициенты Шмидта равны $2^{-S(\rho_A)}$: **спектр Шмидта плоский**.
 
-Энтропия запутанности стабилизаторного состояния — целое число эбитов, и состояние локально эквивалентно произведению $S$ пар Белла и состояний-произведений (с точностью до локальных клиффордов на каждой стороне). В `примеры.py` (раздел 6) формула (3.3) сверена с SVD для 40 случайных стабилизаторных состояний $n = 6$ по всем разрезам с $\lvert A\rvert\le3$. Встретились значения $S_A = 0,1,2,3$, в том числе максимальное $S_A = \lvert A\rvert = 3$. Для $\lvert\mathrm{GHZ}_n\rangle$ $S_A = 1$ при любом разрезе (задача 6).
+Энтропия запутанности стабилизаторного состояния — целое число эбитов, и состояние локально эквивалентно произведению $S$ пар Белла и состояний-произведений (с точностью до локальных клиффордов на каждой стороне). Ниже формула (3.3) сверена с SVD для 40 случайных стабилизаторных состояний $n = 6$ по всем разрезам с $\lvert A\rvert\le3$; стабилизатор каждого состояния находим перебором всех $4^6$ паули-строк (элементы с $\langle P\rangle = \pm1$), и вместо генераторов в $M_A$ берём всю группу — ранг от этого не меняется. Встретились значения $S_A = 0,1,2,3$, в том числе максимальное $S_A = \lvert A\rvert = 3$. Для $\lvert\mathrm{GHZ}_n\rangle$ $S_A = 1$ при любом разрезе (задача 6).
+
+```{python}
+def stabilizer_group(psi, n):
+    """Все (x|z) с <P(x|z)> = ±1 (векторизовано: P(x|z) действует как сдвиг x и знаки z)."""
+    d = 2 ** n
+    j = np.arange(d)                                                    # j — базисные индексы, они же маски z
+    pop = np.array([bin(v).count("1") for v in range(d)])
+    out = []
+    for x in range(d):
+        signs = (-1.0) ** pop[(j[None, :] ^ x) & j[:, None]]           # [z, j]: (−1)^{popcount((j ⊕ x) & z)}
+        # <ψ|P(x|z)|ψ> = i^{x·z} Σ_j ψ_j* (−1)^{popcount((j⊕x)&z)} ψ_{j⊕x}
+        ev = (1j) ** pop[x & j] * (signs * (psi.conj() * psi[j ^ x])[None, :]).sum(1)
+        for z in np.nonzero(np.isclose(np.abs(ev), 1))[0]:
+            out.append([(x >> (n - 1 - k)) & 1 for k in range(n)] + [(z >> (n - 1 - k)) & 1 for k in range(n)])
+    return np.array(out)
+
+n, hist = 6, {}
+for _ in range(40):
+    psi, _ = random_clifford_state(n, 60)
+    grp = stabilizer_group(psi, n)
+    assert len(grp) == 2 ** n
+    for size in (1, 2, 3):
+        for A in combinations(range(n), size):
+            SA = rank2(grp[:, list(A) + [n + a for a in A]]) - size              # (3.3)
+            Snum, spec = ent_entropy(psi, A, n)
+            assert np.isclose(Snum, SA) and np.allclose(spec, 2.0 ** (-SA))     # плоский спектр
+            hist[SA] = hist.get(SA, 0) + 1
+print("40 состояний n = 6, все разрезы |A| ≤ 3: (3.3) совпадает с SVD, спектр Шмидта плоский")
+print("сколько раз встретилось S_A:", dict(sorted(hist.items())))
+ghz6 = np.zeros(64, complex)
+ghz6[[0, 63]] = 1 / np.sqrt(2)
+print("GHZ_6: S_A по всем 62 разрезам:", sorted({float(round(ent_entropy(ghz6, A, 6)[0], 9)) for k in range(1, 6) for A in combinations(range(6), k)}))
+```
+
 
 ---
 
@@ -229,15 +568,176 @@ $$
 1. *Случайный исход:* есть стабилизатор $g_p$ с $x_{pa} = 1$ (он антикоммутирует с $Z_a$). Все остальные строки с $x_{ia} = 1$ домножаем на строку $p$ (операция `rowsum` с фазой $c(u,v)$ из §1.2). Строку $p$ копируем в дестабилизатор $d_p$, а саму её заменяем на $(-1)^mZ_a$, где $m\in\{0,1\}$ — случайный исход.
 2. *Детерминированный исход:* все $x_{pa} = 0$. Тогда $\pm Z_a$ — произведение тех $g_i$, для которых $x_{ia} = 1$ у **дестабилизатора** $d_i$. Это следует из соотношений $d_i$–$g_j$. Перемножаем эти $g_i$ во вспомогательной строке; её знак и есть исход. Гауссово исключение не нужно: $O(n)$ умножений строк по $O(n)$ операций, итого $O(n^2)$.
 
+Весь алгоритм умещается в короткий класс (строки таблицы обрабатываются векторно):
+
+```{python}
+class Tableau:
+    """Таблица Ааронсона–Готтесмана: строки 0..n−1 — дестабилизаторы, n..2n−1 — стабилизаторы, 2n — рабочая."""
+    def __init__(self, n):
+        self.n = n
+        self.x = np.zeros((2 * n + 1, n), np.uint8)
+        self.z = np.zeros((2 * n + 1, n), np.uint8)
+        self.r = np.zeros(2 * n + 1, np.uint8)
+        for i in range(n):
+            self.x[i, i] = 1                     # d_i = X_i
+            self.z[n + i, i] = 1                 # g_i = Z_i
+
+    def h(self, a):                              # (4.1)
+        self.r ^= self.x[:, a] & self.z[:, a]
+        self.x[:, a], self.z[:, a] = self.z[:, a].copy(), self.x[:, a].copy()
+
+    def s(self, a):
+        self.r ^= self.x[:, a] & self.z[:, a]
+        self.z[:, a] ^= self.x[:, a]
+
+    def cx(self, a, b):
+        self.r ^= self.x[:, a] & self.z[:, b] & (self.x[:, b] ^ self.z[:, a] ^ 1)
+        self.x[:, b] ^= self.x[:, a]
+        self.z[:, a] ^= self.z[:, b]
+
+    @staticmethod
+    def g(x1, z1, x2, z2):                       # фазовая функция из §1.2
+        x1, z1, x2, z2 = (np.asarray(v, int) for v in (x1, z1, x2, z2))
+        return np.where((x1 == 1) & (z1 == 1), z2 - x2,
+               np.where((x1 == 1) & (z1 == 0), z2 * (2 * x2 - 1),
+               np.where((x1 == 0) & (z1 == 1), x2 * (1 - 2 * z2), 0)))
+
+    def rowsum(self, hs, i):
+        """Строки hs := строки hs · строка i."""
+        hs = np.atleast_1d(hs)
+        if hs.size == 0:
+            return
+        ph = 2 * self.r[hs].astype(int) + 2 * int(self.r[i]) + \
+            self.g(self.x[i][None, :], self.z[i][None, :], self.x[hs], self.z[hs]).sum(axis=1)
+        self.r[hs] = ((ph % 4) // 2).astype(np.uint8)
+        self.x[hs] ^= self.x[i]
+        self.z[hs] ^= self.z[i]
+
+    def measure(self, a):
+        """Измерение Z_a: (исход, детерминирован ли)."""
+        n = self.n
+        ps = np.nonzero(self.x[n:2 * n, a])[0]
+        if ps.size:                              # случайный исход
+            p = n + ps[0]
+            self.rowsum(np.array([i for i in np.nonzero(self.x[:2 * n, a])[0] if i != p], dtype=int), p)
+            self.x[p - n], self.z[p - n], self.r[p - n] = self.x[p], self.z[p], self.r[p]
+            self.x[p], self.z[p] = 0, 0
+            self.z[p, a] = 1
+            self.r[p] = rng.integers(2)
+            return int(self.r[p]), False
+        sc = 2 * n                               # детерминированный исход
+        self.x[sc], self.z[sc], self.r[sc] = 0, 0, 0
+        for i in np.nonzero(self.x[:n, a])[0]:
+            self.rowsum(np.array([sc]), i + n)
+        return int(self.r[sc]), True
+
+    def stabilizers(self):
+        n = self.n
+        return [(self.x[n + i].copy(), self.z[n + i].copy(), int(self.r[n + i])) for i in range(n)]
+```
+
+
 ### 4.3. Проверка
 
-В `примеры.py` (раздел 5) таблица реализована по (4.1) и сверена с вектором состояния: 60 случайных схем на $n = 2..6$ кубитах по 40 операций (гейты и измерения вперемешку). Встретились 383 детерминированных и 209 случайных измерений. В каждом случае вероятность $p_0$, вычисленная по вектору, равна $0$ или $1$ (и совпадает с исходом таблицы) либо $\frac12$. В конце каждый генератор $\pm P(\mathbf x|\mathbf z)$ действительно стабилизирует вектор. Для GHZ на $n = 3..10$ кубитах генераторы порождают $\langle X\cdots X, Z_kZ_{k+1}\rangle$ — это тест из ЛР5.
+Ниже таблица сверена с вектором состояния: 60 случайных схем на $n = 2..6$ кубитах по 40 операций (гейты и измерения вперемешку). В прогоне `примеры.py` встретились 383 детерминированных и 209 случайных измерений (ячейка печатает свои числа — схемы другие). В каждом случае вероятность $p_0$, вычисленная по вектору, равна $0$ или $1$ (и совпадает с исходом таблицы) либо $\frac12$. В конце каждый генератор $\pm P(\mathbf x|\mathbf z)$ действительно стабилизирует вектор. Для GHZ на $n = 3..10$ кубитах генераторы порождают $\langle X\cdots X, Z_kZ_{k+1}\rangle$ — это тест из ЛР5.
+
+```{python}
+def prob0(psi, a, n):
+    return np.moveaxis(np.abs(psi.reshape([2] * n)) ** 2, a, 0)[0].sum()
+
+def project(psi, a, m, n):
+    p = psi.reshape([2] * n).copy()
+    idx = [slice(None)] * n
+    idx[a] = 1 - m
+    p[tuple(idx)] = 0
+    return p.reshape(-1) / np.linalg.norm(p)
+
+n_det = n_rand = 0
+for _ in range(60):
+    n = int(rng.integers(2, 7))
+    tab, psi = Tableau(n), np.eye(2 ** n, dtype=complex)[0]
+    for _ in range(40):
+        kind, a = rng.integers(4), int(rng.integers(n))
+        if kind == 0:
+            tab.h(a); psi = apply1(psi, H, a, n)
+        elif kind == 1:
+            tab.s(a); psi = apply1(psi, S, a, n)
+        elif kind == 2:
+            b = int(rng.choice([q for q in range(n) if q != a]))
+            tab.cx(a, b); psi = apply_cx(psi, a, b, n)
+        else:
+            m, det = tab.measure(a)
+            p0 = prob0(psi, a, n)
+            assert np.isclose(p0, 1 - m) if det else np.isclose(p0, 0.5)
+            n_det, n_rand = n_det + det, n_rand + (not det)
+            psi = project(psi, a, m, n)
+    assert all(np.allclose((-1) ** r * pauli_xz(x, z) @ psi, psi) for x, z, r in tab.stabilizers())
+print(f"60 схем: {n_det} детерминированных и {n_rand} случайных измерений — все согласуются с вектором состояния;")
+print("итоговые генераторы ±P(x|z) стабилизируют вектор")
+
+for n in range(3, 11):                         # тест ЛР5: GHZ
+    tab = Tableau(n)
+    tab.h(0)
+    for k in range(n - 1):
+        tab.cx(k, k + 1)
+    M = np.array([np.concatenate([x, z]) for x, z, r in tab.stabilizers()], int)
+    target = [np.r_[np.ones(n, int), np.zeros(n, int)]] + \
+             [np.r_[np.zeros(n, int), np.eye(n, dtype=int)[k] + np.eye(n, dtype=int)[k + 1]] for k in range(n - 1)]
+    assert rank2(M) == n and rank2(np.vstack([M, target])) == n
+    assert all(r == 0 for *_, r in tab.stabilizers())
+print("GHZ, n = 3..10: группа стабилизатора = <X⋯X, Z_k Z_{k+1}>")
+outs = set()                                   # задача 5
+for _ in range(50):
+    tb = Tableau(2); tb.h(0); tb.cx(0, 1)
+    (m1, d1), (m0, d0) = tb.measure(1), tb.measure(0)
+    assert not d1 and d0 and m0 == m1
+    outs.add(m1)
+print("задача 5: Z_2 — случайный исход, затем Z_1 — детерминированный и совпадает; встретились исходы", sorted(outs))
+```
+
 
 Время на одно измерение (случайная клиффордова схема из $10n$ гейтов, затем измерение всех кубитов, NumPy; один из запусков):
 
 | $n$ | 100 | 200 | 400 | 800 |
 |---:|---:|---:|---:|---:|
 | мс/измерение | 0,39 | 1,24 | 4,49 | 17,1 |
+
+Это результат одного из запусков `примеры.py`. Облегчённая ячейка ниже повторяет замер при сборке сайта для $n = 100, 200, 400$ (без самого долгого $n = 800$); её числа зависят от машины, на которой собирался сайт. При $n\lesssim200$ заметная доля времени — накладные расходы интерпретатора Python, поэтому квадратичный рост лучше виден на больших $n$.
+
+```{python}
+#| fig-cap: "Время одного измерения в табличном симуляторе (NumPy) в зависимости от числа кубитов $n$: случайная клиффордова схема из $10n$ гейтов, затем измерение всех $n$ кубитов, среднее по измерениям. Кружки — замер при сборке сайта, квадраты — таблица выше (запуск `примеры.py`), пунктир — наклон 2, то есть $O(n^2)$."
+ns, times = [100, 200, 400], []
+for n in ns:
+    tab = Tableau(n)
+    for _ in range(10 * n):
+        k, a = rng.integers(3), int(rng.integers(n))
+        if k == 0:
+            tab.h(a)
+        elif k == 1:
+            tab.s(a)
+        else:
+            b = int(rng.integers(n - 1)); b += b >= a
+            tab.cx(a, b)
+    t0 = time.perf_counter()
+    for a in range(n):
+        tab.measure(a)
+    times.append((time.perf_counter() - t0) / n)
+    print(f"n = {n:3d}: {1e3 * times[-1]:6.2f} мс на измерение")
+print(f"наклон в логарифмическом масштабе: по всем точкам {np.polyfit(np.log(ns), np.log(times), 1)[0]:.2f}, "
+      f"между n = 200 и 400 — {np.log2(times[2] / times[1]):.2f}")
+print(f"n = 50: вектор состояния 2^50·16 байт = {2 ** 50 * 16 / 1e15:.0f} ПБ, таблица 2n(2n + 1) = {2 * 50 * 101} бит")
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.loglog(ns, 1e3 * np.array(times), "o-", label="замер при сборке сайта")
+ax.loglog([100, 200, 400, 800], [0.39, 1.24, 4.49, 17.1], "s-", label="запуск примеры.py (таблица)")
+nn = np.array([100, 800])
+ax.loglog(nn, 1e3 * times[-1] * (nn / ns[-1]) ** 2, "--", color="gray", label=r"$\propto n^2$")
+ax.set_xlabel("число кубитов $n$")
+ax.set_ylabel("мс на измерение")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
 
 Наклон в логарифмическом масштабе $\approx1{,}8$–$1{,}9$ (от запуска к запуску), то есть $O(n^2)$, как и обещано. Абсолютные числа зависят от машины. Специализированные симуляторы (Stim, Гидни, 2021) работают с битовыми масками и на порядки быстрее. В ЛР5 вы сравните Stim до $n = 2000$ с моделированием вектора состояния до $n\approx28$. Для $n = 50$ вектор состояния занимает $2^{50}\cdot16$ байт $\approx18$ ПБ, а таблица — $10\,100$ бит.
 
@@ -251,7 +751,25 @@ $$
 $$
 \lvert T\rangle = T\lvert+\rangle = \tfrac{1}{\sqrt2}\bigl(\lvert0\rangle + e^{i\pi/4}\lvert1\rangle\bigr). \tag{5.1}
 $$
-**Гаджет** (I.5, задача 12): берём $\lvert\psi\rangle\otimes\lvert T\rangle$, применяем CNOT с управлением на кубите $\lvert T\rangle$ и целью $\lvert\psi\rangle$, измеряем кубит $\lvert\psi\rangle$ в базисе $Z$. При исходе 0 на втором кубите уже $T\lvert\psi\rangle$, при исходе 1 — после коррекции $SX$. Коррекция клиффордова, потому что $T\in\mathcal C^{(3)}$ (§2.3). Проверка — раздел 7 `примеры.py`.
+**Гаджет** (I.5, задача 12): берём $\lvert\psi\rangle\otimes\lvert T\rangle$, применяем CNOT с управлением на кубите $\lvert T\rangle$ и целью $\lvert\psi\rangle$, измеряем кубит $\lvert\psi\rangle$ в базисе $Z$. При исходе 0 на втором кубите уже $T\lvert\psi\rangle$, при исходе 1 — после коррекции $SX$. Коррекция клиффордова, потому что $T\in\mathcal C^{(3)}$ (§2.3). Проверим численно:
+
+```{python}
+Tst = T @ np.array([1, 1]) / np.sqrt(2)                  # |T> = T|+>
+worst = 0
+for _ in range(50):
+    psi = rng.normal(size=2) + 1j * rng.normal(size=2)
+    psi /= np.linalg.norm(psi)
+    st = cnot(1, 0, 2) @ np.kron(psi, Tst)               # управляет кубит |T>, цель — данные
+    for m in (0, 1):
+        v = st.reshape(2, 2)[m]                          # исход m на кубите данных
+        pm = np.vdot(v, v).real
+        v = (S @ X if m else I2) @ v / np.sqrt(pm)
+        assert np.isclose(pm, 0.5)
+        worst = max(worst, 1 - abs(np.vdot(T @ psi, v)))
+print(f"50 случайных |ψ>: исходы равновероятны, после коррекции 1 − |<Tψ|результат>| ≤ {worst:.1e}")
+print("задача 8: S X · X T† = T?", np.allclose(S @ X @ X @ dag(T), T))
+```
+
 
 Вывод: **клиффордовы операции + паули-измерения + запас состояний $\lvert T\rangle$ = универсальные вычисления**. Отказоустойчивые архитектуры устроены именно так. Клиффорды выполняются дёшево и надёжно, а $\lvert T\rangle$ «дистиллируются» из многих зашумлённых копий (II.8). Поэтому T-count — главная метрика стоимости (I.8, §0).
 
@@ -267,13 +785,25 @@ $$
 - **стабилизаторный ранг** $\chi(\psi)$ — минимальное число стабилизаторных состояний, линейной комбинацией которых является $\psi$ (Бравый, Смит, Смолин, 2016);
 - для кудитов нечётной размерности — отрицательность дискретной функции Вигнера («mana», Вейч и др., 2014); для кубитов — «робастность магии» (Ховард, Кэмпбелл, 2017). Подробно эти меры в курсе не рассматриваются.
 
+Проверим численно (5.2) перебором по 6, 60 и 1080 стабилизаторным состояниям из ячейки §3.2:
+
+```{python}
+for t in (1, 2, 3):
+    psi = kron(*[Tst.reshape(2, 1)] * t).reshape(-1)
+    F = max(abs(np.vdot(s, psi)) ** 2 for s in STAB[t])
+    print(f"t = {t}: F_stab(|T>^⊗t) = {F:.6f};  cos^(2t)(π/8) = {np.cos(np.pi / 8) ** (2 * t):.6f}")
+    assert np.isclose(F, np.cos(np.pi / 8) ** (2 * t))
+print("задача 9: |<φ|T>|² по шести состояниям:", np.round(sorted(abs(np.vdot(s, Tst)) ** 2 for s in STAB[1]), 4))
+```
+
+
 ### 5.3. Симуляция по стабилизаторному рангу
 
 Простейшее разложение:
 $$
 T = e^{i\pi/8}\Bigl(\cos\frac\pi8\,I - i\sin\frac\pi8\,Z\Bigr). \tag{5.3}
 $$
-Обе части — клиффорды. Поэтому схема с $t$ гейтами $T$ — сумма $2^t$ клиффордовых схем, каждая моделируется за poly$(n)$. Отсюда время $2^t\,\mathrm{poly}(n)$: **экспоненциально только по числу $T$, а не по числу кубитов**. В `примеры.py` для 5 случайных схем Clifford+T ($n = 4$, $t = 6$) сумма 64 клиффордовых ветвей совпала с точным вектором.
+Обе части — клиффорды. Поэтому схема с $t$ гейтами $T$ — сумма $2^t$ клиффордовых схем, каждая моделируется за poly$(n)$. Отсюда время $2^t\,\mathrm{poly}(n)$: **экспоненциально только по числу $T$, а не по числу кубитов**. Ниже для 5 случайных схем Clifford+T ($n = 4$, $t = 6$) сумма 64 клиффордовых ветвей совпадает с точным вектором.
 
 Основание экспоненты можно уменьшить:
 - $\lvert T\rangle^{\otimes2} = \frac12\bigl[(\lvert00\rangle + i\lvert11\rangle) + e^{i\pi/4}(\lvert01\rangle + \lvert10\rangle)\bigr]$ — два стабилизаторных слагаемых вместо четырёх, $\chi(\lvert T\rangle^{\otimes2}) = 2$ (проверено);
@@ -281,6 +811,50 @@ $$
 - при допустимой ошибке хватает примерно $2^{0{,}228t}$ слагаемых (Бравый, Госсет, 2016). Показатель $0{,}228 = \log_2\bigl(1/\cos^2\frac\pi8\bigr)$ — та же стабилизаторная верность (5.2).
 
 При $t = 50$: $2^{50}\approx1{,}1\cdot10^{15}$ ветвей против $7^{50/6}\approx1{,}1\cdot10^7$ и $2^{0{,}228\cdot50}\approx2{,}7\cdot10^3$. Метод `extended_stabilizer` в Qiskit Aer, который вы используете в ЛР5 (задание 7), основан на таком разложении. Время работы растёт экспоненциально с числом $T$, а не кубитов.
+
+Проверим численно (5.3), сумму по ветвям, разложение $\lvert T\rangle^{\otimes2}$ и приведённые оценки:
+
+```{python}
+assert np.allclose(T, np.exp(1j * np.pi / 8) * (np.cos(np.pi / 8) * I2 - 1j * np.sin(np.pi / 8) * Z))   # (5.3)
+
+def run(gates, n, branch=None):
+    """Вектор состояния схемы; branch — выбор слагаемого (5.3) для каждого T."""
+    psi, j = np.eye(2 ** n, dtype=complex)[0], 0
+    for g in gates:
+        if g[0] == "H":
+            psi = apply1(psi, H, g[1], n)
+        elif g[0] == "S":
+            psi = apply1(psi, S, g[1], n)
+        elif g[0] == "CX":
+            psi = apply_cx(psi, g[1], g[2], n)
+        elif branch is None:
+            psi = apply1(psi, T, g[1], n)
+        else:
+            c = np.exp(1j * np.pi / 8) * (np.cos(np.pi / 8) if branch[j] == 0 else -1j * np.sin(np.pi / 8))
+            psi = c * (psi if branch[j] == 0 else apply1(psi, Z, g[1], n))
+            j += 1
+    return psi
+
+n, t = 4, 6
+for _ in range(5):
+    _, gates = random_clifford_state(n, 30)
+    for pos in sorted(rng.choice(len(gates), t, replace=False), reverse=True):
+        gates.insert(int(pos), ("T", int(rng.integers(n))))
+    total = sum(run(gates, n, br) for br in product([0, 1], repeat=t))
+    assert np.allclose(run(gates, n), total)
+print(f"5 схем Clifford+T (n = {n}, t = {t}): сумма 2^{t} = {2 ** t} клиффордовых ветвей = точный вектор")
+
+phi1, phi2 = np.array([1, 0, 0, 1j]) / np.sqrt(2), np.array([0, 1, 1, 0]) / np.sqrt(2)
+keys = {canon(s) for s in STAB[2]}
+TT = np.kron(Tst, Tst)
+print("|T>⊗|T> = [(|00> + i|11>) + e^(iπ/4)(|01> + |10>)]/2?", np.allclose(TT, (phi1 + np.exp(1j * np.pi / 4) * phi2) / np.sqrt(2)),
+      "| слагаемые стабилизаторные:", canon(phi1) in keys and canon(phi2) in keys, "| само — нет:", canon(TT) not in keys)
+print("задача 10: генераторы <ZZ, XY> и <XX, −ZZ>:", stabilizes(["ZZ", "XY"], phi1) and stabilizes(["XX", "-ZZ"], phi2))
+print(f"log2(1/cos²(π/8)) = {np.log2(1 / np.cos(np.pi / 8) ** 2):.4f};  log2(7)/6 = {np.log2(7) / 6:.4f}")
+for tt in (10, 50):
+    print(f"t = {tt}: 2^t = {2.0 ** tt:.1e},  7^(t/6) = {7 ** (tt / 6):.1e},  2^(0.228 t) = {2 ** (0.228 * tt):.1e}")
+```
+
 
 Нижние оценки стабилизаторного ранга $\lvert T\rangle^{\otimes t}$ известны лишь очень слабые. Доказать экспоненциальную нижнюю оценку — открытая задача, тесно связанная с вопросом, нельзя ли эффективно моделировать BQP (I.10).
 
@@ -292,7 +866,28 @@ $$
 
 **Теорема 6.1** (Йожа, Линден, 2003; Видаль, 2003, обзорно). Пусть на каждом шаге схемы ранг Шмидта по любому разрезу цепочки кубитов не больше $\chi$. Тогда схему можно моделировать за время $\mathrm{poly}(n,\chi)$, храня состояние как **матричное произведение состояний** (MPS) из $O(n\chi^2)$ чисел (I.4, §6).
 
-Откуда берётся рост $\chi$: каждый двухкубитный гейт через разрез умножает ранг Шмидта не более чем на свой операторный ранг Шмидта. Для CZ и CNOT он равен 2, для общего гейта — 4. Для одномерной схемы глубины $D$ поэтому $\chi\le2^{O(D)}$, и такие схемы моделируются за $\mathrm{poly}(n)\,2^{O(D)}$. В `примеры.py` (раздел 8) кирпичная схема на 12 кубитах со случайными однокубитными гейтами и CZ: после $k$ гейтов CZ через средний разрез ранг Шмидта ровно $2^k$ ($1, 2, 2, 4, 4, 8, 8, 16$ по слоям).
+Откуда берётся рост $\chi$: каждый двухкубитный гейт через разрез умножает ранг Шмидта не более чем на свой операторный ранг Шмидта. Для CZ и CNOT он равен 2, для общего гейта — 4. Для одномерной схемы глубины $D$ поэтому $\chi\le2^{O(D)}$, и такие схемы моделируются за $\mathrm{poly}(n)\,2^{O(D)}$. Ниже кирпичная схема на 12 кубитах со случайными однокубитными гейтами и CZ: после $k$ гейтов CZ через средний разрез ранг Шмидта ровно $2^k$ ($1, 2, 2, 4, 4, 8, 8, 16$ по слоям).
+
+```{python}
+def haar2():
+    Q, R = np.linalg.qr(rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2)))
+    return Q * (np.diag(R) / abs(np.diag(R)))
+
+n, cut, crossing = 12, 6, 0
+psi = np.eye(2 ** n, dtype=complex)[0]
+ranks = []
+for layer in range(8):
+    for q in range(n):
+        psi = apply1(psi, haar2(), q, n)
+    for q in range(layer % 2, n - 1, 2):
+        psi = apply_cz(psi, q, q + 1, n)
+        crossing += q == cut - 1
+    rank = int(np.sum(np.linalg.svd(psi.reshape(2 ** cut, -1), compute_uv=False) > 1e-10))
+    ranks.append(rank)
+    assert rank <= 2 ** crossing
+    print(f"слой {layer + 1}: CZ через разрез {crossing}, ранг Шмидта {rank:3d} (≤ 2^{crossing} = {2 ** crossing})")
+```
+
 
 **Итоговая картина.** Для экспоненциального ускорения нужны **одновременно** большая запутанность (иначе MPS) и много не-клиффордовых гейтов (иначе стабилизаторный ранг). Ни одно из условий по отдельности не достаточно. Даже вместе они не гарантируют ускорения: схемы из «matchgates» (свободные фермионы) создают и запутанность, и не-клиффордовы гейты, но тоже моделируются классически (Валиант, 2002; Терхал, ДиВинченцо, 2002).
 
@@ -342,7 +937,9 @@ $$
 12. (••) Кирпичная схема глубины $D$ на цепочке: на нечётных слоях CZ на парах $(1,2),(3,4),\dots$, на чётных — $(2,3),(4,5),\dots$, между слоями произвольные однокубитные гейты. Оцените ранг Шмидта по разрезу посередине.
 13. (•••) Используя (2.4) и считающий аргумент I.8, §5, докажите, что типичный клиффорд на $n$ кубитах требует $\Omega(n^2/\log n)$ гейтов из $\{H, S, \mathrm{CNOT}\}$. Оцените константу для $n = 100$.
 
-### Ответы и указания
+::: {.callout-tip collapse="true"}
+## Ответы и указания
+
 - **1.** $YI\mapsto YX$, $IY\mapsto ZY$, $YY\mapsto -XZ$, $XZ\mapsto -YY$.
 - **2.** $\lvert\beta_{xy}\rangle$: $(-1)^xXX$ и $(-1)^yZZ$. Указание: $\lvert\beta_{xy}\rangle = (I\otimes X^yZ^x)\lvert\Phi^+\rangle$, а $X^yZ^x$ коммутирует с $X$ с точностью до $(-1)^x$ и с $Z$ — до $(-1)^y$.
 - **3.** $6^2 = 36$ произведений и 24 запутанных (это 4 состояния Белла и их образы под локальными клиффордами).
@@ -356,12 +953,13 @@ $$
 - **11.** $2^{50}\cdot16$ байт $\approx1{,}8\cdot10^{16}$ байт $= 18$ ПБ против $2n(2n+1) = 10\,100$ бит.
 - **12.** $\chi\le2^{k}$, где $k$ — число слоёв, в которых CZ пересекает разрез, то есть $\approx D/2$. Для общих двухкубитных гейтов вместо 2 будет 4.
 - **13.** $g\ge\log_2\lvert\mathcal C_n\rvert/\log_2(2n + n(n-1))\approx(2n^2+3n)/(2\log_2n)$; при $n = 100$ это $\approx1526$.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 30 с, из них около 8 с — перебор группы Клиффорда для $n = 2$) проверяет:
+Ячейки на этой странице — короткие версии проверок. Облегчено: замер времени табличного симулятора — для $n\le400$ (в `примеры.py` — до $n = 800$); перебор группы Клиффорда в ячейке векторизован, поэтому идёт быстрее. Полный файл `примеры.py` (около 30 с, из них около 8 с — перебор группы Клиффорда для $n = 2$) проверяет:
 1. симплектическую запись (1.2), критерий коммутации (1.3), закон умножения и ортонормированность паули-базиса для $n = 3$;
 2. таблицы сопряжения (2.2)–(2.3), в том числе знаки; (2.5) и $T\in\mathcal C^{(3)}$;
 3. порядок группы Клиффорда (2.4) для $n = 1, 2$ поиском в ширину, гомоморфизм в $Sp(2n,\mathbb F_2)$ и его ядро;
