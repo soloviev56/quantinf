@@ -1,16 +1,144 @@
-# Лекция I.7. Сепарабельность и меры запутанности
+---
+title: "Лекция I.7. Сепарабельность и меры запутанности"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.B «Составные системы, запутанность, нелокальность».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (спектр, следовая норма); лекция I.3 (матрица плотности); лекция I.4 (частичный след, разложение Шмидта, энтропия запутанности, «трюк с транспонированием»); лекция I.5 (состояние $\rho_p$, телепортация); лекция I.6 (CHSH, критерий Городецких).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (спектр, следовая норма); [лекция I.3](../../Часть_I/I.03_Матрица_плотности_POVM/лекция.qmd) (матрица плотности); [лекция I.4](../../Часть_I/I.04_Составные_системы/лекция.qmd) (частичный след, разложение Шмидта, энтропия запутанности, «трюк с транспонированием»); [лекция I.5](../../Часть_I/I.05_Протоколы_на_запутанности/лекция.qmd) (состояние $\rho_p$, телепортация); [лекция I.6](../../Часть_I/I.06_Нелокальность_Белл/лекция.qmd) (CHSH, критерий Городецких).
 **Литература:** Horodecki R. et al. Quantum entanglement // RMP 81, 865 (2009), разд. I–VI (выборочно); Watrous J. The Theory of Quantum Information. — CUP, 2018, гл. 6; Gühne O., Tóth G. Entanglement detection // Phys. Rep. 474, 1 (2009), разд. 1–3.
-**Материалы:** `примеры.py` — численная проверка всех утверждений; задачи к семинару С4 и к ЛР4 — в § 10.
+**Материалы:** `примеры.py` — численная проверка всех утверждений; задачи к семинару С4 и к ЛР4 — в § 10. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения.**
 - $\rho^{\Gamma} \equiv \rho^{T_B}$ — частичное транспонирование по подсистеме $B$ в стандартном базисе.
 - $\rho_p = p\,\lvert\Phi^+\rangle\langle\Phi^+\rvert + (1-p)I/4$ — то же семейство, что в I.5–I.6.
 - В ЛР4 используется вернеровская форма $\rho_W(p) = p\,\lvert\Psi^-\rangle\langle\Psi^-\rvert + (1-p)I/4$. Для двух кубитов это одно и то же семейство: $\rho_W(p) = (I\otimes XZ)\,\rho_p\,(I\otimes XZ)^\dagger$. Все свойства, которые не меняются при локальных унитарных операторах (запутанность, меры, $S_{\max}$), у них совпадают.
 - Запись $x\prec y$ означает «$x$ мажорируется $y$» (§5.3).
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+I4 = np.eye(4)
+ket0 = np.array([1, 0], dtype=complex)
+ket1 = np.array([0, 1], dtype=complex)
+
+def dag(A):
+    return A.conj().T
+
+def proj(v):
+    return np.outer(v, v.conj())
+
+def kron(*ops):
+    out = ops[0]
+    for o in ops[1:]:
+        out = np.kron(out, o)
+    return out
+
+Phi_p = (kron(ket0, ket0) + kron(ket1, ket1)) / np.sqrt(2)
+Psi_m = (kron(ket0, ket1) - kron(ket1, ket0)) / np.sqrt(2)
+
+def rho_iso(p):
+    """ρ_p = p|Φ+><Φ+| + (1 − p) I/4 (как в I.5–I.6)."""
+    return p * proj(Phi_p) + (1 - p) * I4 / 4
+
+def rho_W(p):
+    """Форма ЛР4: p|Ψ−><Ψ−| + (1 − p) I/4."""
+    return p * proj(Psi_m) + (1 - p) * I4 / 4
+
+def random_state(d):
+    v = rng.normal(size=d) + 1j * rng.normal(size=d)
+    return v / np.linalg.norm(v)
+
+def random_rho_hs(d):
+    """Случайная матрица плотности по мере Гильберта–Шмидта."""
+    G = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    R = G @ dag(G)
+    return R / np.trace(R)
+
+def random_separable(dA, dB, k=6):
+    w = rng.dirichlet(np.ones(k))
+    return sum(wi * kron(proj(random_state(dA)), proj(random_state(dB))) for wi in w)
+
+def ptrans(rho, dA, dB, sys=1):
+    """Частичное транспонирование подсистемы sys (0 — A, 1 — B)."""
+    t = rho.reshape(dA, dB, dA, dB)
+    t = t.transpose(0, 3, 2, 1) if sys == 1 else t.transpose(2, 1, 0, 3)
+    return t.reshape(dA * dB, dA * dB)
+
+def ptrace(rho, dA, dB, keep=0):
+    t = rho.reshape(dA, dB, dA, dB)
+    return np.einsum("ijkj->ik", t) if keep == 0 else np.einsum("ijil->jl", t)
+
+def lam_min_pt(rho, dA=2, dB=2):
+    return np.linalg.eigvalsh(ptrans(rho, dA, dB))[0]
+
+def realign(rho, dA, dB):
+    """Перестановка: R[(a a'),(b b')] = ρ[(a b),(a' b')]."""
+    return rho.reshape(dA, dB, dA, dB).transpose(0, 2, 1, 3).reshape(dA * dA, dB * dB)
+
+def trace_norm(A):
+    return np.sum(np.linalg.svd(A, compute_uv=False))
+
+def entropy(p):
+    p = np.asarray(p, float)
+    p = p[p > 1e-14]
+    return float(-np.sum(p * np.log2(p)))
+
+def h2(x):
+    return entropy([x, 1 - x])
+
+def ent_entropy(psi, dA=2, dB=2):
+    return entropy(np.linalg.svd(psi.reshape(dA, dB), compute_uv=False) ** 2)
+
+def negativity(rho, dA=2, dB=2):
+    return (trace_norm(ptrans(rho, dA, dB)) - 1) / 2
+
+def log_negativity(rho, dA=2, dB=2):
+    return np.log2(trace_norm(ptrans(rho, dA, dB)))
+
+YY = kron(Y, Y)
+
+def concurrence(rho):
+    """Формула Вуттерса (6.2)."""
+    rt = YY @ rho.conj() @ YY
+    lam = np.sqrt(np.clip(np.sort(np.real(np.linalg.eigvals(rho @ rt)))[::-1], 0, None))
+    return max(0.0, lam[0] - lam[1] - lam[2] - lam[3])
+
+def eof_wootters(rho):
+    C = concurrence(rho)
+    return max(0.0, h2((1 + np.sqrt(1 - C**2)) / 2))
+
+def majorized(x, y):
+    """x ≺ y (x мажорируется y)."""
+    n = max(len(x), len(y))
+    xs = np.sort(np.pad(x, (0, n - len(x))))[::-1]
+    ys = np.sort(np.pad(y, (0, n - len(y))))[::-1]
+    return bool(np.all(np.cumsum(xs) <= np.cumsum(ys) + 1e-12)) and np.isclose(xs.sum(), ys.sum())
+
+def horodecki_3x3(a):
+    """PPT-запутанное состояние П. Хородецкого (1997), 3×3, параметр a ∈ (0, 1)."""
+    s = np.zeros((9, 9))
+    for i in (0, 4, 8):
+        for j in (0, 4, 8):
+            s[i, j] = a
+    for i in (1, 2, 3, 5, 7):
+        s[i, i] = a
+    b, c = (1 + a) / 2, np.sqrt(1 - a**2) / 2
+    s[6, 6] = s[8, 8] = b
+    s[6, 8] = s[8, 6] = c
+    return s / (8 * a + 1)
+```
+
 
 ---
 
@@ -71,14 +199,57 @@ $$
 $$
 \rho_{1/3} = \frac16\sum_{\vec n\in\{\pm\hat x,\pm\hat y,\pm\hat z\}}\lvert\vec n\rangle\langle\vec n\rvert\otimes\lvert\vec n^*\rangle\langle\vec n^*\rvert, \tag{1.2}
 $$
-где $\lvert\vec n^*\rangle$ — комплексно сопряжённый вектор (для $\pm\hat y$ это $\mp\hat y$). При $p<1/3$ состояние $\rho_p$ — смесь $\rho_{1/3}$ и $I/4$, то есть тоже сепарабельно (раздел 1 `примеры.py`). Обратное, что при $p>1/3$ состояние запутано, докажем в §2.
+где $\lvert\vec n^*\rangle$ — комплексно сопряжённый вектор (для $\pm\hat y$ это $\mp\hat y$). При $p<1/3$ состояние $\rho_p$ — смесь $\rho_{1/3}$ и $I/4$, то есть тоже сепарабельно. Обратное, что при $p>1/3$ состояние запутано, докажем в §2.
+
+Проверим численно оба примера, разложение (1.2) и локальную эквивалентность $\rho_W(p)$ и $\rho_p$ из раздела «Обозначения»:
+
+```{python}
+rho_cl = (kron(proj(ket0), proj(ket0)) + kron(proj(ket1), proj(ket1))) / 2
+prod = kron(ptrace(rho_cl, 2, 2, 0), ptrace(rho_cl, 2, 2, 1))
+print("классически коррелированное состояние — произведение своих маргиналов?", np.allclose(rho_cl, prod))
+axes = [(I2 + s * P) / 2 for P in (X, Y, Z) for s in (1, -1)]      # |n><n| для n = ±x, ±y, ±z
+mix = sum(kron(a, a.conj()) for a in axes) / 6                     # |n*><n*| = (|n><n|)*
+print("(1.2): (1/6) Σ |n><n| ⊗ |n*><n*| = ρ_{1/3}?", np.allclose(mix, rho_iso(1 / 3)))
+ok = all(np.allclose(rho_iso(p), 3 * p * rho_iso(1 / 3) + (1 - 3 * p) * I4 / 4) for p in np.linspace(0, 1 / 3, 7))
+print("ρ_p = 3p·ρ_{1/3} + (1 − 3p)·I/4 при p ≤ 1/3:", ok)
+U = kron(I2, X @ Z)
+ok_W = all(np.allclose(U @ rho_iso(p) @ dag(U), rho_W(p)) for p in np.linspace(0, 1, 6))
+print("ρ_W(p) = (I ⊗ XZ) ρ_p (I ⊗ XZ)†:", ok_W)
+assert not np.allclose(rho_cl, prod) and np.allclose(mix, rho_iso(1 / 3)) and ok and ok_W
+```
+
 
 ### 1.2. Геометрия
 
 - Множество $\mathrm{SEP}$ **выпукло и компактно**. По теореме Каратеодори в (1.1) можно брать **чистые** произведения, и их достаточно не больше $(d_Ad_B)^2$.
 - $\mathrm{SEP}$ имеет **ненулевой объём** (Жычковский и др., 1998). Вокруг $I/d$, $d = d_Ad_B$, есть сепарабельный шар: всякое состояние с $\|\rho - I/d\|_2\le 1/\sqrt{d(d-1)}$ сепарабельно (Гурвиц, Барнум, 2002). Состояние $\rho_{1/3}$ лежит ровно на границе этого шара.
-- Доля сепарабельных двухкубитных состояний по мере Гильберта–Шмидта равна $8/33\approx0{,}242$. Это гипотеза Слейтера, доказанная Ловашем и Андаи (2018). Методом Монте-Карло в `примеры.py` получается $0{,}2426\pm0{,}0010$; то же задание есть в ЛР4.
+- Доля сепарабельных двухкубитных состояний по мере Гильберта–Шмидта равна $8/33\approx0{,}242$. Это гипотеза Слейтера, доказанная Ловашем и Андаи (2018). Методом Монте-Карло в `примеры.py` получается $0{,}2426\pm0{,}0010$ (ячейка ниже повторяет оценку на другой выборке того же размера); то же задание есть в ЛР4.
 - С ростом размерности доля сепарабельных состояний быстро падает: типичное состояние большой системы запутано.
+
+Проверим численно шар Гурвица–Барнума (случайные точки внутри него — все PPT, а для двух кубитов PPT означает сепарабельность, §2.3) и долю PPT-состояний:
+
+```{python}
+rad = 1 / np.sqrt(4 * 3)
+print(f"||ρ_1/3 − I/4||_2 = {np.linalg.norm(rho_iso(1 / 3) - I4 / 4):.6f};  1/√12 = {rad:.6f}")
+worst = 1
+for _ in range(1000):
+    D = random_rho_hs(4) - I4 / 4
+    r = I4 / 4 + D * rad / np.linalg.norm(D) * rng.uniform() ** 0.25
+    worst = min(worst, lam_min_pt(r))
+print(f"1000 точек шара: min λ_min(ρ^Γ) = {worst:.2e} ≥ 0")
+assert worst > -1e-12
+
+N = 200_000                                       # все матрицы сразу, по мере Гильберта–Шмидта
+G = rng.normal(size=(N, 4, 4)) + 1j * rng.normal(size=(N, 4, 4))
+R = G @ np.conj(np.transpose(G, (0, 2, 1)))
+R /= np.trace(R, axis1=1, axis2=2)[:, None, None]
+RG = R.reshape(N, 2, 2, 2, 2).transpose(0, 1, 4, 3, 2).reshape(N, 4, 4)
+frac = np.mean(np.linalg.eigvalsh(RG)[:, 0] >= 0)
+err = np.sqrt(frac * (1 - frac) / N)
+print(f"{N} случайных состояний: доля PPT = {frac:.4f} ± {err:.4f};  8/33 = {8 / 33:.4f}")
+assert abs(frac - 8 / 33) < 4 * err
+```
+
 
 ### 1.3. Сложность
 
@@ -119,6 +290,31 @@ $$
 $$
 Вместе с (1.2) получаем: **$\rho_p$ запутано тогда и только тогда, когда $p>1/3$**. Именно этот порог встречался в I.5 для телепортации ($\bar F > 2/3$).
 
+Проверим численно (2.2), (2.3), свойства из §2.1 и теорему 2.1 на случайных сепарабельных состояниях:
+
+```{python}
+SWAP = np.eye(4)[[0, 2, 1, 3]]
+assert np.allclose(ptrans(proj(Phi_p), 2, 2), SWAP / 2)
+print("(|Φ+><Φ+|)^Γ = SWAP/2, спектр:", np.linalg.eigvalsh(SWAP / 2))
+for p in [0, 0.2, 1 / 3, 0.5, 1]:
+    l1, l2 = lam_min_pt(rho_iso(p)), lam_min_pt(rho_W(p))
+    print(f"p = {p:.3f}: λ_min(ρ_p^Γ) = {l1:+.4f}, λ_min(ρ_W^Γ) = {l2:+.4f}, (1 − 3p)/4 = {(1 - 3 * p) / 4:+.4f}")
+    assert np.isclose(l1, (1 - 3 * p) / 4) and np.isclose(l2, (1 - 3 * p) / 4)
+for _ in range(100):                               # §2.1 на состояниях 2×3
+    r = random_rho_hs(6)
+    eb = np.linalg.eigvalsh(ptrans(r, 2, 3, 1))
+    UA, UB = (np.linalg.qr(rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d)))[0] for d in (2, 3))
+    W = kron(UA, UB)
+    assert np.allclose(np.linalg.eigvalsh(ptrans(r, 2, 3, 0)), eb)
+    assert np.allclose(np.linalg.eigvalsh(ptrans(W @ r @ dag(W), 2, 3)), eb)
+print("100 состояний 2×3: спектр ρ^Γ одинаков для T_A и T_B и не меняется при U_A ⊗ U_B")
+for dA, dB in [(2, 2), (2, 3), (3, 3), (2, 4)]:
+    m = min(lam_min_pt(random_separable(dA, dB), dA, dB) for _ in range(100))
+    print(f"{dA}×{dB}: 100 случайных сепарабельных, min λ_min(ρ^Γ) = {m:+.1e}")
+    assert m > -1e-12
+```
+
+
 ### 2.3. Положительные, но не вполне положительные отображения
 
 Транспонирование $T$ **положительно** (переводит $X\succeq0$ в $X^T\succeq0$), но **не вполне положительно**: $\mathrm{id}\otimes T$ на $\lvert\Phi^+\rangle$ даёт (2.2), то есть отрицательное собственное значение. Физически такое отображение не реализуется (II.1), но оно служит **детектором**. Обобщение:
@@ -131,7 +327,25 @@ $$
 $$
 \rho_A\otimes I - \rho\succeq0 \tag{2.4}
 $$
-(Хородецкие, 1999; Серф, Адами, Гингрич, 1999). Оно слабее PPT в общем случае, но важно для дистилляции: нарушение (2.4) гарантирует, что запутанность можно дистиллировать. Для кубита $\Lambda_R(X) = Y X^{T} Y$, поэтому при $d_B = 2$ критерий редукции совпадает с PPT (задача 5; раздел 5 `примеры.py`).
+(Хородецкие, 1999; Серф, Адами, Гингрич, 1999). Оно слабее PPT в общем случае, но важно для дистилляции: нарушение (2.4) гарантирует, что запутанность можно дистиллировать. Для кубита $\Lambda_R(X) = Y X^{T} Y$, поэтому при $d_B = 2$ критерий редукции совпадает с PPT (задача 5). Проверим численно:
+
+```{python}
+def reduction_ok(r, dA=2, dB=2):
+    return np.linalg.eigvalsh(kron(ptrace(r, dA, dB, 0), np.eye(dB)) - r)[0] > -1e-12
+
+for _ in range(100):
+    M = rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2))
+    assert np.allclose(np.trace(M) * I2 - M, Y @ M.T @ Y)
+print("Tr(M) I − M = Y Mᵀ Y на 100 случайных матрицах 2×2")
+n_ppt = 0
+for _ in range(2000):
+    r = random_rho_hs(4)
+    ppt = lam_min_pt(r) > -1e-12
+    assert ppt == reduction_ok(r)
+    n_ppt += ppt
+print(f"2000 случайных двухкубитных состояний: критерий редукции ⇔ PPT во всех случаях (PPT из них {n_ppt})")
+```
+
 
 ---
 
@@ -158,11 +372,56 @@ $$
 $$
 поэтому нужны **три локальные настройки** ($XX$, $YY$, $ZZ$) вместо девяти для томографии. Для ЛР4: $\langle\tfrac12I - \lvert\Psi^-\rangle\langle\Psi^-\rvert\rangle_{\rho_W} = \frac12 - \frac{1+3p}{4}<0\iff p>1/3$. На этом семействе свидетель точен.
 
-Свидетель должен быть **согласован с состоянием**: $\tfrac12I - \lvert\Phi^+\rangle\langle\Phi^+\rvert$ на $\rho_W$ даёт $\ge 1/4$ при всех $p$ и не обнаруживает ничего (раздел 4 `примеры.py`).
+Свидетель должен быть **согласован с состоянием**: $\tfrac12I - \lvert\Phi^+\rangle\langle\Phi^+\rvert$ на $\rho_W$ даёт $\ge 1/4$ при всех $p$ и не обнаруживает ничего.
+
+Проверим численно: минимум $\langle ab|W|ab\rangle$ по произведениям (BFGS с 10 случайными стартами), разложения по Паули и средние обоих свидетелей на $\rho_W(p)$:
+
+```{python}
+W_phi, W_psi = 0.5 * I4 - proj(Phi_p), 0.5 * I4 - proj(Psi_m)
+
+def min_on_products(W):
+    def f(t):
+        a, b = t[0:2] + 1j * t[2:4], t[4:6] + 1j * t[6:8]
+        v = kron(a / np.linalg.norm(a), b / np.linalg.norm(b))
+        return np.real(np.vdot(v, W @ v))
+    return min(minimize(f, rng.normal(size=8), method="BFGS").fun for _ in range(10))
+
+for name, W in [("I/2 − |Φ+><Φ+|", W_phi), ("I/2 − |Ψ−><Ψ−|", W_psi)]:
+    m = min_on_products(W)
+    print(f"{name}: min по произведениям <ab|W|ab> = {m:.1e}")
+    assert abs(m) < 1e-7
+assert np.allclose(proj(Phi_p), (kron(I2, I2) + kron(X, X) - kron(Y, Y) + kron(Z, Z)) / 4)
+assert np.allclose(proj(Psi_m), (kron(I2, I2) - kron(X, X) - kron(Y, Y) - kron(Z, Z)) / 4)
+print("разложения по Паули верны")
+print("   p    <I/2 − Ψ−>_ρW   1/2 − (1+3p)/4   <I/2 − Φ+>_ρW")
+for p in [0, 1 / 3, 0.5, 0.8, 1]:
+    w1, w2 = np.trace(W_psi @ rho_W(p)).real, np.trace(W_phi @ rho_W(p)).real
+    print(f"  {p:.3f}     {w1:+.4f}          {0.5 - (1 + 3 * p) / 4:+.4f}          {w2:+.4f}")
+    assert np.isclose(w1, 0.5 - (1 + 3 * p) / 4) and w2 >= 0.25 - 1e-12
+```
+
 
 ### 3.3. Свидетель из PPT
 
 Если $\lvert v\rangle$ — собственный вектор $\rho^\Gamma$ с отрицательным собственным значением, то $W = (\lvert v\rangle\langle v\rvert)^\Gamma$ — свидетель. Действительно, $\operatorname{Tr}(W\sigma) = \langle v|\sigma^\Gamma|v\rangle\ge0$ для PPT-состояний (в частности, для сепарабельных), а $\operatorname{Tr}(W\rho) = \lambda_{\min}(\rho^\Gamma)<0$.
+
+Проверим численно на случайных NPT-состояниях:
+
+```{python}
+n_npt = 0
+for _ in range(100):
+    r = random_rho_hs(4)
+    w, V = np.linalg.eigh(ptrans(r, 2, 2))
+    if w[0] < 0:
+        n_npt += 1
+        Wv = ptrans(proj(V[:, 0]), 2, 2)
+        assert np.isclose(np.trace(Wv @ r).real, w[0])
+        assert min(np.trace(Wv @ random_separable(2, 2)).real for _ in range(20)) > -1e-12
+print(f"{n_npt} NPT-состояний из 100: Tr(Wρ) = λ_min(ρ^Γ) < 0, а на 20 случайных сепарабельных Tr(Wσ) ≥ 0")
+W7 = ptrans(proj(Psi_m), 2, 2)                     # для Φ+ отрицательный вектор ρ^Γ — это Ψ− (задача 7)
+print("для Φ+: (|Ψ−><Ψ−|)^Γ = I/2 − |Φ+><Φ+|?", np.allclose(W7, W_phi))
+```
+
 
 ### 3.4. Свидетель против неравенства Белла
 
@@ -174,7 +433,7 @@ $$
 
 ### 4.1. PPT-запутанные состояния
 
-В размерностях 3×3 и 2×4 существуют запутанные состояния с $\rho^\Gamma\succeq0$ (П. Хородецкий, 1997). Классический пример в 3×3 зависит от параметра $a\in(0,1)$ (явная матрица — в `примеры.py`, раздел 6, и в ЛР4, задание 5). Его запутанность доказывается **критерием образа** (range criterion): у сепарабельного $\rho$ образ натянут на произведения $\lvert a\rangle\lvert b\rangle$ такие, что $\lvert a\rangle\lvert b^*\rangle$ лежит в образе $\rho^\Gamma$. У этого состояния таких произведений не хватает.
+В размерностях 3×3 и 2×4 существуют запутанные состояния с $\rho^\Gamma\succeq0$ (П. Хородецкий, 1997). Классический пример в 3×3 зависит от параметра $a\in(0,1)$ (явная матрица — в функции `horodecki_3x3` в ячейке подготовки и в ЛР4, задание 5). Его запутанность доказывается **критерием образа** (range criterion): у сепарабельного $\rho$ образ натянут на произведения $\lvert a\rangle\lvert b\rangle$ такие, что $\lvert a\rangle\lvert b^*\rangle$ лежит в образе $\rho^\Gamma$. У этого состояния таких произведений не хватает.
 
 ### 4.2. Критерий перестановки (CCNR)
 
@@ -182,7 +441,37 @@ $$
 $$
 \|R(\rho)\|_1\le 1 \tag{4.1}
 $$
-(Чен, Ву, 2003; Рудольф, 2005). Действительно, для произведения $R(\rho_A\otimes\rho_B) = \mathrm{vec}(\rho_A)\,\mathrm{vec}(\rho_B)^{\mathsf T}$, и $\|R\|_1 = \|\rho_A\|_2\|\rho_B\|_2\le1$; дальше по выпуклости. Критерий не сравним с PPT: он ловит часть PPT-запутанных состояний. Для состояния Городецкого $\|R\|_1 - 1>0$ при всех $a\in(0,1)$, но запас мал, порядка $10^{-3}$ и меньше (раздел 6 `примеры.py`). Это хорошее упражнение на численную аккуратность.
+(Чен, Ву, 2003; Рудольф, 2005). Действительно, для произведения $R(\rho_A\otimes\rho_B) = \mathrm{vec}(\rho_A)\,\mathrm{vec}(\rho_B)^{\mathsf T}$, и $\|R\|_1 = \|\rho_A\|_2\|\rho_B\|_2\le1$; дальше по выпуклости. Критерий не сравним с PPT: он ловит часть PPT-запутанных состояний. Для состояния Городецкого $\|R\|_1 - 1>0$ при всех $a\in(0,1)$, но запас мал, порядка $10^{-3}$ и меньше. Это хорошее упражнение на численную аккуратность. Проверим численно:
+
+```{python}
+#| fig-cap: "Состояние Городецкого $3\\times3$: запас критерия перестановки $\\|R(\\rho)\\|_1 - 1$ в зависимости от $a$ (логарифмическая шкала). Он положителен при всех $a\\in(0,1)$, то есть состояние запутано, хотя оно PPT; максимум около $3\\cdot10^{-3}$."
+for a in [0.01, 0.1, 0.24, 0.5, 0.9, 0.99]:
+    s = horodecki_3x3(a)
+    assert np.isclose(np.trace(s), 1) and np.linalg.eigvalsh(s)[0] > -1e-12
+    lmin, ccnr = lam_min_pt(s, 3, 3), trace_norm(realign(s, 3, 3)) - 1
+    print(f"a = {a:4.2f}: λ_min(ρ^Γ) = {lmin:+.1e} (PPT);  ||R(ρ)||_1 − 1 = {ccnr:.2e} > 0")
+    assert lmin > -1e-12 and ccnr > 0
+m_sep = max(trace_norm(realign(random_separable(3, 3), 3, 3)) for _ in range(200))
+print(f"200 случайных сепарабельных 3×3: max ||R||_1 = {m_sep:.4f} ≤ 1")
+assert m_sep <= 1 + 1e-12
+
+a_grid = np.linspace(0.001, 0.999, 999)
+margin = np.array([trace_norm(realign(horodecki_3x3(a), 3, 3)) - 1 for a in a_grid])
+k = margin.argmax()
+print(f"максимум запаса {margin[k]:.2e} при a = {a_grid[k]:.3f};  a = 0.001: {margin[0]:.1e},  a = 0.999: {margin[-1]:.1e}")
+assert margin.min() > 0
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.semilogy(a_grid, margin, color="tab:blue")
+ax.plot(a_grid[k], margin[k], "o", color="tab:red")
+ax.annotate(f"max ≈ {margin[k]:.1e}\nпри $a$ ≈ {a_grid[k]:.2f}", (a_grid[k], margin[k]),
+            xytext=(0.45, 4e-4), arrowprops=dict(arrowstyle="->", color="gray"))
+ax.set_xlabel("параметр $a$")
+ax.set_ylabel(r"$\|R(\rho)\|_1 - 1$")
+ax.set_ylim(1e-6, 1e-2)
+plt.tight_layout()
+plt.show()
+```
+
 
 ### 4.3. Почему «связанная»
 
@@ -221,7 +510,22 @@ $$
 - **$\lvert\Phi_d\rangle$ — наверху:** $(1/d,\dots,1/d)\prec$ любого вектора, поэтому из максимально запутанного состояния получается любое.
 - **Энтропия — монотон:** если $x\prec y$, то $S(x)\ge S(y)$ (энтропия вогнута по Шуру). Обратное неверно.
 - **Несравнимые состояния.** Для $\lambda(\psi) = (0{,}4;\,0{,}4;\,0{,}1;\,0{,}1)$ и $\lambda(\varphi) = (0{,}5;\,0{,}25;\,0{,}25;\,0)$ ни одно не переводится в другое, хотя $E(\psi)>E(\varphi)$. Одного числа мало, чтобы описать возможные преобразования одной копии.
-- **Катализ** (Джонатан, Пленио, 1999). С вспомогательным состоянием $\lambda(c) = (0{,}6;\,0{,}4)$, которое возвращается неизменным, $\psi\otimes c\to\varphi\otimes c$ становится возможным (раздел 7 `примеры.py`).
+- **Катализ** (Джонатан, Пленио, 1999). С вспомогательным состоянием $\lambda(c) = (0{,}6;\,0{,}4)$, которое возвращается неизменным, $\psi\otimes c\to\varphi\otimes c$ становится возможным.
+
+Проверим численно все три следствия:
+
+```{python}
+phi4 = np.ones(4) / 4
+assert all(majorized(phi4, rng.dirichlet(np.ones(4))) for _ in range(100))
+print("(1/4, 1/4, 1/4, 1/4) ≺ x для 100 случайных векторов x")
+lpsi, lphi, cat = np.array([0.4, 0.4, 0.1, 0.1]), np.array([0.5, 0.25, 0.25, 0]), np.array([0.6, 0.4])
+print("частичные суммы λ(ψ):", np.cumsum(lpsi).round(2), " λ(φ):", np.cumsum(lphi).round(2))
+print("ψ → φ?", majorized(lpsi, lphi), "  φ → ψ?", majorized(lphi, lpsi))
+print("ψ⊗c → φ⊗c с катализатором c = (0.6, 0.4)?", majorized(np.kron(lpsi, cat), np.kron(lphi, cat)))
+print(f"E(ψ) = {entropy(lpsi):.3f} > E(φ) = {entropy(lphi):.3f}")
+assert not majorized(lpsi, lphi) and not majorized(lphi, lpsi) and majorized(np.kron(lpsi, cat), np.kron(lphi, cat))
+```
+
 
 ---
 
@@ -255,7 +559,43 @@ $$
 $$
 C = 2|ad - bc| = 2\sqrt{\det\rho_A}. \tag{6.3}
 $$
-$E_F$ — монотонно возрастающая функция $C$, так что для двух кубитов concurrence сама служит мерой. В `примеры.py` (раздел 8) формула (6.2) сверяется с прямой минимизацией (6.1) по разложениям состояний ранга 2. Для $\rho_p$: $C = \max\bigl(0,\frac{3p-1}{2}\bigr)$.
+$E_F$ — монотонно возрастающая функция $C$, так что для двух кубитов concurrence сама служит мерой. Ниже формула (6.2) сверяется с прямой минимизацией (6.1) по разложениям состояния ранга 2 на 6 чистых состояний (в лекции — одно состояние и два старта оптимизации, в `примеры.py` — три состояния и шесть стартов). Для $\rho_p$: $C = \max\bigl(0,\frac{3p-1}{2}\bigr)$.
+
+```{python}
+for _ in range(200):
+    v = random_state(4)
+    C = concurrence(proj(v))
+    assert np.isclose(C, 2 * abs(v[0] * v[3] - v[1] * v[2]))
+    assert np.isclose(C, 2 * np.sqrt(max(0, np.linalg.det(ptrace(proj(v), 2, 2)).real)))
+    assert np.isclose(eof_wootters(proj(v)), ent_entropy(v))
+print("200 чистых состояний: C = 2|ad − bc| = 2√det ρ_A, E_F по (6.2) = S(ρ_A)")
+assert all(np.isclose(concurrence(rho_iso(p)), max(0, (3 * p - 1) / 2)) for p in np.linspace(0, 1, 11))
+print("ρ_p: C = max(0, (3p − 1)/2) для p = 0, 0.1, …, 1")
+
+def eof_numeric(r, K=6, tries=2):
+    """min Σ p_i E(ψ_i) по разложениям ρ на K чистых состояний (Нелдер–Мид)."""
+    w, V = np.linalg.eigh(r)
+    keep = w > 1e-12
+    base = V[:, keep] * np.sqrt(w[keep])              # столбцы √w_j |e_j>
+    k = base.shape[1]
+    def f(t):
+        Q, _ = np.linalg.qr((t[:K * k] + 1j * t[K * k:]).reshape(K, k))   # изометрия K × k
+        tot = 0.0
+        for i in range(K):
+            v = base @ Q[i]
+            pi = np.vdot(v, v).real
+            if pi > 1e-14:
+                tot += pi * ent_entropy(v / np.sqrt(pi))
+        return tot
+    return min(minimize(f, rng.normal(size=2 * K * k), method="Nelder-Mead",
+                        options=dict(maxiter=20000, xatol=1e-9, fatol=1e-11)).fun for _ in range(tries))
+
+r2 = 0.6 * proj(random_state(4)) + 0.4 * proj(random_state(4))
+en, ew = eof_numeric(r2), eof_wootters(r2)
+print(f"ранг 2: минимум по разложениям {en:.5f}, формула Вуттерса {ew:.5f}")
+assert en >= ew - 1e-6 and abs(en - ew) < 2e-3
+```
+
 
 ### 6.4. Negativity и логарифмическая negativity
 
@@ -268,7 +608,35 @@ $$
 - $\mathcal N$ — выпуклый монотон. $E_{\mathcal N}$ — монотон, но не выпукла (Пленио, 2005). Зато она аддитивна и даёт верхнюю оценку $E_D\le E_{\mathcal N}$;
 - **равны нулю на всех PPT-состояниях**, поэтому не видят связанную запутанность.
 
-Для чистых двух кубитов с коэффициентами Шмидта $\lambda_{1,2}$: $\mathcal N = \sqrt{\lambda_1\lambda_2} = C/2$, $E_{\mathcal N} = 2\log_2(\sqrt{\lambda_1}+\sqrt{\lambda_2})$. Для смешанных $2\mathcal N\le C$ (Верстрате и др., 2001), и равенство в общем случае нарушается (раздел 9 `примеры.py`). Для $\rho_p$: $\mathcal N = \max\bigl(0,\frac{3p-1}{4}\bigr)$, это контрольное значение ЛР4.
+Для чистых двух кубитов с коэффициентами Шмидта $\lambda_{1,2}$: $\mathcal N = \sqrt{\lambda_1\lambda_2} = C/2$, $E_{\mathcal N} = 2\log_2(\sqrt{\lambda_1}+\sqrt{\lambda_2})$. Для смешанных $2\mathcal N\le C$ (Верстрате и др., 2001), и равенство в общем случае нарушается. Для $\rho_p$: $\mathcal N = \max\bigl(0,\frac{3p-1}{4}\bigr)$, это контрольное значение ЛР4.
+
+Проверим численно эти формулы, неравенство $2\mathcal N\le C$ и монотонность обеих величин при локальном шуме (деполяризация у Боба):
+
+```{python}
+for _ in range(200):
+    v = random_state(4)
+    s = np.linalg.svd(v.reshape(2, 2), compute_uv=False)          # s_i = √λ_i
+    assert np.isclose(negativity(proj(v)), s[0] * s[1]) and np.isclose(2 * negativity(proj(v)), concurrence(proj(v)))
+    assert np.isclose(log_negativity(proj(v)), 2 * np.log2(s[0] + s[1]))
+print("200 чистых состояний: N = √(λ1 λ2) = C/2, E_N = 2 log2(√λ1 + √λ2)")
+assert all(np.isclose(negativity(rho_iso(p)), max(0, (3 * p - 1) / 4)) for p in np.linspace(0, 1, 11))
+print("ρ_p: N = max(0, (3p − 1)/4)")
+gaps = []
+for _ in range(2000):
+    r = random_rho_hs(4)
+    gaps.append(concurrence(r) - 2 * negativity(r))
+print(f"2000 случайных смешанных: min(C − 2N) = {min(gaps):.1e} ≥ 0, max(C − 2N) = {max(gaps):.3f}")
+assert min(gaps) > -1e-9
+
+def depol_B(r, q):
+    return (1 - q) * r + q * kron(ptrace(r, 2, 2, 0), I2 / 2)
+for _ in range(200):
+    r, q = random_rho_hs(4), rng.uniform()
+    assert negativity(depol_B(r, q)) <= negativity(r) + 1e-12 and concurrence(depol_B(r, q)) <= concurrence(r) + 1e-9
+print("локальная деполяризация не увеличивает N и C (200 случаев)")
+assert np.isclose(log_negativity(proj(Phi_p)), 1) and np.isclose(eof_wootters(proj(Phi_p)), 1)
+```
+
 
 ### 6.5. Другие меры (обзорно)
 
@@ -299,13 +667,56 @@ $$
 | Нарушает CHSH | $p>1/\sqrt2\approx0{,}707$ | I.6, (3.3) |
 | Даёт положительный ключ DIQKD | $p>0{,}857$ | I.6, §9 |
 
-Меры (раздел 10 `примеры.py`):
+Меры:
 $$
 C = \max\!\left(0,\tfrac{3p-1}{2}\right),\quad \mathcal N = \max\!\left(0,\tfrac{3p-1}{4}\right),\quad E_F = h\!\left(\tfrac{1+\sqrt{1-C^2}}{2}\right),\quad S_{\max} = 2\sqrt2\,p .
 $$
+Вычислим их численно (concurrence и $E_F$ — по Вуттерсу, $\mathcal N$ и $E_{\mathcal N}$ — по спектру $\rho^\Gamma$, $S_{\max}$ — по критерию Городецких):
+
+```{python}
+#| fig-cap: "Меры запутанности состояния $\\rho_p$ в зависимости от $p$. Все они равны нулю при $p\\le1/3$ (сепарабельность); вертикальные линии — пороги управляемости ($1/2$) и нарушения CHSH ($1/\\sqrt2$)."
+def smax(r):
+    T = np.array([[np.trace(r @ kron(A, B)).real for B in (X, Y, Z)] for A in (X, Y, Z)])
+    t = np.sort(np.linalg.eigvalsh(T.T @ T))[::-1]
+    return 2 * np.sqrt(t[0] + t[1])
+
+print("    p      C      N     E_F    E_N   S_max")
+for p in [0.2, 1 / 3, 0.5, 1 / np.sqrt(2), 0.9, 1.0]:
+    r = rho_iso(p)
+    print(f"  {p:.3f}  {concurrence(r):.3f}  {negativity(r):.3f}  {eof_wootters(r):.3f}  {log_negativity(r):.3f}  {smax(r):.3f}")
+    assert np.isclose(eof_wootters(r), eof_wootters(rho_W(p))) and np.isclose(smax(r), 2 * np.sqrt(2) * p)
+
+ps = np.linspace(0, 1, 201)
+curves = {r"$C$": concurrence, r"$\mathcal{N}$": negativity, r"$E_F$": eof_wootters, r"$E_{\mathcal{N}}$": log_negativity}
+fig, ax = plt.subplots(figsize=(6.4, 3.8))
+for lbl, f in curves.items():
+    ax.plot(ps, [f(rho_iso(p)) for p in ps], label=lbl)
+for x0, txt in [(1 / 3, "1/3"), (0.5, "1/2"), (1 / np.sqrt(2), r"$1/\sqrt{2}$")]:
+    ax.axvline(x0, color="gray", ls=":", lw=1)
+    ax.text(x0 + 0.01, 0.92, txt, fontsize=9)
+ax.set_xlabel("параметр $p$")
+ax.set_ylabel("значение меры")
+ax.set_ylim(0, 1.02)
+ax.legend(loc="center left")
+plt.tight_layout()
+plt.show()
+```
+
 Главный вывод. **Запутанность, управляемость и нелокальность — строго разные ресурсы**, и по силе они упорядочены. Каждому протоколу нужен свой уровень. Для телепортации достаточно запутанности, для протоколов, не доверяющих устройствам, нужна нелокальность.
 
-**Изотропные состояния в размерности $d$.** $\rho = p\lvert\Phi_d\rangle\langle\Phi_d\rvert + (1-p)I/d^2$ сепарабельно $\iff$ PPT $\iff p\le\frac1{d+1}$, поскольку $(\lvert\Phi_d\rangle\langle\Phi_d\rvert)^\Gamma = \mathrm{SWAP}/d$ (задача 11). Для этого семейства PPT точен в любой размерности (Хородецкие, 1999).
+**Изотропные состояния в размерности $d$.** $\rho = p\lvert\Phi_d\rangle\langle\Phi_d\rvert + (1-p)I/d^2$ сепарабельно $\iff$ PPT $\iff p\le\frac1{d+1}$, поскольку $(\lvert\Phi_d\rangle\langle\Phi_d\rvert)^\Gamma = \mathrm{SWAP}/d$ (задача 11). Для этого семейства PPT точен в любой размерности (Хородецкие, 1999). Проверим численно порог PPT:
+
+```{python}
+for d in [2, 3, 4]:
+    Om = sum(kron(np.eye(d)[i], np.eye(d)[i]) for i in range(d)) / np.sqrt(d)
+    assert np.allclose(ptrans(proj(Om), d, d), np.eye(d * d)[[j * d + i for i in range(d) for j in range(d)]] / d)
+    ps_d = np.linspace(0, 1, 401)
+    ppt = [lam_min_pt(p * proj(Om) + (1 - p) * np.eye(d * d) / d**2, d, d) > -1e-12 for p in ps_d]
+    p_star = ps_d[np.argmin(ppt)]                  # первое p, при котором PPT нарушается
+    print(f"d = {d}: (|Φ_d><Φ_d|)^Γ = SWAP/d;  PPT при p ≤ {ps_d[np.argmin(ppt) - 1]:.4f}, NPT с p = {p_star:.4f};  1/(d+1) = {1 / (d + 1):.4f}")
+    assert all(ppt[i] == (ps_d[i] <= 1 / (d + 1) + 1e-12) for i in range(len(ps_d)))
+```
+
 
 ---
 
@@ -316,11 +727,28 @@ $$
 - **Подлинная многочастичная запутанность (GME)**: состояние не является смесью бисепарабельных, ни по какому разрезу.
 - **Классы SLOCC.** Для трёх кубитов есть два класса подлинной запутанности, GHZ и W (Дюр, Видаль, Сирак, 2000; I.4, §6).
 
-Свидетели по верности работают и здесь. Максимальное перекрытие GHZ с бисепарабельными чистыми состояниями равно $1/2$, у W — $2/3$ (раздел 11 `примеры.py`). Значит,
+Свидетели по верности работают и здесь. Максимальное перекрытие GHZ с бисепарабельными чистыми состояниями равно $1/2$, у W — $2/3$ (это наибольший квадрат коэффициента Шмидта по трём разрезам «один кубит | два»; проверка — в ячейке ниже). Значит,
 $$
 F_{\mathrm{GHZ}}>\tfrac12\ \Longrightarrow\ \text{подлинная многочастичная запутанность}. \tag{8.1}
 $$
 Это стандартный тест для процессоров: «приготовили GHZ на $n$ кубитах» означает, что измеренная верность больше $1/2$. Верность оценивают по чётности и когерентностям, без полной томографии (II.3). Для GHZ с белым шумом критерий срабатывает при $p>3/7$. Для GHZ-диагональных состояний критерий (8.1) необходим и достаточен (Гюне, Севинк, 2010).
+
+```{python}
+GHZ = (kron(ket0, ket0, ket0) + kron(ket1, ket1, ket1)) / np.sqrt(2)
+Wst = (kron(ket1, ket0, ket0) + kron(ket0, ket1, ket0) + kron(ket0, ket0, ket1)) / np.sqrt(3)
+
+def max_schmidt2(psi):
+    """max по разрезам k | остальные наибольшего квадрата коэффициента Шмидта."""
+    t = psi.reshape(2, 2, 2)
+    return max(np.linalg.svd(np.moveaxis(t, k, 0).reshape(2, 4), compute_uv=False)[0] ** 2 for k in range(3))
+
+print(f"max перекрытие с бисепарабельными: GHZ — {max_schmidt2(GHZ):.4f}, W — {max_schmidt2(Wst):.4f}")
+assert np.isclose(max_schmidt2(GHZ), 1 / 2) and np.isclose(max_schmidt2(Wst), 2 / 3)
+for p in [0.4, 3 / 7, 0.5, 0.8]:
+    F = np.vdot(GHZ, (p * proj(GHZ) + (1 - p) * np.eye(8) / 8) @ GHZ).real
+    print(f"p = {p:.3f}: F_GHZ = {F:.4f} -> {'подлинно запутано' if F > 0.5 + 1e-12 else 'свидетель молчит'}")
+```
+
 
 ---
 
@@ -371,25 +799,28 @@ $$
 13. (•••) **Твирлинг.** Докажите, что $\int dU\,(U\otimes U^*)\,X\,(U\otimes U^*)^\dagger$ — изотропное состояние с той же верностью $\langle\Phi^+|X|\Phi^+\rangle$. Указание: $(U\otimes U^*)\lvert\Phi^+\rangle = \lvert\Phi^+\rangle$. Применив твирлинг к $\lvert00\rangle\langle00\rvert$, получите второе доказательство сепарабельности $\rho_{1/3}$. Почему твирлинг — LOCC?
 14. (•) При каком $p$ состояние $p\lvert\mathrm{GHZ}\rangle\langle\mathrm{GHZ}\rvert + (1-p)I/8$ проходит тест (8.1)?
 
-### Ответы и указания
+::: {.callout-tip collapse="true"}
+## Ответы и указания
+
 - **3.** Спектр: $\frac{1+p}{4}$ (трижды) и $\frac{1-3p}{4}$.
 - **4.** Если бы $\mathrm{id}\otimes T$ было положительным, $(\lvert\Phi^+\rangle\langle\Phi^+\rvert)^\Gamma$ было бы $\succeq0$. Но $\mathrm{SWAP}$ имеет собственное значение $-1$ на антисимметричном векторе $\lvert\Psi^-\rangle$.
 - **5.** Проверьте на базисе $\{I, X, Y, Z\}$: $YI^TY = I$, $YX^TY = -X$, $YY^TY = -Y$, $YZ^TY = -Z$. Затем $\rho_A\otimes I - \rho = (\mathrm{id}\otimes\mathrm{Ad}_Y)(\rho^\Gamma)$, а унитарное сопряжение не меняет спектр.
 - **6.** $|\langle ab|\psi\rangle| = |\langle a|C|b^*\rangle|\le s_{\max}(C)$, где $C$ — матрица коэффициентов; $s_{\max}^2 = \lambda_{\max}$. $\langle W\rangle = \frac12 - \frac{1+3p}{4}$.
 - **7.** Для $\lvert\Phi^+\rangle$: $\lvert v\rangle = \lvert\Psi^-\rangle$, $W = (\lvert\Psi^-\rangle\langle\Psi^-\rvert)^\Gamma = \frac12I - \lvert\Phi^+\rangle\langle\Phi^+\rvert$. Это тот же свидетель (3.2).
-- **8.** Частичные суммы: $0{,}4 < 0{,}5$, но $0{,}8 > 0{,}75$. С катализатором — проверка в разделе 7 `примеры.py`.
+- **8.** Частичные суммы: $0{,}4 < 0{,}5$, но $0{,}8 > 0{,}75$. С катализатором — проверка в ячейке § 5.3.
 - **9.** Для чистого $\rho$ ранг $\rho\tilde\rho$ равен 1, и $\lambda_1 = |\langle\psi|Y\otimes Y|\psi^*\rangle| = 2|ad - bc|$.
 - **10.** $\mathcal N = \frac{(\sum\sqrt{\lambda_i})^2 - 1}{2}$, $E_{\mathcal N} = 2\log_2\sum_i\sqrt{\lambda_i}$; для $\lvert\Phi_d\rangle$: $E_{\mathcal N} = \log_2 d$.
 - **11.** $\lambda_{\min} = -\frac pd + \frac{1-p}{d^2}<0\iff p>\frac1{d+1}$.
 - **12.** Запас $\|R\|_1 - 1$ стремится к нулю при $a\to0$ и $a\to1$ (около $5\cdot10^{-5}$ при $a = 0{,}001$ и $5\cdot10^{-6}$ при $a = 0{,}999$). Максимум $\approx3{,}1\cdot10^{-3}$ достигается при $a\approx0{,}24$. Двойной точности хватает с большим запасом, но допуск сравнения с нулём нужно брать много меньше самого запаса, например $10^{-12}$.
 - **13.** Твирлинг реализуется так: Алиса выбирает случайный $U$, сообщает его Бобу, и они применяют $U$ и $U^*$. Это LOCC с общей случайностью. $\langle\Phi^+|00\rangle\langle00|\Phi^+\rangle = \frac12 = \frac{1+3p}{4}$, откуда $p = 1/3$.
 - **14.** $F = p + \frac{1-p}{8}>\frac12\iff p>\frac37$.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` проверяет:
+Ячейки на этой странице — короткие версии проверок (сверка формулы Вуттерса с минимизацией по разложениям — облегчённая: одно состояние и два старта вместо трёх состояний и шести стартов; шар Гурвица–Барнума — 1000 точек вместо 2000). Полный файл `примеры.py` проверяет:
 1. сепарабельность классически коррелированного состояния; разложение (1.2); шар Гурвица–Барнума; локальную эквивалентность $\rho_W$ и $\rho_p$;
 2. PPT: (2.2), (2.3), независимость спектра $\rho^\Gamma$ от подсистемы и локальных унитарных; PPT случайных сепарабельных состояний в 2×2, 2×3, 3×3, 2×4;
 3. долю PPT-состояний по мере Гильберта–Шмидта: $\approx 8/33$;
