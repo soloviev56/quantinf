@@ -1,10 +1,13 @@
-# Лекция I.8. Квантовые схемы и универсальность
+---
+title: "Лекция I.8. Квантовые схемы и универсальность"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.C «Схемы, универсальность, стабилизаторы, сложность».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (операторная норма, расстояние между гейтами с точностью до фазы, пример 10.2); лекция I.2 (повороты сферы Блоха, теорема 3.1); лекция I.5 (телепортация гейтов, принцип отложенного измерения, динамические схемы).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (операторная норма, расстояние между гейтами с точностью до фазы, пример 10.2); [лекция I.2](../../Часть_I/I.02_Постулаты_и_кубит/лекция.qmd) (повороты сферы Блоха, теорема 3.1); [лекция I.5](../../Часть_I/I.05_Протоколы_на_запутанности/лекция.qmd) (телепортация гейтов, принцип отложенного измерения, динамические схемы).
 **Литература:** N&C, § 4.1–4.5 и прил. 3; Dawson C. M., Nielsen M. A. The Solovay–Kitaev algorithm // QIC 6, 81 (2006); Kitaev A. Yu., Shen A. H., Vyalyi M. N. Classical and Quantum Computation. — AMS, 2002, § 8.
-**Материалы:** `примеры.py` — численная проверка всех утверждений, включая рабочую реализацию алгоритма Соловея–Китаева; задачи к семинару С5 и к ЛР5 — в § 9.
+**Материалы:** `примеры.py` — численная проверка всех утверждений, включая рабочую реализацию алгоритма Соловея–Китаева; задачи к семинару С5 и к ЛР5 — в § 9. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения.**
 - Повороты: $R_{\mathbf n}(\theta) = e^{-i\theta\,\mathbf n\cdot\vec\sigma/2}$.
@@ -12,6 +15,88 @@
 - Расстояние между гейтами (I.1, пример 10.2): $d(U,V) = \min_\varphi\|U - e^{i\varphi}V\|_\infty$.
 - В схемах время идёт слева направо, а в формулах операторы действуют справа налево.
 - CNOT$(c\to t)$ — управляющий кубит $c$, целевой $t$.
+- В ячейках кода кубит 0 — старший (первый множитель в $\otimes$), как в N&C.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial import cKDTree
+from scipy.stats import unitary_group
+
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+H = (X + Z) / np.sqrt(2)
+S = np.diag([1, 1j])
+T = np.diag([1, np.exp(1j * np.pi / 4)])
+Td = T.conj().T
+P0, P1 = np.diag([1, 0]).astype(complex), np.diag([0, 1]).astype(complex)
+
+def dag(A):
+    return A.conj().T
+
+def kron(*ops):
+    out = ops[0]
+    for o in ops[1:]:
+        out = np.kron(out, o)
+    return out
+
+def Rx(t): return np.cos(t / 2) * I2 - 1j * np.sin(t / 2) * X
+def Ry(t): return np.cos(t / 2) * I2 - 1j * np.sin(t / 2) * Y
+def Rz(t): return np.cos(t / 2) * I2 - 1j * np.sin(t / 2) * Z
+
+def rot(n, th):
+    """R_n(θ) = exp(−iθ n·σ/2)."""
+    n = np.asarray(n, float) / np.linalg.norm(n)
+    return np.cos(th / 2) * I2 - 1j * np.sin(th / 2) * (n[0] * X + n[1] * Y + n[2] * Z)
+
+def op(U, k, n):
+    """Однокубитный U на кубите k из n (кубит 0 — старший)."""
+    return kron(*[U if i == k else I2 for i in range(n)])
+
+def controlled(U, c, t, n):
+    """Управляемый однокубитный U: управление c, цель t, всего n кубитов."""
+    a = kron(*[P0 if i == c else I2 for i in range(n)])
+    b = kron(*[P1 if i == c else (U if i == t else I2) for i in range(n)])
+    return a + b
+
+def cnot(c, t, n):
+    return controlled(X, c, t, n)
+
+def circuit(gates, dim):
+    """Произведение гейтов в порядке схемы (первый в списке действует первым)."""
+    U = np.eye(dim, dtype=complex)
+    for g in gates:
+        U = g @ U
+    return U
+
+def dist(U, V):
+    """d(U, V) = min_φ ||U − e^{iφ} V||_∞ (I.1, пример 10.2)."""
+    w = np.sort(np.mod(np.angle(np.linalg.eigvals(U @ dag(V))), 2 * np.pi))
+    spread = 2 * np.pi - np.max(np.diff(np.concatenate([w, [w[0] + 2 * np.pi]])))
+    return 2 * np.sin(min(spread, np.pi) / 4)
+
+def random_u(d):
+    return unitary_group.rvs(d, random_state=rng)
+
+def zyz(U):
+    """Углы (α, β, γ, δ) разложения (1.1): U = e^{iα} Rz(β) Ry(γ) Rz(δ)."""
+    a = np.angle(np.linalg.det(U)) / 2
+    V = U * np.exp(-1j * a)
+    c = 2 * np.arctan2(abs(V[1, 0]), abs(V[0, 0]))
+    s = np.angle(V[1, 1]) if abs(V[1, 1]) > 1e-12 else 0.0       # (β + δ)/2
+    t = np.angle(V[1, 0]) if abs(V[1, 0]) > 1e-12 else 0.0       # (β − δ)/2
+    b, d = s + t, s - t
+    if not np.allclose(np.exp(1j * a) * Rz(b) @ Ry(c) @ Rz(d), U):
+        a += np.pi                                              # другая ветвь корня из det U
+    return a, b, c, d
+```
+
 
 ---
 
@@ -86,7 +171,25 @@ U = e^{i\alpha}\,A\,X\,B\,X\,C,\qquad ABC = I, \tag{1.2}
 $$
 где $A = R_z(\beta)R_y(\frac\gamma2)$, $B = R_y(-\frac\gamma2)R_z(-\frac{\delta+\beta}{2})$, $C = R_z(\frac{\delta-\beta}{2})$.
 
-Это проверяется с помощью $XR_y(\theta)X = R_y(-\theta)$ и $XR_z(\theta)X = R_z(-\theta)$: «вставка» $X$ разворачивает поворот. Смысл (1.2): если $X$ не применяется, то $ABC = I$; если применяется, получается $U$ с точностью до фазы. Это готовый рецепт controlled-$U$ (§2.2). В `примеры.py` (раздел 1) обе формулы проверены на 1000 случайных $U$.
+Это проверяется с помощью $XR_y(\theta)X = R_y(-\theta)$ и $XR_z(\theta)X = R_z(-\theta)$: «вставка» $X$ разворачивает поворот. Смысл (1.2): если $X$ не применяется, то $ABC = I$; если применяется, получается $U$ с точностью до фазы. Это готовый рецепт controlled-$U$ (§2.2). Проверим численно обе формулы на 1000 случайных $U$:
+
+```{python}
+def abc(U):
+    a, b, c, d = zyz(U)
+    return a, Rz(b) @ Ry(c / 2), Ry(-c / 2) @ Rz(-(d + b) / 2), Rz((d - b) / 2)
+
+for _ in range(1000):
+    U = random_u(2)
+    a, b, c, d = zyz(U)
+    assert np.allclose(np.exp(1j * a) * Rz(b) @ Ry(c) @ Rz(d), U)              # (1.1)
+    a, A, B, C = abc(U)
+    assert np.allclose(A @ B @ C, I2) and np.allclose(np.exp(1j * a) * A @ X @ B @ X @ C, U)   # (1.2)
+print("1000 случайных U: (1.1) и (1.2) с ABC = I выполнены")
+assert np.allclose(X @ Ry(0.7) @ X, Ry(-0.7)) and np.allclose(X @ Rz(0.7) @ X, Rz(-0.7))
+a, b, c, d = zyz(H)
+print(f"пример (задача 1): H = e^(i·{a / np.pi:.2f}π) Rz({b / np.pi:.2f}π) Ry({c / np.pi:.2f}π) Rz({d / np.pi:.2f}π)")
+```
+
 
 ---
 
@@ -94,7 +197,7 @@ $$
 
 ### 2.1. CNOT, CZ, SWAP
 
-Тождества, которыми компиляторы пользуются постоянно (раздел 2 `примеры.py`):
+Тождества, которыми компиляторы пользуются постоянно:
 $$
 \mathrm{CZ} = \operatorname{diag}(1,1,1,-1)\ \text{симметричен};\qquad \mathrm{CNOT} = (I\otimes H)\,\mathrm{CZ}\,(I\otimes H); \tag{2.1}
 $$
@@ -103,6 +206,25 @@ $$
 \mathrm{SWAP} = \mathrm{CNOT}(1\to2)\,\mathrm{CNOT}(2\to1)\,\mathrm{CNOT}(1\to2). \tag{2.2}
 $$
 Первое тождество (2.2) показывает, что понятия «управляющий» и «целевой» зависят от базиса: в базисе $\lvert\pm\rangle$ они меняются ролями. Второе говорит, что SWAP стоит три CNOT. Меньше нельзя: SWAP — самый «нелокальный» двухкубитный гейт.
+
+Проверим численно (2.1) и (2.2):
+
+```{python}
+CNOT01, CNOT10 = cnot(0, 1, 2), cnot(1, 0, 2)
+CZ = np.diag([1, 1, 1, -1]).astype(complex)
+SWAP = np.eye(4)[[0, 2, 1, 3]]
+checks = {
+    "CZ(0,1) = CZ(1,0)": np.allclose(controlled(Z, 0, 1, 2), controlled(Z, 1, 0, 2)),
+    "CNOT(0→1) = CNOT(1→0)": np.allclose(CNOT01, CNOT10),
+    "CNOT = (I⊗H) CZ (I⊗H)": np.allclose(CNOT01, kron(I2, H) @ CZ @ kron(I2, H)),
+    "(H⊗H) CNOT(0→1) (H⊗H) = CNOT(1→0)": np.allclose(kron(H, H) @ CNOT01 @ kron(H, H), CNOT10),
+    "SWAP = CNOT(0→1) CNOT(1→0) CNOT(0→1)": np.allclose(CNOT01 @ CNOT10 @ CNOT01, SWAP),
+}
+for k, v in checks.items():
+    print(f"{k:40s} {v}")
+assert all(v for k, v in checks.items() if k != "CNOT(0→1) = CNOT(1→0)") and not checks["CNOT(0→1) = CNOT(1→0)"]
+```
+
 
 **Произвольный двухкубитный гейт** раскладывается в не более чем 3 CNOT и 15 однокубитных поворотов (Ватан, Уильямс, 2004; Видаль, Доусон, 2004). Основа — разложение Картана (KAK): $U = (A_1\otimes A_2)\,e^{i(aXX + bYY + cZZ)}\,(B_1\otimes B_2)$ (Ханеджа, Глейзер, 2001).
 
@@ -114,13 +236,42 @@ C\text{-}U = \bigl(\operatorname{diag}(1,e^{i\alpha})\otimes A\bigr)\;\mathrm{CN
 $$
 Если управляющий кубит в $\lvert0\rangle$, на цель действует $ABC = I$. Если в $\lvert1\rangle$, на цель действует $AXBXC = e^{-i\alpha}U$, и фазовый гейт $\operatorname{diag}(1,e^{i\alpha})$ на управляющем кубите возвращает фазу. **Глобальная фаза $U$ становится относительной**, если $U$ управляемый, поэтому её нельзя отбрасывать.
 
+Проверим численно (2.3) и то, что без фазового гейта получается другой оператор:
+
+```{python}
+worst, diff_no_phase = 0, []
+for _ in range(200):
+    U = random_u(2)
+    a, A, B, C = abc(U)
+    rest = CNOT01 @ kron(I2, B) @ CNOT01 @ kron(I2, C)
+    worst = max(worst, np.abs(kron(np.diag([1, np.exp(1j * a)]), A) @ rest - controlled(U, 0, 1, 2)).max())
+    diff_no_phase.append(dist(kron(I2, A) @ rest, controlled(U, 0, 1, 2)))
+print(f"200 случайных U: max |схема (2.3) − C-U| = {worst:.1e}")
+print(f"без diag(1, e^(iα)) на управляющем кубите: медиана d(схема, C-U) = {np.median(diff_no_phase):.3f}")
+assert worst < 1e-10
+```
+
+
 ### 2.3. Phase kickback
 
 Если $\lvert u\rangle$ — собственный вектор $U$ с собственным значением $e^{i\varphi}$, то
 $$
 C\text{-}U\;\lvert{+}\rangle\lvert u\rangle = \tfrac{1}{\sqrt2}\bigl(\lvert0\rangle + e^{i\varphi}\lvert1\rangle\bigr)\lvert u\rangle . \tag{2.4}
 $$
-Целевой регистр не меняется, а фаза «отдаётся» управляющему кубиту. Частный случай: $\mathrm{CNOT}\lvert x\rangle\lvert-\rangle = (-1)^x\lvert x\rangle\lvert-\rangle$. На этом основаны все оракульные алгоритмы (I.11) и оценка фазы (I.12). Для них важно, что «управление» фактически действует в обе стороны.
+Целевой регистр не меняется, а фаза «отдаётся» управляющему кубиту. Частный случай: $\mathrm{CNOT}\lvert x\rangle\lvert-\rangle = (-1)^x\lvert x\rangle\lvert-\rangle$. На этом основаны все оракульные алгоритмы (I.11) и оценка фазы (I.12). Для них важно, что «управление» фактически действует в обе стороны. Проверим численно:
+
+```{python}
+plus, minus = np.array([1, 1]) / np.sqrt(2), np.array([1, -1]) / np.sqrt(2)
+U = random_u(2)
+w, V = np.linalg.eig(U)
+out = controlled(U, 0, 1, 2) @ kron(plus, V[:, 0])
+print(f"собственная фаза φ = {np.angle(w[0]):+.4f};  C-U|+>|u> = (|0> + e^(iφ)|1>)/√2 ⊗ |u>?",
+      np.allclose(out, kron(np.array([1, w[0]]) / np.sqrt(2), V[:, 0])))
+for x in (0, 1):
+    v = kron(np.eye(2)[x], minus)
+    print(f"CNOT|{x}>|−> = {(-1)**x:+d}·|{x}>|−>?", np.allclose(CNOT01 @ v, (-1) ** x * v))
+```
+
 
 ### 2.4. Toffoli
 
@@ -130,17 +281,75 @@ $$
 $$
 \text{Toffoli} = 6\ \mathrm{CNOT} + 7\ T/T^\dagger + 2\,H. \tag{2.5}
 $$
-Без вспомогательных кубитов меньшее число $T$ невозможно: T-count гейта Toffoli равен 7 (Госсет и др., 2014). Варианты, которые проверены в разделе 3 `примеры.py`:
+Без вспомогательных кубитов меньшее число $T$ невозможно: T-count гейта Toffoli равен 7 (Госсет и др., 2014). Проверим численно (2.5) и два варианта:
 - **с точностью до относительной фазы:** гейт Марголуса (3 CNOT) отличается от Toffoli знаком на $\lvert101\rangle$. Конструкция с 4 гейтами $T$ и 4 CNOT отличается управляемым $S^\dagger$ на управляющих кубитах. Такие варианты годятся, когда гейт потом раскомпьютируется (фаза сокращается);
 - **со вспомогательным кубитом и измерением:** вычисление $a\wedge b$ во вспомогательный кубит стоит 4 гейта $T$. Раскомпьютация бесплатна по $T$: применяем $H$, измеряем, и при исходе 1 ставим CZ$(a,b)$ (Джонс, 2013; Гидни, 2018). Этот приём вдвое удешевил квантовые сумматоры и вошёл во все современные оценки ресурсов для алгоритма Шора (I.13).
 
 Гейты с многими управляющими кубитами $C^{k}(U)$ строятся из $O(k)$ гейтов Toffoli, если есть $k-1$ вспомогательный кубит (Баренко и др., 1995).
 
+```{python}
+n = 3
+TOF = np.eye(8, dtype=complex)[[0, 1, 2, 3, 4, 5, 7, 6]]
+# (2.5), N&C рис. 4.9: кубиты a = 0, b = 1, цель c = 2
+seq = [("H", 2), ("CX", 1, 2), ("Td", 2), ("CX", 0, 2), ("T", 2), ("CX", 1, 2), ("Td", 2), ("CX", 0, 2),
+       ("T", 1), ("T", 2), ("H", 2), ("CX", 0, 1), ("T", 0), ("Td", 1), ("CX", 0, 1)]
+G1 = {"H": H, "T": T, "Td": Td}
+mats = [cnot(g[1], g[2], n) if g[0] == "CX" else op(G1[g[0]], g[1], n) for g in seq]
+counts = {k: sum(g[0] in k.split("/") for g in seq) for k in ["CX", "T/Td", "H"]}
+print("(2.5) — точно Toffoli?", np.allclose(circuit(mats, 8), TOF), " счёт гейтов:", counts)
+assert np.allclose(circuit(mats, 8), TOF) and counts == {"CX": 6, "T/Td": 7, "H": 2}
+
+marg = [op(Ry(np.pi / 4), 2, n), cnot(1, 2, n), op(Ry(np.pi / 4), 2, n), cnot(0, 2, n),
+        op(Ry(-np.pi / 4), 2, n), cnot(1, 2, n), op(Ry(-np.pi / 4), 2, n)]
+D = circuit(marg, 8) @ dag(TOF)
+print("гейт Марголуса (3 CNOT) = диагональная фаза × Toffoli, фаза:", np.diag(D).real.round(3))
+assert np.allclose(D, np.diag(np.diag(D))) and np.isclose(D[5, 5], -1)              # знак на |101>
+
+pp = [op(H, 2, n), op(T, 2, n), cnot(0, 2, n), op(Td, 2, n), cnot(1, 2, n), op(T, 2, n), cnot(0, 2, n),
+      op(Td, 2, n), cnot(1, 2, n), op(H, 2, n)]
+CSd = np.diag([1, 1, 1, -1j])                                                       # управляемый S† на (a, b)
+print("4 T + 4 CNOT = Toffoli · (C-S† на a, b)?", np.allclose(circuit(pp, 8), TOF @ kron(CSd, I2)))
+
+ok = True                                     # AND во вспомогательный кубит и раскомпьютация измерением
+for _ in range(50):
+    psi = rng.normal(size=4) + 1j * rng.normal(size=4)
+    psi /= np.linalg.norm(psi)
+    st = op(H, 2, n) @ TOF @ kron(psi, np.array([1, 0]))      # |a b>|ab>, затем H на вспомогательном
+    for m in (0, 1):
+        v = st.reshape(4, 2)[:, m]
+        pm = np.vdot(v, v).real
+        v = (CZ if m else np.eye(4)) @ v / np.sqrt(pm)
+        ok &= np.isclose(pm, 0.5) and np.isclose(abs(np.vdot(psi, v)), 1)
+print("раскомпьютация AND: H, измерение, CZ(a, b) при исходе 1 — исходное состояние восстановлено (50 случаев):", ok)
+assert ok
+```
+
+
 ---
 
 ## 3. Измерения внутри схемы
 
-**Принцип отложенного измерения** (I.5, §3.3). Измерение и последующий классически управляемый гейт эквивалентны квантово управляемому гейту и измерению в конце: совпадают и распределение исходов, и итоговое состояние (раздел 4 `примеры.py`). Следствие для теории: в моделях сложности (I.10) измерения можно считать отложенными в конец.
+**Принцип отложенного измерения** (I.5, §3.3). Измерение и последующий классически управляемый гейт эквивалентны квантово управляемому гейту и измерению в конце: совпадают и распределение исходов, и итоговое состояние. Следствие для теории: в моделях сложности (I.10) измерения можно считать отложенными в конец.
+
+Проверим численно: случайное двухкубитное состояние, (а) измерение кубита 0 и классически управляемый $U$ на кубите 1; (б) квантово управляемый $U$ и измерение в конце.
+
+```{python}
+worst = 0
+for _ in range(100):
+    psi = rng.normal(size=4) + 1j * rng.normal(size=4)
+    psi /= np.linalg.norm(psi)
+    U = random_u(2)
+    rows = psi.reshape(2, 2)                                       # rows[m] — ветвь с исходом m (без нормировки)
+    probs_a = [np.vdot(r, r).real for r in rows]
+    rho_a = sum(np.outer(W @ r, (W @ r).conj()) for W, r in zip([I2, U], rows))
+    out = (controlled(U, 0, 1, 2) @ psi).reshape(2, 2)
+    probs_b = [np.vdot(r, r).real for r in out]
+    rho_b = sum(np.outer(r, r.conj()) for r in out)
+    worst = max(worst, np.abs(np.subtract(probs_a, probs_b)).max(), np.abs(rho_a - rho_b).max())
+print(f"100 случаев: max расхождение вероятностей исходов и состояний кубита 1 = {worst:.1e}")
+assert worst < 1e-12
+```
+
 
 **Принцип неявного измерения.** Кубит, который больше не используется, можно считать измеренным: на статистику остальных это не влияет (I.4, §2.4).
 
@@ -164,7 +373,39 @@ $$
 
 **Утверждение 4.1.** Всякий $U\in U(d)$ — произведение не более чем $d(d-1)/2$ двухуровневых унитарных.
 
-*Идея.* Двухуровневыми поворотами в плоскостях $(\lvert1\rangle,\lvert j\rangle)$ обнуляем элементы первого столбца под диагональю. Получается $\operatorname{diag}(1, U')$, и дальше рассуждаем по индукции. В `примеры.py` (раздел 5) алгоритм проверен для $d = 3, 4, 8$.
+*Идея.* Двухуровневыми поворотами в плоскостях $(\lvert1\rangle,\lvert j\rangle)$ обнуляем элементы первого столбца под диагональю. Получается $\operatorname{diag}(1, U')$, и дальше рассуждаем по индукции. Проверим численно алгоритм для $d = 3, 4, 8$ (последняя оставшаяся фаза $e^{i\varphi}$ на $\lvert d\rangle$ — тоже двухуровневый оператор):
+
+```{python}
+def two_level_decompose(U):
+    """Двухуровневые V_k с V_K ⋯ V_1 U = diag(1, …, 1, e^{iφ})."""
+    d = U.shape[0]
+    W, mats = U.copy(), []
+    for col in range(d - 1):
+        for row in range(col + 1, d):
+            a, b = W[col, col], W[row, col]
+            if abs(b) < 1e-14:
+                continue
+            r = np.hypot(abs(a), abs(b))
+            V = np.eye(d, dtype=complex)
+            V[col, col], V[col, row], V[row, col], V[row, row] = a.conj() / r, b.conj() / r, b / r, -a / r
+            W = V @ W
+            mats.append(V)
+        if not np.isclose(W[col, col], 1):          # убрать фазу диагонального элемента
+            V = np.eye(d, dtype=complex)
+            V[col, col], V[col + 1, col + 1] = W[col, col].conj(), W[col, col]
+            W = V @ W
+            mats.append(V)
+    return mats, W
+
+for d in [3, 4, 8]:
+    U = random_u(d)
+    mats, W = two_level_decompose(U)
+    assert np.allclose(circuit(mats, d) @ U, W) and np.allclose(W, np.diag(np.diag(W))) and np.allclose(np.diag(W)[:-1], 1)
+    assert all(np.count_nonzero(np.abs(V - np.eye(d)) > 1e-12) <= 4 for V in mats)      # каждый — двухуровневый
+    print(f"d = {d}: двухуровневых множителей {len(mats)} ≤ d(d − 1)/2 = {d * (d - 1) // 2}")
+    assert len(mats) <= d * (d - 1) // 2
+```
+
 
 ### 4.2. Шаг 2: CNOT + однокубитные гейты
 
@@ -181,7 +422,32 @@ $$
 $$
 THTH = e^{i\phi}R_{\mathbf n}(\theta),\qquad \cos\frac\theta2 = \cos^2\frac\pi8, \tag{4.1}
 $$
-и $\theta/\pi$ иррационально. Поэтому степени $R_{\mathbf n}(\theta)$ всюду плотны в поворотах вокруг $\mathbf n$. В `примеры.py` (раздел 6) видно, как наибольший промежуток между $k\theta\bmod4\pi$ убывает как $1/N$. Сопряжение $H$ даёт плотные повороты вокруг второй оси $\mathbf m = H\mathbf n$, и по ZYZ-аналогу для осей $\mathbf n$, $\mathbf m$ получаем любой однокубитный гейт (Бойкин и др., 2000).
+и $\theta/\pi$ иррационально. Поэтому степени $R_{\mathbf n}(\theta)$ всюду плотны в поворотах вокруг $\mathbf n$. Ниже видно, как наибольший промежуток между $k\theta\bmod4\pi$ (по $N$ первым степеням) убывает как $1/N$. Сопряжение $H$ даёт плотные повороты вокруг второй оси $\mathbf m = H\mathbf n$, и по ZYZ-аналогу для осей $\mathbf n$, $\mathbf m$ получаем любой однокубитный гейт (Бойкин и др., 2000).
+
+```{python}
+#| fig-cap: "Плотность степеней $R_{\\mathbf n}(\\theta)$ для $THTH$: наибольший промежуток между точками $k\\theta \\bmod 4\\pi$, $k = 1,\\dots,N$, в зависимости от $N$. В среднем он убывает как $1/N$ (пунктир — $4\\pi/N$), а скачки вниз происходят на знаменателях подходящих дробей $\\theta/4\\pi$."
+R = T @ H @ T @ H
+R = R / np.sqrt(np.linalg.det(R))
+theta = 2 * np.arccos(np.real(np.trace(R)) / 2)
+print(f"θ = {theta:.10f} рад, cos(θ/2) − cos²(π/8) = {np.cos(theta / 2) - np.cos(np.pi / 8)**2:.1e}, θ/π = {theta / np.pi:.10f}")
+assert np.isclose(np.cos(theta / 2), np.cos(np.pi / 8) ** 2)
+assert all(abs(theta / np.pi * q - round(theta / np.pi * q)) > 1e-9 for q in range(1, 2000))   # нет малых знаменателей
+
+def max_gap(N):
+    pts = np.sort(np.mod(theta * np.arange(1, N + 1), 4 * np.pi))
+    return np.max(np.diff(np.concatenate([[0], pts, [4 * np.pi]])))
+for N in [10, 100, 1000, 10000]:
+    print(f"первые {N:5d} степеней: наибольший промежуток {max_gap(N):.4f}")
+Ns = np.unique(np.logspace(0.5, 4, 120).astype(int))
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.loglog(Ns, [max_gap(N) for N in Ns], color="tab:blue", label="наибольший промежуток")
+ax.loglog(Ns, 4 * np.pi / Ns, "--", color="gray", label=r"$4\pi/N$")
+ax.set_xlabel("число степеней $N$")
+ax.set_ylabel("промежуток, рад")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
 
 **Итог.** Набор $\{H, T, \mathrm{CNOT}\}$ (эквивалентно, Clifford+T) универсален.
 
@@ -206,7 +472,18 @@ $$
 $$
 g\ \gtrsim\ \frac{(4^n-1)\,\log(1/\varepsilon)}{\log(Kn^2)} . \tag{5.1}
 $$
-Например, при $n = 10$, $\varepsilon = 10^{-2}$ это примерно $10^6$ гейтов, а при $n = 20$ — $10^{12}$ (раздел 7 `примеры.py`). Для приготовления состояний $D = 2^{n+1}-2$, и оценка тоже экспоненциальна (Нилл, 1995).
+Например, при $n = 10$, $\varepsilon = 10^{-2}$ это примерно $10^6$ гейтов, а при $n = 20$ — $10^{12}$ (расчёт ниже, $K = 3$). Для приготовления состояний $D = 2^{n+1}-2$, и оценка тоже экспоненциальна (Нилл, 1995).
+
+```{python}
+def lower_bound_gates(n, eps, K=3, states=False):
+    D = 2 ** (n + 1) - 2 if states else 4 ** n - 1
+    return D * np.log2(1 / eps) / np.log2(K * n * n)
+
+print(" n    унитарные (5.1)   состояния")
+for n in [2, 5, 10, 20, 50]:
+    print(f"{n:2d}      {lower_bound_gates(n, 0.01):9.2e}      {lower_bound_gates(n, 0.01, states=True):9.2e}")
+```
+
 
 **Вывод.** Почти все унитарные операторы и почти все состояния **недоступны** за полиномиальное время. Эффективные квантовые алгоритмы реализуют редкие, сильно структурированные операторы, такие как QFT (I.12) и оракулы (I.11). Отсюда же следует, что «случайные» схемы полиномиальной глубины не покрывают $U(2^n)$. Тем не менее их статистика похожа на хааровскую: они образуют приближённые дизайны (II.3), и на этом основаны эксперименты по квантовому преимуществу.
 
@@ -243,7 +520,7 @@ $$
 $$
 Отсюда $L\propto5^k$ и $\log(1/\varepsilon_k)\propto(3/2)^k$, то есть $L = O(\log^{\ln5/\ln1{,}5}(1/\varepsilon))$. Нужно, чтобы $\varepsilon_0 < 1/c^2$: базовая сеть должна быть достаточно плотной.
 
-**Численно** (раздел 9 `примеры.py`). Базовая сеть — все элементы Clifford+T с T-count $\le12$ в нормальной форме Мацумото–Амано, около $3\cdot10^5$ элементов. Медиана по 20 случайным $U$:
+**Численно.** Базовая сеть — все элементы Clifford+T с T-count $\le12$ в нормальной форме Мацумото–Амано, около $3\cdot10^5$ элементов. Медиана по 20 случайным $U$ (результат `примеры.py`; ячейка после таблицы строит ту же сеть и повторяет расчёт на другой выборке из 20 случайных $U$):
 
 | Уровень | $\varepsilon$ | T-count | Длина | $\varepsilon_k/\varepsilon_{k-1}^{3/2}$ |
 |---:|---:|---:|---:|---:|
@@ -254,14 +531,150 @@ $$
 
 Закон $\varepsilon^{3/2}$ и рост длины примерно в 5 раз за уровень видны отчётливо. Видно и главное: при $\varepsilon\approx3\cdot10^{-5}$ алгоритм Соловея–Китаева тратит более 1300 гейтов $T$, а оптимум около $3\log_2(1/\varepsilon)\approx45$.
 
+```{python}
+def quat(U):
+    """Единичный кватернион элемента SU(2) (знак не определён: ±q — один гейт)."""
+    V = U / np.sqrt(np.linalg.det(U))[..., None, None]
+    return np.stack([V[..., 0, 0].real, V[..., 0, 1].imag, V[..., 0, 1].real, V[..., 0, 0].imag], -1)
+
+# 24 элемента группы Клиффорда (по модулю фазы) и длины их слов в {H, S}
+cl, front = [(I2, 0)], [(I2, 0)]
+while front:
+    new = []
+    for U, l in front:
+        for G in (H, S):
+            V = G @ U
+            if all(dist(V, W) > 1e-9 for W, _ in cl + new):
+                new.append((V, l + 1))
+    cl, front = cl + new, new
+CL, CL_len = np.array([c for c, _ in cl]), np.array([l for _, l in cl])
+assert len(CL) == 24
+
+# нормальная форма Мацумото–Амано: (T | ε) (HT | SHT)^k C
+KMAX = 12
+layer, lt, lg = np.array([I2, T]), np.array([0, 1]), np.array([0, 1])
+net, tcount, glen = [], [], []
+for k in range(KMAX + 1):
+    net.append((layer[:, None] @ CL[None]).reshape(-1, 2, 2))
+    tcount.append(np.repeat(lt, 24))
+    glen.append((lg[:, None] + CL_len[None]).ravel())
+    if k < KMAX:
+        layer = np.concatenate([layer @ (H @ T), layer @ (S @ H @ T)])
+        lt, lg = np.concatenate([lt + 1, lt + 1]), np.concatenate([lg + 2, lg + 3])
+net, tcount, glen = np.concatenate(net), np.concatenate(tcount), np.concatenate(glen)
+Qnet = quat(net)
+print(f"сеть: {len(net)} элементов с T-count ≤ {KMAX + 1}, из них с T-count ≤ 12: {np.sum(tcount <= 12)}")
+
+trees = {}
+def tree_for(tmax):
+    if tmax not in trees:
+        idx = np.where(tcount <= tmax)[0]
+        trees[tmax] = (cKDTree(np.concatenate([Qnet[idx], -Qnet[idx]])), np.concatenate([idx, idx]))
+    return trees[tmax]
+
+def nearest(U, tmax):
+    tree, idx = tree_for(tmax)
+    return idx[tree.query(quat(U))[1]]
+
+def axis_angle(U):
+    V = U / np.sqrt(np.linalg.det(U))
+    if V[0, 0].real < 0:
+        V = -V
+    th = 2 * np.arccos(np.clip(V[0, 0].real, -1, 1))
+    v = np.array([-V[0, 1].imag, -V[0, 1].real, -V[0, 0].imag])
+    return th, (v / np.linalg.norm(v) if np.linalg.norm(v) > 1e-15 else np.array([0, 0, 1.0]))
+
+def gc_decompose(D):
+    """Групповой коммутатор: D = V W V† W†, V и W — повороты на угол ~ √(угла D)."""
+    th, nD = axis_angle(D)
+    phi = 2 * np.arcsin(((1 - np.cos(th / 2)) / 2) ** 0.25)
+    V0, W0 = Rx(phi), Ry(phi)
+    _, nG = axis_angle(V0 @ W0 @ dag(V0) @ dag(W0))
+    ax = np.cross(nG, nD)
+    if np.linalg.norm(ax) < 1e-12:
+        Sm = I2 if nG @ nD > 0 else rot([1, 0, 0] if abs(nG[0]) < 0.9 else [0, 1, 0], np.pi)
+    else:
+        Sm = rot(ax, np.arccos(np.clip(nG @ nD, -1, 1)))
+    return Sm @ V0 @ dag(Sm), Sm @ W0 @ dag(Sm)
+
+for _ in range(50):
+    Dm = rot(rng.normal(size=3), rng.uniform(0, 0.3))
+    V, W = gc_decompose(Dm)
+    assert dist(V @ W @ dag(V) @ dag(W), Dm) < 1e-8
+
+def sk(U, level, base_t=12):
+    """Соловей–Китаев (Доусон–Нильсен): (матрица, T-count, длина слова)."""
+    if level == 0:
+        j = nearest(U, base_t)
+        return net[j], tcount[j], glen[j]
+    Un, tn, ln = sk(U, level - 1)
+    V, W = gc_decompose(U @ dag(Un))
+    Vn, tv, lv = sk(V, level - 1)
+    Wn, tw, lw = sk(W, level - 1)
+    return Vn @ Wn @ dag(Vn) @ dag(Wn) @ Un, 2 * tv + 2 * tw + tn, 2 * lv + 2 * lw + ln
+
+targets = [random_u(2) for _ in range(20)]
+sk_rows, prev = [], None
+print("уровень   ε (медиана)   T-count   длина   ε_k/ε_{k−1}^{3/2}")
+for level in range(4):
+    res = [sk(U, level) for U in targets]
+    err = np.median([dist(r[0], U) for r, U in zip(res, targets)])
+    tc, ln = np.median([r[1] for r in res]), np.median([r[2] for r in res])
+    ratio = f"{err / prev ** 1.5:.2f}" if prev else "—"
+    print(f"   {level}       {err:.2e}      {tc:5.0f}    {ln:5.0f}         {ratio}")
+    sk_rows.append((err, tc))
+    assert prev is None or err < prev
+    prev = err
+```
+
+
 ### 6.3. Оптимальный синтез поворотов
 
 На практике для Clifford+T используют теоретико-числовые алгоритмы:
-- **Росс–Селинджер (2016):** $R_z(\theta)$ с T-count $3\log_2(1/\varepsilon) + O(\log\log(1/\varepsilon))$ без вспомогательных кубитов. Для почти всех $\theta$ это оптимально с точностью до аддитивной константы. Подсчёт объясняет константу 3: элементов с T-count $\le t$ порядка $2^t$, а размерность $SU(2)$ равна 3, так что $\varepsilon\sim2^{-t/3}$. В разделе 8 `примеры.py` точный перебор по сети для случайных $U$ даёт наклон $\approx3{,}3$ уже при T-count $\le12$;
+- **Росс–Селинджер (2016):** $R_z(\theta)$ с T-count $3\log_2(1/\varepsilon) + O(\log\log(1/\varepsilon))$ без вспомогательных кубитов. Для почти всех $\theta$ это оптимально с точностью до аддитивной константы. Подсчёт объясняет константу 3: элементов с T-count $\le t$ порядка $2^t$, а размерность $SU(2)$ равна 3, так что $\varepsilon\sim2^{-t/3}$. Точный перебор по сети для случайных $U$ (ячейка ниже) даёт наклон $\approx3{,}3$ уже при T-count $\le12$;
 - **повторение до успеха** (repeat-until-success) со вспомогательным кубитом и измерением: ожидаемый T-count в несколько раз меньше (Бочаров, Рёттелер, Своре, 2015);
 - **смешивание** (random compiling): случайный выбор между несколькими приближениями превращает когерентную ошибку $\varepsilon$ в некогерентную $O(\varepsilon^2)$ в метрике каналов. Это вдвое сокращает T-count при той же точности канала (Кэмпбелл, 2017; Хейстингс, 2017).
 
 **Как это используется.** В оценке ресурсов отказоустойчивого алгоритма каждый произвольный поворот стоит $\approx3\log_2(1/\varepsilon)$ гейтов $T$. Для $\varepsilon\sim10^{-10}$ это около 100 гейтов $T$ на поворот. Поэтому алгоритмы с большим числом произвольных поворотов (моделирование гамильтонианов, I.15) так дороги. В ЛР5 вы сравните `SolovayKitaevDecomposition` из Qiskit с этой оценкой.
+
+Проверим численно: для 300 случайных $U$ и 300 поворотов $R_z(\theta)$ найдём ближайший элемент сети с T-count $\le t$ (исчерпывающий поиск по kd-дереву кватернионов; хордовое расстояние кватернионов равно $d(U,V)$) и сравним с алгоритмом Соловея–Китаева из §6.2.
+
+```{python}
+#| fig-cap: "T-count, необходимый для точности $\\varepsilon$: оптимальное приближение перебором по сети Clifford+T (случайные $U$ и повороты $R_z$, средние по 300 целям) и алгоритм Соловея–Китаева уровней 0–3 (медианы по 20 целям). Пунктир — асимптотика $3\\log_2(1/\\varepsilon)$ оптимального синтеза."
+for _ in range(20):
+    U, V = random_u(2), random_u(2)
+    assert np.isclose(min(np.linalg.norm(quat(U) - quat(V)), np.linalg.norm(quat(U) + quat(V))), dist(U, V))
+
+targets_U = np.array([random_u(2) for _ in range(300)])
+targets_Rz = np.array([Rz(t) for t in rng.uniform(0, 2 * np.pi, 300)])
+def mean_bits(targets, tmax):
+    d, _ = tree_for(tmax)[0].query(quat(targets))
+    return np.mean(np.log2(1 / d))
+
+ts = np.arange(5, KMAX + 1)
+bu = np.array([mean_bits(targets_U, t) for t in ts])
+bz = np.array([mean_bits(targets_Rz, t) for t in ts])
+print("T-count   log2(1/ε): случайные U   R_z(θ)")
+for t, a, b in zip(ts, bu, bz):
+    print(f"   {t:2d}              {a:5.2f}          {b:5.2f}")
+slope = np.polyfit(bu, ts, 1)[0]
+print(f"случайные U: наклон T-count по log2(1/ε) = {slope:.2f}")
+assert 2.8 < slope < 4.0
+
+fig, ax = plt.subplots(figsize=(6.4, 4))
+ax.plot(bu, ts, "o-", label="оптимум по сети, случайные $U$")
+ax.plot(bz, ts, "s-", label=r"оптимум по сети, $R_z(\theta)$")
+skb = [np.log2(1 / e) for e, _ in sk_rows]
+ax.semilogy(skb, [t for _, t in sk_rows], "^-", color="tab:red", label="Соловей–Китаев, уровни 0–3")
+xx = np.linspace(3, 16, 50)
+ax.semilogy(xx, 3 * xx, "--", color="gray", label=r"$3\log_2(1/\varepsilon)$")
+ax.set_xlabel(r"$\log_2(1/\varepsilon)$")
+ax.set_ylabel("T-count")
+ax.legend(loc="upper left", fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
 
 ---
 
@@ -276,7 +689,20 @@ $$
 
 ### 7.2. Маршрутизация
 
-Если двухкубитный гейт нужен между несоседними кубитами, компилятор вставляет SWAP (по 3 CNOT каждый). Для CNOT на расстоянии $d$ по цепочке нужно $d-1$ SWAP, то есть $3(d-1)+1$ CNOT, и раскладка кубитов после этого сдвигается. Если раскладку нужно вернуть, получается $6(d-1)+1$. Бывают прямые конструкции: CNOT$(0\to2)$ через средний кубит стоит 4 CNOT (раздел 10 `примеры.py`).
+Если двухкубитный гейт нужен между несоседними кубитами, компилятор вставляет SWAP (по 3 CNOT каждый). Для CNOT на расстоянии $d$ по цепочке нужно $d-1$ SWAP, то есть $3(d-1)+1$ CNOT, и раскладка кубитов после этого сдвигается. Если раскладку нужно вернуть, получается $6(d-1)+1$. Бывают прямые конструкции: CNOT$(0\to2)$ через средний кубит стоит 4 CNOT. Проверим численно:
+
+```{python}
+n = 3
+target = cnot(0, 2, n)
+direct = circuit([cnot(1, 2, n), cnot(0, 1, n), cnot(1, 2, n), cnot(0, 1, n)], 8)
+sw = cnot(0, 1, n) @ cnot(1, 0, n) @ cnot(0, 1, n)
+print("CNOT(0→2) = 4 CNOT между соседями?", np.allclose(direct, target))
+print("CNOT(0→2) = SWAP(0,1) CNOT(1→2) SWAP(0,1) (7 CNOT)?", np.allclose(sw @ cnot(1, 2, n) @ sw, target))
+assert np.allclose(direct, target) and np.allclose(sw @ cnot(1, 2, n) @ sw, target)
+for d in [2, 4, 10, 50]:
+    print(f"расстояние {d:2d}: {3 * (d - 1) + 1:3d} CNOT (раскладка сдвинута), {6 * (d - 1) + 1:3d} с возвратом")
+```
+
 
 Задача оптимального размещения и маршрутизации NP-трудна (Сирайши и др., 2018). Используются эвристики, например SABRE (Ли, Дин, Се, 2019) в транспиляторе Qiskit. Для структурированных схем есть специальные **сети SWAP**: например, QFT на линейной цепочке выполняется за глубину $O(n)$ (Фаулер, Девитт, Холленберг, 2004).
 
@@ -337,7 +763,9 @@ $$
 12. (••) Используя подсчёт из §6.3, объясните константу 3 в оценке Росса–Селинджера. Сколько гейтов $T$ нужно на поворот при $\varepsilon = 10^{-10}$? Сколько при смешивании?
 13. (•) Сколько CNOT нужно для CNOT между кубитами 0 и 4 на линейной цепочке, если раскладку нужно сохранить? А если нет?
 
-### Ответы и указания
+::: {.callout-tip collapse="true"}
+## Ответы и указания
+
 - **1.** Например, $T = e^{i\pi/8}R_z(\frac\pi4)$, $S = e^{i\pi/4}R_z(\frac\pi2)$, $\sqrt X = e^{i\pi/4}R_x(\frac\pi2) = e^{i\pi/4}R_z(-\frac\pi2)R_y(\frac\pi2)R_z(\frac\pi2)$.
 - **3.** CNOT в базисе $\lvert\pm\rangle$ — это CNOT в обратную сторону. Симметрия CZ согласуется с тем, что $H\otimes H$ переводит $Z$-управление в $X$-управление.
 - **4.** Для $U = R_y(\theta)$: $A = R_y(\theta/2)$, $B = R_y(-\theta/2)$, $C = I$, $\alpha = 0$, так что фазовый гейт не нужен: $U\in SU(2)$.
@@ -349,12 +777,13 @@ $$
 - **11.** Для малых углов $e^{A}e^{B}e^{-A}e^{-B}\approx e^{[A,B]}$, и $[\frac{-i\phi}{2}X, \frac{-i\phi}{2}Y] = -\frac{\phi^2}{4}\cdot2iZ$. Получается поворот вокруг $z$ на $\phi^2$. Ошибки $\delta$ в $V$, $W$ дают ошибку коммутатора $O(\phi\,\delta)$. При $\phi\sim\sqrt\varepsilon$, $\delta\sim\varepsilon$ это $O(\varepsilon^{3/2})$.
 - **12.** $3\log_2(10^{10})\approx100$; при смешивании ошибка канала $O(\varepsilon^2)$, поэтому достаточно $\varepsilon\approx10^{-5}$, то есть около 50.
 - **13.** $6\cdot3 + 1 = 19$ с возвратом; $3\cdot3 + 1 = 10$ без возврата.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 10 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; сеть Clifford+T и алгоритм Соловея–Китаева в них те же, что в `примеры.py`, но на другой случайной выборке целей. Полный файл `примеры.py` (около 10 с) проверяет:
 1. ZYZ и (1.2) на 1000 случайных $U$;
 2. (2.1)–(2.4): CZ, разворот CNOT, SWAP, controlled-$U$ из двух CNOT, phase kickback;
 3. Toffoli: (2.5) с подсчётом гейтов; гейт Марголуса; вариант с 4 $T$; раскомпьютацию AND измерением;
