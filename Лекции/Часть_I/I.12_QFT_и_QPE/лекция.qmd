@@ -1,16 +1,103 @@
-# Лекция I.12. Квантовое преобразование Фурье и оценка фазы
+---
+title: "Лекция I.12. Квантовое преобразование Фурье и оценка фазы"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.D «Квантовые алгоритмы».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (унитарные матрицы, спектральное разложение); лекция I.8 (управляемые гейты, §2.2; phase kickback, (2.4); принцип отложенного измерения, §3); лекция I.9 (фазовый гейт $P(\varphi)$, шапка); лекция I.11 (преобразование Адамара как Фурье на $\mathbb Z_2^n$, (2.1)–(2.2); алгоритм Саймона, §6).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (унитарные матрицы, спектральное разложение); [лекция I.8](../../Часть_I/I.08_Схемы_и_универсальность/лекция.qmd) (управляемые гейты, §2.2; phase kickback, (2.4); принцип отложенного измерения, §3); [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (фазовый гейт $P(\varphi)$, шапка); [лекция I.11](../../Часть_I/I.11_Оракульные_алгоритмы/лекция.qmd) (преобразование Адамара как Фурье на $\mathbb Z_2^n$, (2.1)–(2.2); алгоритм Саймона, §6).
 **Литература:** N&C, § 5.1–5.2; Kitaev A. Yu. Quantum measurements and the Abelian stabilizer problem // arXiv:quant-ph/9511026 (1995); Cleve R., Ekert A., Macchiavello C., Mosca M. // Proc. R. Soc. Lond. A 454, 339 (1998); de Wolf R. Quantum Computing: Lecture Notes, гл. 4.
-**Материалы:** `примеры.py` — численная проверка всех утверждений: матрица QFT и её связь с `np.fft`, схема QFT и формула произведения, приближённое QFT, периодические состояния, распределение исходов QPE и его оценки, итеративный QPE, тест Адамара и swap-тест; задачи к семинару С6 и к ЛР6 — в § 9.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: матрица QFT и её связь с `np.fft`, схема QFT и формула произведения, приближённое QFT, периодические состояния, распределение исходов QPE и его оценки, итеративный QPE, тест Адамара и swap-тест; задачи к семинару С6 и к ЛР6 — в § 9. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §3, §8 и §9).
 - $N = 2^n$; $\omega_N = e^{2\pi i/N}$; $\lvert j\rangle = \lvert j_1j_2\dots j_n\rangle$, $j = \sum_k j_k2^{n-k}$ (старший бит слева, как в I.4).
 - Двоичная дробь $0.j_lj_{l+1}\dots j_m = j_l/2 + j_{l+1}/4 + \dots + j_m/2^{m-l+1}$.
 - $F_N$ — квантовое преобразование Фурье (1.1); $R_k = P(2\pi/2^k) = \operatorname{diag}(1, e^{2\pi i/2^k})$; $CR_k$ — управляемый $R_k$ (симметричен относительно перестановки кубитов, как CZ).
 - Оценка фазы: $U\lvert u\rangle = e^{2\pi i\varphi}\lvert u\rangle$, $\varphi\in[0,1)$; $t$ — число вспомогательных кубитов, $T = 2^t$; исход $m\in\{0,\dots,T-1\}$, оценка $\tilde\varphi = m/T$.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+from math import ceil, log2, pi
+import numpy as np
+import matplotlib.pyplot as plt
+
+# порядок вызовов генератора в ячейках повторяет примеры.py, поэтому числа совпадают с текстом
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+H = (X + Z) / np.sqrt(2)
+Sdg = np.diag([1, -1j])
+
+def P(phi):
+    return np.diag([1, np.exp(1j * phi)])
+
+def haar_state(d):
+    v = rng.normal(size=d) + 1j * rng.normal(size=d)
+    return v / np.linalg.norm(v)
+
+def haar_unitary(d):
+    Q, R = np.linalg.qr(rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d)))
+    return Q * (np.diag(R) / np.abs(np.diag(R)))
+
+def dft_matrix(N):
+    """F_N[k, j] = ω^{jk}/√N, то есть QFT|j> = Σ_k F[k, j]|k> (1.1)."""
+    j = np.arange(N)
+    return np.exp(2j * pi * np.outer(j, j) / N) / np.sqrt(N)
+
+# простейший симулятор: кубит 0 — старший; psi — вектор (2^n,) или пачка столбцов (2^n, K)
+def apply_1q(psi, U, q, n):
+    sh = psi.shape
+    psi = np.moveaxis(np.tensordot(U, psi.reshape([2] * n + [-1]), axes=([1], [q])), 0, q)
+    return psi.reshape(sh)
+
+def apply_cphase(psi, phi, c, t, n):
+    """Управляемая фаза: меняет psi на месте (run() заранее делает копию)."""
+    v = psi.reshape([2] * n + [-1])
+    idx = [slice(None)] * (n + 1)
+    idx[c] = idx[t] = 1
+    v[tuple(idx)] *= np.exp(1j * phi)
+    return psi
+
+def apply_swap(psi, a, b, n):
+    sh = psi.shape
+    return np.swapaxes(psi.reshape([2] * n + [-1]), a, b).reshape(sh)
+
+def qft_gates(n, m=None, swaps=True):
+    """Схема QFT: H, управляемые R_k (управление — кубит l+k−1, цель — l), SWAP.
+    m — не больше m поворотов R_2..R_{m+1} на кубит (приближённое QFT); None — точное."""
+    gates = []
+    for l in range(n):
+        gates.append(("H", l))
+        for k in range(2, n - l + 1):
+            if m is None or k <= m + 1:
+                gates.append(("CP", 2 * pi / 2 ** k, l + k - 1, l))
+    if swaps:
+        gates += [("SWAP", l, n - 1 - l) for l in range(n // 2)]
+    return gates
+
+def run(gates, psi, n, inverse=False):
+    """Применить схему (inverse=True — обратную: гейты в обратном порядке, углы с минусом)."""
+    psi = np.array(psi, dtype=complex)                  # копия: вход не меняется
+    for g in (gates[::-1] if inverse else gates):
+        if g[0] == "H":
+            psi = apply_1q(psi, H, g[1], n)
+        elif g[0] == "CP":
+            psi = apply_cphase(psi, -g[1] if inverse else g[1], g[2], g[3], n)
+        else:
+            psi = apply_swap(psi, g[1], g[2], n)
+    return psi
+
+def circuit_matrix(gates, n, inverse=False):
+    return run(gates, np.eye(2 ** n, dtype=complex), n, inverse)
+
+def circ_dist(m, T, phi):
+    """Расстояние от m/T до φ по окружности."""
+    return np.abs(((m / T - phi + 0.5) % 1) - 0.5)
+```
+
 
 ---
 
@@ -60,12 +147,25 @@ $$
 $$
 F_N\,x = \sqrt N\cdot\texttt{np.fft.ifft}(x). \tag{1.2}
 $$
-Именно на этом спотыкаются в ЛР6 (задание 5). Проверка — раздел 1 `примеры.py`.
+Именно на этом спотыкаются в ЛР6 (задание 5). Проверка — в ячейке ниже, вместе с примерами.
 
 **Примеры.** $F_2 = H$. При $N = 4$, $\omega_4 = i$:
 $$
 F_4 = \frac12\begin{pmatrix}1&1&1&1\\1&i&-1&-i\\1&-1&1&-1\\1&-i&-1&i\end{pmatrix}.
 $$
+
+```{python}
+for n in range(1, 8):
+    N = 2 ** n
+    F = dft_matrix(N)
+    assert np.allclose(F.conj().T @ F, np.eye(N))                            # унитарность
+    assert np.allclose(F, np.sqrt(N) * np.fft.ifft(np.eye(N), axis=0))        # (1.2): ifft, а не fft
+    assert np.allclose(F.conj(), np.fft.fft(np.eye(N), axis=0) / np.sqrt(N))
+print("N = 2..128: F_N унитарна и F_N = √N · ifft;  fft даёт сопряжённую матрицу F_N*")
+print("F_2 = H?", np.allclose(dft_matrix(2), H))
+print("2·F_4 =\n", np.round(2 * dft_matrix(4), 12).astype(complex))
+```
+
 
 ### 1.2. Свойства
 
@@ -77,13 +177,68 @@ F_N^\dagger S F_N = \operatorname{diag}\bigl(\omega_N^{-k}\bigr)_{k=0}^{N-1}. \t
 $$
 QFT диагонализует все сдвиги одновременно, ведь это характеры группы $\mathbb Z_N$. Это теорема о свёртке, и именно это свойство используется в поиске периода: сдвиг входа меняет только фазы выхода, а не вероятности.
 
+Проверим численно свойства 2 и 3:
+
+```{python}
+for n in range(1, 8):
+    N = 2 ** n
+    F = dft_matrix(N)
+    R = np.zeros((N, N))
+    R[(-np.arange(N)) % N, np.arange(N)] = 1                                 # |j> ↦ |−j mod N>
+    assert np.allclose(F @ F, R) and np.allclose(np.linalg.matrix_power(F, 4), np.eye(N))
+print("N = 2..128: F² |j> = |−j mod N>,  F⁴ = I")
+for N in (4, 8, 16, 32):
+    ev = np.linalg.eigvals(dft_matrix(N))
+    cnt = {lab: int(np.sum(np.isclose(ev, val))) for lab, val in (("1", 1), ("−1", -1), ("i", 1j), ("−i", -1j))}
+    assert sum(cnt.values()) == N
+    print(f"N = {N:2d}: кратности собственных значений", cnt)
+N = 16
+Sh = np.roll(np.eye(N), 1, axis=0)                                           # |j> ↦ |j + 1 mod N>
+D = dft_matrix(N).conj().T @ Sh @ dft_matrix(N)
+print("(1.3): F† S F = diag(ω^(−k))?", np.allclose(D, np.diag(np.exp(-2j * pi * np.arange(N) / N))))
+```
+
+
 ### 1.3. Периодические состояния
 
 Пусть $r\mid N$, и состояние — равномерная суперпозиция по арифметической прогрессии $x_0, x_0 + r, x_0 + 2r,\dots$ ($N/r$ членов). Тогда
 $$
 F_N\,\sqrt{\tfrac rN}\sum_{l=0}^{N/r-1}\lvert x_0 + lr\rangle = \frac1{\sqrt r}\sum_{s=0}^{r-1}\omega_N^{x_0sN/r}\,\Bigl\lvert s\frac Nr\Bigr\rangle . \tag{1.4}
 $$
-Вся вероятность — на кратных $N/r$, по $1/r$ на каждом. Неизвестный сдвиг $x_0$ ушёл в фазы. Измерение даёт $sN/r$ со случайным $s$, а отсюда и $r$. Если $r$ не делит $N$, пики «размываются», но остаются около $sN/r$: при $N = 256$ и $r = 10$ две ближайшие к $sN/r$ точки несут суммарно $0{,}903$ вероятности (раздел 4 `примеры.py`). Это ядро алгоритма Шора (I.13), а для $\mathbb Z_2^n$ — аналог (6.3) из I.11.
+Вся вероятность — на кратных $N/r$, по $1/r$ на каждом. Неизвестный сдвиг $x_0$ ушёл в фазы. Измерение даёт $sN/r$ со случайным $s$, а отсюда и $r$. Если $r$ не делит $N$, пики «размываются», но остаются около $sN/r$: при $N = 256$ и $r = 10$ две ближайшие к $sN/r$ точки несут суммарно $0{,}903$ вероятности (ячейка ниже). Это ядро алгоритма Шора (I.13), а для $\mathbb Z_2^n$ — аналог (6.3) из I.11.
+
+```{python}
+#| fig-cap: "Распределение исходов после QFT периодического состояния, $N = 256$. Сверху $r = 8$ делит $N$: восемь пиков ровно на кратных $N/r = 32$, по $1/8$ каждый. Снизу $r = 10$ не делит $N$: пики размываются, но остаются около $sN/r$ (пунктир)."
+n, N = 8, 256
+fig, axes = plt.subplots(2, 1, figsize=(6.4, 4.2), sharex=True)
+for ax, (r, x0) in zip(axes, ((8, 3), (10, 7))):
+    xs = np.arange(x0, N, r)
+    psi = np.zeros(N, complex)
+    psi[xs] = 1 / np.sqrt(len(xs))
+    p = np.abs(dft_matrix(N) @ psi) ** 2
+    if N % r == 0:
+        assert np.isclose(p[::N // r].sum(), 1)                                # (1.4)
+        print(f"r = {r:2d}, x0 = {x0}: вся вероятность на кратных N/r = {N // r}: {p[::N // r].round(4).tolist()}")
+    else:
+        near = {int(np.floor(c)) % N for c in np.arange(r) * N / r} | {int(np.ceil(c)) % N for c in np.arange(r) * N / r}
+        print(f"r = {r:2d}, x0 = {x0}: две ближайшие к sN/r точки несут {p[list(near)].sum():.3f} (≥ 4/π² = {4 / pi ** 2:.3f})")
+        for c in np.arange(r) * N / r:
+            ax.axvline(c, color="gray", ls=":", lw=0.8)
+    ax.bar(np.arange(N), p, width=1.0)
+    ax.set_ylabel("вероятность")
+    ax.set_title(f"$r = {r}$, $x_0 = {x0}$", fontsize=10)
+axes[1].set_xlabel("исход $k$")
+plt.tight_layout()
+plt.show()
+for r, x0 in ((6, 1),):
+    xs = np.arange(x0, N, r)
+    psi = np.zeros(N, complex)
+    psi[xs] = 1 / np.sqrt(len(xs))
+    p = np.abs(dft_matrix(N) @ psi) ** 2
+    near = {int(np.floor(c)) % N for c in np.arange(r) * N / r} | {int(np.ceil(c)) % N for c in np.arange(r) * N / r}
+    print(f"r = {r:2d}, x0 = {x0}: две ближайшие к sN/r точки несут {p[list(near)].sum():.3f}")
+```
+
 
 ---
 
@@ -95,7 +250,28 @@ $$
 $$
 F_N\lvert j_1\dots j_n\rangle = \bigotimes_{l=1}^{n}\frac{\lvert0\rangle + e^{2\pi i\,0.j_{n-l+1}\dots j_n}\lvert1\rangle}{\sqrt2} . \tag{2.1}
 $$
-Первый (старший) выходной кубит зависит только от $j_n$: $(\lvert0\rangle + (-1)^{j_n}\lvert1\rangle)/\sqrt2$. Последний зависит от всех битов. **Образ базисного вектора — произведение состояний**, запутанности в нём нет. Например, для $j = 101$ ($n = 3$) множители — $(\lvert0\rangle + e^{2\pi ix}\lvert1\rangle)/\sqrt2$ с $x = 0.1 = \frac12$, $0.01 = \frac14$, $0.101 = \frac58$ (раздел 2 `примеры.py`).
+Первый (старший) выходной кубит зависит только от $j_n$: $(\lvert0\rangle + (-1)^{j_n}\lvert1\rangle)/\sqrt2$. Последний зависит от всех битов. **Образ базисного вектора — произведение состояний**, запутанности в нём нет. Например, для $j = 101$ ($n = 3$) множители — $(\lvert0\rangle + e^{2\pi ix}\lvert1\rangle)/\sqrt2$ с $x = 0.1 = \frac12$, $0.01 = \frac14$, $0.101 = \frac58$. Проверим численно:
+
+```{python}
+def product_form(j, n):
+    """Правая часть (2.1): ⊗_l (|0> + e^{2πi·0.j_{n−l+1}…j_n}|1>)/√2."""
+    bits = [(j >> (n - 1 - k)) & 1 for k in range(n)]
+    out = np.array([1.0 + 0j])
+    for l in range(1, n + 1):
+        frac = sum(bits[n - l + i] / 2 ** (i + 1) for i in range(l))
+        out = np.kron(out, np.array([1, np.exp(2j * pi * frac)]) / np.sqrt(2))
+    return out
+
+for n in (3, 5, 7):
+    F = dft_matrix(2 ** n)
+    for j in rng.integers(0, 2 ** n, 6):
+        assert np.allclose(product_form(int(j), n), F[:, j])
+print("(2.1) для 6 случайных j при n = 3, 5, 7: F|j> — произведение однокубитных состояний")
+fr = [0.5, 0.25, 5 / 8]
+print("j = 101: фазы множителей x =", fr, "→ совпадает:",
+      np.allclose(dft_matrix(8)[:, 5], np.kron(np.kron([1, np.exp(2j * pi * fr[0])], [1, np.exp(2j * pi * fr[1])]), [1, np.exp(2j * pi * fr[2])]) / np.sqrt(8)))
+```
+
 
 ### 2.2. Схема
 
@@ -109,7 +285,21 @@ $$
 $$
 n\ \text{гейтов } H,\qquad \frac{n(n-1)}{2}\ \text{гейтов } CR_k,\qquad \Bigl\lfloor\frac n2\Bigr\rfloor\ \text{SWAP} . \tag{2.2}
 $$
-При $n = 10$: 10, 45 и 5; при $n = 50$: 50, 1225 и 25. Схема совпадает с матрицей (1.1) для $n = 1..8$ (раздел 2 `примеры.py`). Без финальных SWAP получается QFT с обращённым порядком выходных битов, что часто удобнее: в QPE обращение можно учесть классически.
+При $n = 10$: 10, 45 и 5; при $n = 50$: 50, 1225 и 25. Схема совпадает с матрицей (1.1) для $n = 1..8$ (ячейка ниже). Без финальных SWAP получается QFT с обращённым порядком выходных битов, что часто удобнее: в QPE обращение можно учесть классически.
+
+```{python}
+for n in range(1, 9):
+    g = qft_gates(n)
+    assert np.allclose(circuit_matrix(g, n), dft_matrix(2 ** n))
+    counts = tuple(sum(x[0] == kind for x in g) for kind in ("H", "CP", "SWAP"))
+    assert counts == (n, n * (n - 1) // 2, n // 2)                           # (2.2)
+    rev = np.array([int(format(j, f"0{n}b")[::-1], 2) for j in range(2 ** n)])
+    assert np.allclose(circuit_matrix(qft_gates(n, swaps=False), n)[rev, :], dft_matrix(2 ** n))
+print("n = 1..8: схема из H, CR_k и SWAP совпадает с матрицей F_N; без SWAP — F_N с обращённым порядком выходных битов")
+for n in (10, 50):
+    print(f"n = {n}: H = {n}, CR_k = {n * (n - 1) // 2}, SWAP = {n // 2}")
+```
+
 
 **Обратное QFT** $F_N^\dagger$ — та же схема в обратном порядке с $R_k^\dagger$. Его используют в QPE.
 
@@ -125,7 +315,7 @@ $$
 $$
 Для ошибки $\varepsilon$ достаточно $m\approx\log_2(\pi n/\varepsilon)$, и число гейтов $O(n\log(n/\varepsilon))$ вместо $O(n^2)$.
 
-Численно для $n = 10$ (раздел 3 `примеры.py`; верность гейта — средняя по состояниям, $\bar F = (\lvert\operatorname{Tr}F^\dagger A\rvert^2 + N)/(N(N+1))$):
+Численно для $n = 10$ (верность гейта — средняя по состояниям, $\bar F = (\lvert\operatorname{Tr}F^\dagger A\rvert^2 + N)/(N(N+1))$):
 
 | $m$ | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -133,6 +323,31 @@ $$
 | $\|F - A_m\|_\infty$ | 1,585 | 0,771 | 0,300 | 0,104 | 0,031 | 0,0061 | 0 |
 | оценка (3.1) | 1,968 | 0,791 | 0,301 | 0,104 | 0,031 | 0,0061 | 0 |
 | $\bar F$ | 0,903 | 0,980 | 0,9963 | 0,9994 | 0,99992 | 0,999993 | 1 |
+
+```{python}
+def dropped_bound(n, m):
+    """Правая часть (3.1): Σ ||CR_k − I|| = 2 sin(π/2^k) по отброшенным поворотам."""
+    return sum((n - k + 1) * 2 * np.sin(pi / 2 ** k) for k in range(m + 2, n + 1))
+
+n, N = 10, 1024
+F = dft_matrix(N)
+aqft = {}
+print(" m   CR_k   ||F − A_m||   оценка (3.1)   средняя верность")
+for m in range(3, n):
+    g = qft_gates(n, m)
+    A = circuit_matrix(g, n)
+    err = 0.0 if np.allclose(F, A) else np.linalg.norm(F - A, 2)                  # ||F − A_m||
+    favg = (abs(np.trace(F.conj().T @ A)) ** 2 + N) / (N * (N + 1))
+    ncp = sum(x[0] == "CP" for x in g)
+    assert ncp == sum(min(n - 1 - l, m) for l in range(n)) and err <= dropped_bound(n, m) + 1e-9
+    aqft[m] = (ncp, err)
+    print(f"{m:2d}   {ncp:3d}     {err:7.4f}      {dropped_bound(n, m):7.4f}       {favg:.6f}")
+for n_, eps in ((100, 1e-2), (1000, 1e-2), (1000, 1e-4)):
+    m = next(m for m in range(1, n_) if dropped_bound(n_, m) <= eps)
+    print(f"n = {n_:4d}, ε = {eps:.0e}: достаточно m = {m} (log2(n/ε) = {log2(n_ / eps):.1f}); "
+          f"поворотов {sum(min(n_ - 1 - l, m) for l in range(n_))} против {n_ * (n_ - 1) // 2}")
+```
+
 
 Оценка (3.1) почти точна при малой ошибке. При $n = 1000$ и $\varepsilon = 10^{-2}$ достаточно $m = 19$: $18\,810$ поворотов вместо $499\,500$.
 
@@ -149,6 +364,15 @@ QFT делает $O(n^2)$ гейтов над вектором длины $2^n$.
 1. **Загрузка.** Чтобы применить QFT к массиву $x_0,\dots,x_{N-1}$, его надо закодировать в амплитуды. Приготовление произвольного состояния требует в общем случае экспоненциально много гейтов (считающий аргумент I.8, §5) — не меньше, чем само БПФ.
 2. **Чтение.** Результат — амплитуды $y_k$, а измерение даёт лишь один индекс $k$ с вероятностью $\lvert y_k\rvert^2$. Чтобы оценить все $N$ величин $\lvert y_k\rvert$ с точностью $\delta$, нужно порядка $N/\delta^2$ повторений, а фазы $y_k$ надо оценивать отдельно (томография).
 3. **Когда QFT полезно.** Вход приготовлен самой квантовой схемой (например, периодическое состояние из модульного возведения в степень), а на выходе нужна не вся таблица, а **глобальное свойство** — период, фаза, — которое видно уже из нескольких выборок.
+
+Для сравнения: классически то же преобразование случайного вектора длины $N = 256$ — один вызов `np.fft.ifft`:
+
+```{python}
+N = 256
+v = haar_state(N)
+print("F_N v = √N · ifft(v)?", np.allclose(dft_matrix(N) @ v, np.sqrt(N) * np.fft.ifft(v)),
+      "— классически O(N log N) операций, но результат — весь вектор из N чисел")
+```
 
 Это тот же урок, что и с квантовым параллелизмом (I.11, §2.1): экспоненциально большое пространство состояний не означает экспоненциально большого доступного результата (ср. границу Холево, II.12).
 
@@ -168,7 +392,36 @@ $$
 $$
 3. $F_T^\dagger$ на вспомогательном регистре, затем измерение. Получаем $m$, оценка — $\tilde\varphi = m/T$.
 
-Если $\varphi = 0.\varphi_1\dots\varphi_t$ точно ($\varphi = b/T$), то (5.1) есть в точности $F_T\lvert b\rangle$ (сравните с (2.1)), и $F_T^\dagger$ возвращает $\lvert b\rangle$ **с вероятностью 1** (раздел 5 `примеры.py`, $t = 3, 5$; это пункт (а) задания 6 ЛР6).
+Если $\varphi = 0.\varphi_1\dots\varphi_t$ точно ($\varphi = b/T$), то (5.1) есть в точности $F_T\lvert b\rangle$ (сравните с (2.1)), и $F_T^\dagger$ возвращает $\lvert b\rangle$ **с вероятностью 1** (ячейка ниже, $t = 3, 5$; это пункт (а) задания 6 ЛР6).
+
+```{python}
+def qpe_probs(phi, t):
+    """Распределение исходов QPE по формуле (5.3)."""
+    T = 2 ** t
+    delta = phi - np.arange(T) / T
+    exact = np.isclose(np.abs(((delta + 0.5) % 1) - 0.5), 0, atol=1e-13)
+    return np.where(exact, 1.0, np.sin(pi * T * delta) ** 2 / np.where(exact, 1.0, (T * np.sin(pi * delta)) ** 2))
+
+def qpe_circuit_probs(Umat, u, t):
+    """Полная схема QPE: вспомогательный регистр — H^t, каскад C-U^{2^{t−j}}, обратное QFT из §2."""
+    T, d = 2 ** t, len(u)
+    st = np.zeros((T, d), complex)                     # строка k: (1/√T)|k> ⊗ U^k|u> — состояние (5.1)
+    for k in range(T):
+        v = u.copy()
+        for j in range(t):                             # кубит j (j = 0 — старший) управляет U^{2^{t−1−j}}
+            if (k >> (t - 1 - j)) & 1:
+                v = np.linalg.matrix_power(Umat, 2 ** (t - 1 - j)) @ v
+        st[k] = v / np.sqrt(T)
+    return np.sum(np.abs(run(qft_gates(t), st, t, inverse=True)) ** 2, axis=1)
+
+one = np.array([0, 1], complex)                         # собственный вектор P(2πφ) с фазой φ
+for t in (3, 5):
+    for kk in (1, 5, 2 ** t - 1):
+        p = qpe_circuit_probs(P(2 * pi * kk / 2 ** t), one, t)
+        assert np.isclose(p[kk], 1)
+        print(f"t = {t}, φ = {kk}/{2 ** t}: исход m = {kk} с вероятностью {p[kk]:.6f}")
+```
+
 
 ### 5.2. Распределение исходов
 
@@ -179,7 +432,7 @@ $$
 $$
 \Pr[m] = \frac{\sin^2(\pi T\delta)}{T^2\sin^2(\pi\delta)} . \tag{5.3}
 $$
-Это ядро Фейера: пик ширины $\sim1/T$ около $\varphi$ и хвосты $\Pr[m]\lesssim\frac{1}{4T^2\delta^2}$ (из $\lvert\sin\pi\delta\rvert\ge2\lvert\delta\rvert$ при $\lvert\delta\rvert\le\frac12$). Формула (5.3) совпадает с полной симуляцией схемы (раздел 5 `примеры.py`). Пример: $\varphi = 1/3$, $t = 3$ даёт
+Это ядро Фейера: пик ширины $\sim1/T$ около $\varphi$ и хвосты $\Pr[m]\lesssim\frac{1}{4T^2\delta^2}$ (из $\lvert\sin\pi\delta\rvert\ge2\lvert\delta\rvert$ при $\lvert\delta\rvert\le\frac12$). Формула (5.3) совпадает с полной симуляцией схемы (ячейка ниже). Пример: $\varphi = 1/3$, $t = 3$ даёт
 $$
 \Pr[m] = 0{,}016;\ 0{,}032;\ 0{,}175;\ \mathbf{0{,}688};\ 0{,}047;\ 0{,}019;\ 0{,}013;\ 0{,}012\qquad(m = 0..7),
 $$
@@ -189,7 +442,7 @@ $$
 
 *Доказательство.* $\lvert\delta\rvert\le\frac1{2T}$, поэтому $\pi T\lvert\delta\rvert\le\frac\pi2$ и $\lvert\sin\pi T\delta\rvert\ge2T\lvert\delta\rvert$ (вогнутость синуса), а $\lvert\sin\pi\delta\rvert\le\pi\lvert\delta\rvert$. Подставляем в (5.3): $\Pr[b]\ge\frac{4T^2\delta^2}{T^2\pi^2\delta^2}$. $\square$
 
-Худший случай — $\varphi$ посередине между соседними точками сетки. Тогда $\Pr[b] = 0{,}4105$ при $t = 3$ и $0{,}4053$ при $t = 10$, то есть оценка точна асимптотически. Две ближайшие точки сетки вместе дают не меньше $8/\pi^2\approx0{,}81$. Для $\varphi = (\sqrt5-1)/2 - \frac12 = 0{,}118034$ (раздел 5 `примеры.py`):
+Худший случай — $\varphi$ посередине между соседними точками сетки. Тогда $\Pr[b] = 0{,}4105$ при $t = 3$ и $0{,}4053$ при $t = 10$, то есть оценка точна асимптотически. Две ближайшие точки сетки вместе дают не меньше $8/\pi^2\approx0{,}81$. Для $\varphi = (\sqrt5-1)/2 - \frac12 = 0{,}118034$:
 
 | $t$ | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -197,6 +450,42 @@ $$
 | $\Pr[\text{две ближайшие}]$ | 0,994 | 0,975 | 0,917 | 0,816 | 0,976 | 0,920 | 0,818 | 0,965 |
 
 Вероятность ближайшей оценки немонотонна по $t$: она зависит от того, где $\varphi T$ оказалось между точками сетки. Но всегда остаётся выше $4/\pi^2$ (пункт (б) задания 6 ЛР6).
+
+```{python}
+#| fig-cap: "Распределение исходов QPE (5.3) для $\\varphi = 0{,}118034$ при $t = 6$ (логарифмическая шкала). Пик шириной $\\sim1/T$ около $\\varphi T\\approx7{,}55$ и медленно убывающие хвосты; пунктир — оценка хвостов $1/(4T^2\\delta^2)$ вне пика ($\\lvert\\delta\\rvert > 1/T$)."
+p_c = qpe_circuit_probs(P(2 * pi / 3), one, 3)
+assert np.allclose(p_c, qpe_probs(1 / 3, 3))
+p3 = qpe_probs(1 / 3, 3)
+print("φ = 1/3, t = 3: схема = (5.3);  P(m) =", " ".join(f"{x:.3f}" for x in p3))
+phi_irr = (np.sqrt(5) - 1) / 2 - 0.5
+print(f"φ = {phi_irr:.6f}:\n t   P(ближайшая)   P(две ближайшие)")
+for t in range(3, 11):
+    T = 2 ** t
+    p = qpe_probs(phi_irr, t)
+    b = int(np.floor(phi_irr * T))
+    best = b if phi_irr * T - b < 0.5 else b + 1
+    two = p[b] + p[(b + 1) % T]
+    assert p[best] >= 4 / pi ** 2 and two >= 8 / pi ** 2                      # утверждение 5.1
+    print(f"{t:2d}     {p[best]:.3f}          {two:.3f}")
+for t in (3, 10):
+    print(f"худший случай (φT полуцелое), t = {t:2d}: P(ближайшая) = {qpe_probs(0.5 / 2 ** t, t)[0]:.4f};  4/π² = {4 / pi ** 2:.4f}")
+
+t, T = 6, 64
+m = np.arange(T)
+p = qpe_probs(phi_irr, t)
+dl = circ_dist(m, T, phi_irr)
+fig, ax = plt.subplots(figsize=(6.4, 3.4))
+ax.semilogy(m, p, "o", ms=4, label="$\\Pr[m]$ по (5.3)")
+ax.semilogy(m, np.where(dl > 1 / T, 1 / (4 * T ** 2 * np.maximum(dl, 1 / T) ** 2), np.nan), "--", color="gray", label="$1/(4T^2\\delta^2)$")
+ax.axvline(phi_irr * T, color="C1", lw=0.8, label="$\\varphi T$")
+ax.set_ylim(1e-5, 1.5)
+ax.set_xlabel("исход $m$")
+ax.set_ylabel("вероятность")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
 
 ### 5.3. Число вспомогательных кубитов
 
@@ -208,9 +497,27 @@ $$
 $$
 t = n + \Bigl\lceil\log_2\Bigl(2 + \frac{1}{2\varepsilon}\Bigr)\Bigr\rceil . \tag{5.5}
 $$
-Проверка (раздел 5 `примеры.py`, минимум по 200 случайным $\varphi$): $n = 3$, $\varepsilon = 0{,}1$: $t = 6$, $\Pr\ge0{,}976$; $n = 4$, $\varepsilon = 0{,}05$: $t = 8$, $\Pr\ge0{,}988$; $n = 5$, $\varepsilon = 0{,}01$: $t = 11$, $\Pr\ge0{,}997$. Оценка (5.5) с запасом; это пункт (в) задания 6 ЛР6.
+Проверка (минимум по 200 случайным $\varphi$): $n = 3$, $\varepsilon = 0{,}1$: $t = 6$, $\Pr\ge0{,}976$; $n = 4$, $\varepsilon = 0{,}05$: $t = 8$, $\Pr\ge0{,}988$; $n = 5$, $\varepsilon = 0{,}01$: $t = 11$, $\Pr\ge0{,}997$. Оценка (5.5) с запасом; это пункт (в) задания 6 ЛР6.
 
-Каждый лишний вспомогательный кубит удваивает число применений $U$: всего их $1 + 2 + \dots + 2^{t-1} = T - 1$. Обычно дешевле взять $t$ поменьше и повторить QPE несколько раз, выбрав **медиану**: при $t = 6$ одиночный запуск ошибается больше чем на $1/T$ с вероятностью $0{,}19$, медиана 5 запусков — $0{,}012$, у медианы 15 запусков в $20\,000$ испытаниях не было ни одной ошибки.
+```{python}
+for n_, eps in ((3, 0.1), (4, 0.05), (5, 0.01)):
+    t = n_ + ceil(log2(2 + 1 / (2 * eps)))                                   # (5.5)
+    T = 2 ** t
+    worst = min(qpe_probs(phi, t)[circ_dist(np.arange(T), T, phi) < 2.0 ** -n_].sum() for phi in rng.random(200))
+    print(f"n = {n_}, ε = {eps}: t = {t}, минимум P(|m/T − φ| < 2^−n) по 200 случайным φ = {worst:.4f} ≥ {1 - eps}")
+    assert worst >= 1 - eps
+t, T = 8, 256
+for phi in rng.random(50):                                                  # хвост (5.4)
+    p, b = qpe_probs(phi, t), int(np.floor(phi * T))
+    for e in (2, 4, 8, 16):
+        far = sum(p[m] for m in range(T) if min((m - b) % T, (b - m) % T) > e)
+        assert far <= 1 / (2 * (e - 1)) + 1e-12
+print("(5.4): P(|m − b| > e) ≤ 1/(2(e − 1)) для t = 8, e = 2, 4, 8, 16 и 50 случайных φ")
+V4, psi4 = haar_unitary(4), haar_state(4)          # случайные U и вход для проверки (5.6) в §5.5
+```
+
+
+Каждый лишний вспомогательный кубит удваивает число применений $U$: всего их $1 + 2 + \dots + 2^{t-1} = T - 1$. Обычно дешевле взять $t$ поменьше и повторить QPE несколько раз, выбрав **медиану**: при $t = 6$ одиночный запуск ошибается больше чем на $1/T$ с вероятностью $0{,}19$, медиана 5 запусков — $0{,}012$, у медианы 15 запусков в $20\,000$ испытаниях не было ни одной ошибки (проверка — после таблицы §5.4).
 
 ### 5.4. Масштабирование Гейзенберга
 
@@ -218,7 +525,7 @@ $$
 - **Повторение теста Адамара** (§7) $Q$ раз даёт $\cos2\pi\varphi$ и $\sin2\pi\varphi$ с ошибкой $\sim1/\sqrt Q$ (статистика независимых испытаний, «стандартный квантовый предел»).
 - **QPE** с $T = Q + 1$ даёт ошибку $\sim1/T = 1/Q$: применения $U$ выстроены **когерентно**, и фаза набегает $2^{t-1}$ раз на одном кубите. Это «предел Гейзенберга».
 
-Численно (раздел 5 `примеры.py`, полуширина интервала, содержащего 80 % вероятности):
+Численно (полуширина интервала, содержащего 80 % вероятности; для тестов Адамара — $Q/2$ повторений для $\cos$ и $Q/2$ для $\sin$, 4000 испытаний):
 
 | $Q$ | 15 | 127 | 1023 |
 |---|---:|---:|---:|
@@ -227,15 +534,74 @@ $$
 
 Наклоны в двойном логарифмическом масштабе: $-0{,}91$ и $-0{,}51$. Тонкость: среднеквадратичная ошибка стандартного QPE убывает лишь как $T^{-1/2}$ (наклон $-0{,}45$) из-за тяжёлых хвостов ядра Фейера (задача 13). Медиана нескольких запусков или специальное начальное состояние вспомогательного регистра вместо $H^{\otimes t}\lvert0\rangle$ эти хвосты подавляют.
 
+Проверим численно таблицу, наклоны и медиану повторений из §5.3:
+
+```{python}
+#| fig-cap: "Точность оценки фазы при $Q$ применениях $U$ ($\\varphi = 0{,}118034$): полуширина 80 %-го интервала ошибки для QPE ($Q = 2^t - 1$) и для $Q$ повторённых тестов Адамара, а также среднеквадратичная ошибка QPE. Серые линии — $1/Q$ (предел Гейзенберга) и $1/\\sqrt Q$ (стандартный предел)."
+q80q, q80h, rmsq, Qs = [], [], [], []
+print("   Q     80% QPE   80% Адамар   RMS QPE")
+for t in range(4, 11):
+    T, Q = 2 ** t, 2 ** t - 1
+    p, dist = qpe_probs(phi_irr, t), circ_dist(np.arange(2 ** t), 2 ** t, phi_irr)
+    order = np.argsort(dist)
+    cq = dist[order][np.searchsorted(np.cumsum(p[order]), 0.8)]
+    rq = np.sqrt(np.sum(p * dist ** 2))
+    reps = Q // 2                                                            # тесты Адамара: Q/2 на cos и Q/2 на sin
+    c_est = 2 * rng.binomial(reps, (1 + np.cos(2 * pi * phi_irr)) / 2, 4000) / reps - 1
+    s_est = 2 * rng.binomial(reps, (1 + np.sin(2 * pi * phi_irr)) / 2, 4000) / reps - 1
+    err = circ_dist(np.arctan2(s_est, c_est) / (2 * pi), 1, phi_irr)
+    q80q.append(cq); q80h.append(np.quantile(err, 0.8)); rmsq.append(rq); Qs.append(Q)
+    print(f"{Q:5d}   {cq:.1e}    {q80h[-1]:.1e}     {rq:.1e}")
+    assert cq <= 1 / T + 1e-12 and rq <= 1 / (2 * np.sqrt(T))                 # задача 13
+sl = [np.polyfit(np.log(Qs), np.log(y), 1)[0] for y in (q80q, q80h, rmsq)]
+print(f"наклоны: QPE {sl[0]:.2f}, тесты Адамара {sl[1]:.2f}, RMS QPE {sl[2]:.2f}")
+
+t, T = 6, 64                                                                # медиана повторений (§5.3)
+p = qpe_probs(phi_irr, t)
+signed = ((np.arange(T) / T - phi_irr + 0.5) % 1) - 0.5
+for k in (1, 5, 15):
+    med = np.median(signed[rng.choice(T, size=(20000, k), p=p / p.sum())], axis=1)
+    print(f"t = 6, медиана {k:2d} запусков: P(ошибка > 1/T) = {np.mean(np.abs(med) > 1 / T):.4f}  (20 000 испытаний)")
+
+fig, ax = plt.subplots(figsize=(6.4, 3.8))
+Qa = np.array(Qs)
+ax.loglog(Qa, q80q, "o-", label="QPE, 80 %")
+ax.loglog(Qa, rmsq, "^:", label="QPE, среднеквадратичная")
+ax.loglog(Qa, q80h, "s-", label="тесты Адамара, 80 %")
+ax.loglog(Qa, 1 / Qa, color="0.6", lw=0.8)
+ax.loglog(Qa, 0.5 / np.sqrt(Qa), color="0.6", lw=0.8, ls="--")
+ax.text(Qa[-1], 1 / Qa[-1], " $1/Q$", va="center", color="0.4")
+ax.text(Qa[-1], 0.5 / np.sqrt(Qa[-1]), " $\\propto 1/\\sqrt{Q}$", va="center", color="0.4")
+ax.set_xlim(10, 3000)
+ax.set_xlabel("число применений $U$, $Q$")
+ax.set_ylabel("ошибка оценки $\\varphi$")
+ax.legend(fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+
 ### 5.5. Вход — не собственный вектор
 
 На практике $\lvert u\rangle$ обычно неизвестен (так будет и в Шоре, и в химии). Пусть на вход подано $\lvert\psi\rangle = \sum_uc_u\lvert u\rangle$. По линейности (5.1) превращается в $\sum_uc_u\bigl(\frac1{\sqrt T}\sum_ke^{2\pi i\varphi_uk}\lvert k\rangle\bigr)\lvert u\rangle$. Собственные векторы ортогональны, поэтому
 $$
 \Pr[m] = \sum_u\lvert c_u\rvert^2\,\Pr\nolimits_{\varphi_u}[m] . \tag{5.6}
 $$
-QPE **выбирает собственное значение с вероятностью $\lvert c_u\rvert^2$**, а после измерения целевой регистр (приближённо) проецируется на соответствующее собственное подпространство. Это измерение наблюдаемой $U$ в её собственном базисе — фон-неймановское измерение (I.2), реализованное схемой (проверка (5.6) — раздел 5 `примеры.py`, $d = 4$, $t = 5$). Следствия:
+QPE **выбирает собственное значение с вероятностью $\lvert c_u\rvert^2$**, а после измерения целевой регистр (приближённо) проецируется на соответствующее собственное подпространство. Это измерение наблюдаемой $U$ в её собственном базисе — фон-неймановское измерение (I.2), реализованное схемой (проверка (5.6) — в ячейке ниже, $d = 4$, $t = 5$). Следствия:
 - в алгоритме Шора удобная суперпозиция собственных векторов приготавливается тривиально: $\frac1{\sqrt r}\sum_s\lvert u_s\rangle = \lvert1\rangle$ (I.13);
 - в квантовой химии вероятность получить энергию основного состояния равна квадрату перекрытия начального состояния с ним. Приготовить хорошее начальное состояние — главная трудность (I.15).
+
+```{python}
+phis = np.array([0.125, 0.3, 0.55, 0.8])
+Umat = V4 @ np.diag(np.exp(2j * pi * phis)) @ V4.conj().T                   # собственные векторы — столбцы V4
+c2 = np.abs(V4.conj().T @ psi4) ** 2
+p_sup = qpe_circuit_probs(Umat, psi4, 5)
+p_mix = sum(c2[i] * qpe_probs(phis[i], 5) for i in range(4))
+print("(5.6): P(m) = Σ_u |c_u|² P_φu(m)?", np.allclose(p_sup, p_mix), "  веса |c_u|² =", np.round(c2, 3))
+p9 = qpe_circuit_probs(Z, np.array([1, 1], complex) / np.sqrt(2), 1)
+print("задача 9: U = Z, вход |+>, t = 1: P(0), P(1) =", np.round(p9, 3))
+```
+
 
 ---
 
@@ -247,7 +613,42 @@ QPE **выбирает собственное значение с вероятн
 3. **обратная связь** $P(-\omega_k)$ с $\omega_k = 2\pi\cdot0.0\varphi_{k+1}\dots\varphi_t$ — по уже измеренным битам. Остаётся фаза $e^{2\pi i\,0.\varphi_k} = (-1)^{\varphi_k}$;
 4. $H$ и измерение дают $\varphi_k$; кубит сбрасывается и используется снова.
 
-Если $\varphi$ не представимо $t$ битами, итеративный QPE даёт **то же распределение** (5.3), что и стандартный. Это проверено точным перебором ветвей измерений для $t = 3, 5, 7$ и выборкой 3000 траекторий: расстояние полной вариации $0{,}013$ (раздел 6 `примеры.py`).
+Если $\varphi$ не представимо $t$ битами, итеративный QPE даёт **то же распределение** (5.3), что и стандартный. Это проверено точным перебором ветвей измерений для $t = 3, 5, 7$ и выборкой 3000 траекторий ($t = 6$, $\varphi = 0{,}3$): расстояние полной вариации $0{,}017$.
+
+```{python}
+def iqpe_bit_probs(phi, k, bits_low):
+    """Вспомогательный кубит: H, C-U^{2^{k−1}}, обратная связь P(−ω_k), H; вероятности битов 0 и 1."""
+    omega = 2 * pi * sum(b / 2 ** (i + 2) for i, b in enumerate(bits_low))  # 2π · 0.0 b_{k+1} b_{k+2} …
+    anc = H @ (P(-omega) @ (np.array([1, np.exp(2j * pi * 2 ** (k - 1) * phi)]) / np.sqrt(2)))
+    return np.abs(anc) ** 2
+
+def iqpe_probs(phi, t):
+    """Точное распределение строк исходов итеративного QPE (перебор ветвей)."""
+    probs = np.zeros(2 ** t)
+    def rec(k, bits_low, prob):
+        if k == 0:
+            probs[int("".join(map(str, bits_low)), 2)] += prob
+            return
+        for b, pb in enumerate(iqpe_bit_probs(phi, k, bits_low)):
+            if pb > 1e-15:
+                rec(k - 1, [b] + bits_low, prob * pb)
+    rec(t, [], 1.0)
+    return probs
+
+for t in (3, 5, 7):
+    for phi in list(rng.random(5)) + [5 / 2 ** t]:
+        assert np.allclose(iqpe_probs(phi, t), qpe_probs(phi, t))
+print("итеративный QPE: распределение совпадает с (5.3) для t = 3, 5, 7 (5 случайных φ и φ = 5/2^t)")
+print("задача 12, φ = 0.101₂ = 5/8, t = 3: P(101) =", iqpe_probs(5 / 8, 3)[5])
+t, phi, counts = 6, 0.3, np.zeros(64)
+for _ in range(3000):                                                        # выборка траекторий
+    bits = []
+    for k in range(t, 0, -1):
+        bits = [int(rng.random() < iqpe_bit_probs(phi, k, bits)[1])] + bits
+    counts[int("".join(map(str, bits)), 2)] += 1
+print(f"3000 траекторий (t = 6, φ = 0.3): расстояние полной вариации до (5.3) = {0.5 * np.abs(counts / 3000 - qpe_probs(phi, t)).sum():.3f}")
+```
+
 
 | | стандартный QPE | итеративный QPE |
 |---|---|---|
@@ -272,15 +673,82 @@ $$
 
 **Статистика.** Оценка $\hat r = 2\hat p_0 - 1$ по $M$ повторениям несмещённая, $\operatorname{Var}\hat r = (1 - r^2)/M\le1/M$. Для точности $0{,}01$ нужно $10^4$ повторений (задача 10).
 
+Проверим (7.1) и вариант с $S^\dagger$ на 10 случайных парах $(U, \lvert\psi\rangle)$, $d = 4$:
+
+```{python}
+for _ in range(10):
+    d = 4
+    U, psi = haar_unitary(d), haar_state(d)
+    CU = np.block([[np.eye(d), np.zeros((d, d))], [np.zeros((d, d)), U]])
+    ev = np.vdot(psi, U @ psi)
+    for gate, val in ((I2, ev.real), (Sdg, ev.imag)):
+        st = np.kron(H @ gate, np.eye(d)) @ CU @ np.kron(H, np.eye(d)) @ np.kron([1, 0], psi)
+        assert np.isclose(np.sum(np.abs(st[:d]) ** 2), (1 + val) / 2)          # (7.1)
+print("тест Адамара: P(0) = (1 + Re<ψ|U|ψ>)/2, с S† перед H — (1 + Im<ψ|U|ψ>)/2 (10 случайных U, ψ)")
+print("QPE с t = 1 — тест Адамара: P(0) = (1 + cos 2πφ)/2?", np.isclose(qpe_probs(0.2, 1)[0], (1 + np.cos(2 * pi * 0.2)) / 2))
+```
+
+
 ### 7.2. Swap-тест
 
 Вспомогательный кубит управляет гейтом SWAP двух регистров (Бурман, Клив, Уотрус, де Вольф, 2001): $\lvert0\rangle\lvert a\rangle\lvert b\rangle\xrightarrow{H}\xrightarrow{C\text{-SWAP}}\xrightarrow{H}$. По (7.1) с $U = \mathrm{SWAP}$:
 $$
 \Pr[0] = \frac{1 + \lvert\langle a|b\rangle\rvert^2}{2},\qquad\text{для смешанных}\quad \Pr[0] = \frac{1 + \operatorname{Tr}\rho\sigma}{2} . \tag{7.2}
 $$
-Тест оценивает перекрытие (верность для чистых состояний, I.3), не зная самих состояний и не делая томографии. При $\rho = \sigma$ он измеряет чистоту $\operatorname{Tr}\rho^2$ (задача 11). Ошибка оценки убывает как $1/\sqrt{M}$: для случайных трёхкубитных состояний с $\lvert\langle a|b\rangle\rvert^2 = 0{,}231$ среднеквадратичная ошибка при $M = 10^2, 10^3, 10^4, 10^5$ равна $0{,}097;\ 0{,}031;\ 0{,}0098;\ 0{,}0030$, наклон $-0{,}502$ (раздел 7 `примеры.py`; дополнительное задание ЛР6).
+Тест оценивает перекрытие (верность для чистых состояний, I.3), не зная самих состояний и не делая томографии. При $\rho = \sigma$ он измеряет чистоту $\operatorname{Tr}\rho^2$ (задача 11). Ошибка оценки убывает как $1/\sqrt{M}$: для случайных трёхкубитных состояний с $\lvert\langle a|b\rangle\rvert^2 = 0{,}326$ среднеквадратичная ошибка при $M = 10^2, 10^3, 10^4, 10^5$ равна $0{,}094;\ 0{,}030;\ 0{,}0092;\ 0{,}0031$, наклон $-0{,}498$ (дополнительное задание ЛР6; проверка — в ячейке ниже).
 
 Swap-тест разрушает оба состояния. Тот же результат даёт измерение пар кубитов в базисе Белла без вспомогательного кубита и управляемых SWAP: $\Pr[0]$ в (7.2) — это вероятность того, что число синглетов $\lvert\Psi^-\rangle$ среди пар чётно. Такой вариант проще на реальных устройствах.
+
+```{python}
+def swap_test_p0(rho, sigma):
+    """|0><0| ⊗ ρ ⊗ σ → H → controlled-SWAP → H → P(0)."""
+    d = rho.shape[0]
+    SW = np.zeros((d * d, d * d))
+    for a in range(d):
+        for b in range(d):
+            SW[b * d + a, a * d + b] = 1
+    CSW = np.block([[np.eye(d * d), np.zeros((d * d, d * d))], [np.zeros((d * d, d * d)), SW]])
+    U = np.kron(H, np.eye(d * d)) @ CSW @ np.kron(H, np.eye(d * d))
+    return np.trace((U @ np.kron(np.diag([1, 0]), np.kron(rho, sigma)) @ U.conj().T)[:d * d, :d * d]).real
+
+def rand_rho(d):
+    A = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    return A @ A.conj().T / np.trace(A @ A.conj().T)
+
+for _ in range(5):
+    a, b = haar_state(8), haar_state(8)
+    assert np.isclose(swap_test_p0(np.outer(a, a.conj()), np.outer(b, b.conj())), (1 + abs(np.vdot(a, b)) ** 2) / 2)
+    rho, sig = rand_rho(4), rand_rho(4)
+    assert np.isclose(swap_test_p0(rho, sig), (1 + np.trace(rho @ sig).real) / 2)          # (7.2)
+print("(7.2): P(0) = (1 + |<a|b>|²)/2 для 3-кубитных чистых и (1 + Tr ρσ)/2 для смешанных — по 5 случайных пар")
+
+Psim = np.array([0, 1, -1, 0]) / np.sqrt(2)                                  # вариант без вспомогательного кубита
+a, b = haar_state(8), haar_state(8)
+st = np.transpose(np.kron(a, b).reshape([2] * 6), (0, 3, 1, 4, 2, 5)).reshape(4, 4, 4)   # пары (a_i, b_i)
+proj = [np.outer(Psim, Psim), np.eye(4) - np.outer(Psim, Psim)]
+p_even = 0.0
+for c in np.ndindex(2, 2, 2):
+    v = np.einsum("ai,bj,ck,ijk->abc", proj[c[0]], proj[c[1]], proj[c[2]], st)
+    if (3 - sum(c)) % 2 == 0:                                               # c_i = 0 — синглет в паре i
+        p_even += np.vdot(v, v).real
+print("пары в базисе Белла: P(чётное число синглетов) = (1 + |<a|b>|²)/2?", np.isclose(p_even, (1 + abs(np.vdot(a, b)) ** 2) / 2))
+
+a, b = haar_state(8), haar_state(8)                                          # статистика оценки
+ov = abs(np.vdot(a, b)) ** 2
+p0 = (1 + ov) / 2
+print(f"|<a|b>|² = {ov:.3f}:   M      RMSE    теория √(4p₀(1 − p₀)/M)")
+errs, Ms = [], [100, 1000, 10000, 100000]
+for M in Ms:
+    est = 2 * rng.binomial(M, p0, 2000) / M - 1
+    errs.append(np.sqrt(np.mean((est - ov) ** 2)))
+    print(f"            {M:6d}   {errs[-1]:.4f}   {np.sqrt(4 * p0 * (1 - p0) / M):.4f}")
+print(f"наклон log RMSE по log M = {np.polyfit(np.log(Ms), np.log(errs), 1)[0]:.3f}")
+Phi = np.array([1, 0, 0, 1]) / np.sqrt(2)
+for pp in (0.0, 0.5, 1.0):                                                   # задача 11
+    rho = pp * np.outer(Phi, Phi) + (1 - pp) * np.eye(4) / 4
+    print(f"задача 11: ρ_p, p = {pp}: Tr ρ² = {(1 + 3 * pp ** 2) / 4:.4f}, P(0) swap-теста = {swap_test_p0(rho, rho):.4f}")
+```
+
 
 ---
 
@@ -325,7 +793,9 @@ Swap-тест разрушает оба состояния. Тот же резу
 12. (••) Объясните выбор угла обратной связи $\omega_k$ в итеративном QPE. Проследите работу алгоритма при $\varphi = 0.101_2 = 5/8$, $t = 3$.
 13. (•••) Покажите, что для стандартного QPE $\sum_m\Pr[m]\,\delta_m^2\le\frac{1}{4T}$, где $\delta_m$ — расстояние от $m/T$ до $\varphi$ по окружности, так что среднеквадратичная ошибка не больше $\frac{1}{2\sqrt T}$. Почему по порядку это нельзя улучшить? (Указание: хвосты (5.3) убывают как $1/(T^2\delta^2)$.)
 
-### Ответы и указания
+::: {.callout-tip collapse="true"}
+## Ответы и указания
+
 - **1.** $F_4$ — матрица из §1.1; столбцы ортонормированы, так как $\sum_k i^{(j-j')k} = 4\delta_{jj'}$.
 - **2.** $(F^2)_{kj} = \frac1N\sum_l\omega^{l(j+k)} = \delta_{k,-j}$. Собственные значения — корни четвёртой степени из 1: $\pm1$, $\pm i$; при $N = 16$ кратности 5, 4, 4, 3.
 - **3.** 10, 45, 5. При $m = 5$ остаётся $\sum_{l=0}^{9}\min(9-l, 5) = 35$ поворотов.
@@ -338,13 +808,14 @@ Swap-тест разрушает оба состояния. Тот же резу
 - **10.** $\operatorname{Var}\hat r = (1 - r^2)/M\le1/M$, поэтому $M = 10^4$.
 - **11.** $\Pr[0] = \frac12(1 + \operatorname{Tr}\rho_p^2)$, $\operatorname{Tr}\rho_p^2 = \frac{1 + 3p^2}{4}$: $0{,}625$; $0{,}719$; $1$.
 - **12.** После $C\text{-}U^{2^{k-1}}$ фаза равна $2\pi\cdot0.\varphi_k\varphi_{k+1}\dots$; известная «хвостовая» часть $0.0\varphi_{k+1}\dots$ вычитается, остаётся $\pi\varphi_k$, и $H$ переводит $\lvert0\rangle\pm\lvert1\rangle$ в $\lvert\varphi_k\rangle$. Для $\varphi = 5/8$: $k = 3$ — фаза $4\cdot\frac58\cdot2\pi\equiv\pi$, бит 1; $k = 2$ — фаза $2\pi\cdot0.01$, коррекция $2\pi\cdot0.01$, бит 0; $k = 1$ — фаза $2\pi\cdot0.101$, коррекция $2\pi\cdot0.001$, бит 1. Ответ $101$.
-- **13.** $\Pr[m]\,\delta_m^2\le\frac{\sin^2(\pi T\delta_m)}{4T^2}\le\frac1{4T^2}$, и слагаемых $T$. Снизу: при типичном $\varphi$ точки с $\lvert\delta_m\rvert\sim1/4$ дают $\Pr[m]\sim1/T^2$ и вклад $\sim1/T^2$ каждая, а таких точек $\sim T$. Проверка: при $t = 4..10$ среднеквадратичная ошибка лежит ниже $1/(2\sqrt T)$ (раздел 5 `примеры.py`).
+- **13.** $\Pr[m]\,\delta_m^2\le\frac{\sin^2(\pi T\delta_m)}{4T^2}\le\frac1{4T^2}$, и слагаемых $T$. Снизу: при типичном $\varphi$ точки с $\lvert\delta_m\rvert\sim1/4$ дают $\Pr[m]\sim1/T^2$ и вклад $\sim1/T^2$ каждая, а таких точек $\sim T$. Проверка: при $t = 4..10$ среднеквадратичная ошибка лежит ниже $1/(2\sqrt T)$ (§5.4).
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 8 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет. Полный файл `примеры.py` (около 8 с) проверяет:
 1. унитарность $F_N$, связь (1.2) с `np.fft`, $F^2$, $F^4 = I$, кратности собственных значений, диагонализацию сдвига (1.3);
 2. схему QFT из $H$, $CR_k$ и SWAP против матрицы (1.1) для $n = 1..8$, число гейтов (2.2), формулу произведения (2.1);
 3. приближённое QFT при $n = 10$: операторную ошибку, оценку (3.1), среднюю верность и число гейтов; выбор $m$ при больших $n$;
