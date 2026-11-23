@@ -1,10 +1,13 @@
-# Лекция I.15. Моделирование гамильтонианов
+---
+title: "Лекция I.15. Моделирование гамильтонианов"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.D «Квантовые алгоритмы».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (функции от операторов, §6; коммутаторы и формула (7.1), §7; разложение по матрицам Паули, §8); лекция I.8 (CNOT и однокубитные повороты, §1–2; стоимость схем, §0); лекция I.10 (класс QMA и задача о локальном гамильтониане, §3.2; адиабатические вычисления, §5.2); лекция I.12 (оценка фазы, §5; вход — не собственный вектор, §5.5); лекция I.14 (усиление амплитуды, §5).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (функции от операторов, §6; коммутаторы и формула (7.1), §7; разложение по матрицам Паули, §8); [лекция I.8](../../Часть_I/I.08_Схемы_и_универсальность/лекция.qmd) (CNOT и однокубитные повороты, §1–2; стоимость схем, §0); [лекция I.10](../../Часть_I/I.10_Квантовая_сложность/лекция.qmd) (класс QMA и задача о локальном гамильтониане, §3.2; адиабатические вычисления, §5.2); [лекция I.12](../../Часть_I/I.12_QFT_и_QPE/лекция.qmd) (оценка фазы, §5; вход — не собственный вектор, §5.5); [лекция I.14](../../Часть_I/I.14_Алгоритм_Гровера/лекция.qmd) (усиление амплитуды, §5).
 **Литература:** N&C, § 4.7; Lin L. Lecture Notes on Quantum Algorithms for Scientific Computation (arXiv:2201.08309), гл. 1–3 (выборочно); Lloyd S. // Science 273, 1073 (1996); Childs A. M. et al. // PRX 11, 011020 (2021); Low G. H., Chuang I. L. // Quantum 3, 163 (2019); Szabo A., Ostlund N. S. Modern Quantum Chemistry (1996), гл. 3.
-**Материалы:** `примеры.py` — численная проверка всех утверждений: схема для экспоненты паули-строки, отображение Жордана–Вигнера, формулы Троттера–Сузуки и коммутаторные оценки, модель Изинга в поперечном поле, блочное кодирование и кубитизация, гамильтониан молекулы H₂ (интегралы STO-3G вычисляются с нуля), оценка фазы для энергии; задачи к семинару С7 и к ЛР8 — в § 8.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: схема для экспоненты паули-строки, отображение Жордана–Вигнера, формулы Троттера–Сузуки и коммутаторные оценки, модель Изинга в поперечном поле, блочное кодирование и кубитизация, гамильтониан молекулы H₂ (интегралы STO-3G вычисляются с нуля), оценка фазы для энергии; задачи к семинару С7 и к ЛР8 — в § 7. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §3 и §13).
 - $H = \sum_{j=1}^L H_j$ — гамильтониан из $L$ слагаемых; $U(t) = e^{-iHt}$ ($\hbar = 1$); $\|\cdot\|$ — операторная норма $\|\cdot\|_\infty$.
@@ -12,6 +15,78 @@
 - Модель Изинга в поперечном поле (TFIM): $H = -J\sum_{i=1}^{n-1}Z_iZ_{i+1} - h\sum_{i=1}^nX_i$ (открытая цепочка, как в ЛР8).
 - Фермионы: $a_j$, $a_j^\dagger$ — операторы уничтожения и рождения на узле (спин-орбитали) $j$; $\lvert1\rangle$ — узел занят, $\lvert0\rangle$ — свободен; $n_j = a_j^\dagger a_j$.
 - LCU: $H = \sum_j\alpha_jU_j$, $\alpha_j>0$, $U_j$ унитарны; $\alpha = \sum_j\alpha_j$; $\lvert G\rangle = \mathrm{PREP}\lvert0\rangle = \sum_j\sqrt{\alpha_j/\alpha}\,\lvert j\rangle$; $\mathrm{SELECT} = \sum_j\lvert j\rangle\langle j\rvert\otimes U_j$.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+from functools import reduce
+from itertools import product
+from math import erf, exp, pi, sqrt
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.sparse as sp
+from scipy.linalg import expm
+from scipy.sparse.linalg import eigsh
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+H1 = (X + Z) / np.sqrt(2)                       # гейт Адамара
+S1 = np.diag([1, 1j])                           # фазовый гейт S
+PAULI = {"I": I2, "X": X, "Y": Y, "Z": Z}
+
+def kron(*ops):
+    return reduce(np.kron, ops, np.array([[1.0 + 0j]]))
+
+def pstr(s):
+    """Паули-строка по записи вида 'XZZI' (первый символ — старший кубит)."""
+    return kron(*[PAULI[c] for c in s])
+
+def op_on(n, j, o):
+    """Оператор o на кубите j (с нуля) из n."""
+    return kron(*[o if k == j else I2 for k in range(n)])
+
+def opnorm(A):
+    return np.linalg.norm(A, 2)
+
+def comm(A, B):
+    return A @ B - B @ A
+
+def pauli_decompose(Hm, n):
+    """(1.1): ненулевые коэффициенты c_P = Tr(P H)/2^n."""
+    out = {}
+    for s in map("".join, product("IXYZ", repeat=n)):
+        c = np.trace(pstr(s) @ Hm) / 2 ** n
+        if abs(c) > 1e-12:
+            out[s] = c
+    return out
+
+sig_minus = np.array([[0, 1], [0, 0]], dtype=complex)   # |0><1| = (X + iY)/2
+
+def a_op(j, n):
+    """Жордан–Вигнер (2.2): a_j = Z…Z (X + iY)/2 I…I."""
+    return kron(*([Z] * j + [sig_minus] + [I2] * (n - j - 1)))
+
+def tfim_sparse(n, J, h):
+    """Разреженная матрица TFIM (5.1), открытая цепочка."""
+    N, idx = 2 ** n, np.arange(2 ** n)
+    spins = 1 - 2 * ((idx[:, None] >> (n - 1 - np.arange(n))) & 1)
+    Hm = sp.diags(-J * np.sum(spins[:, :-1] * spins[:, 1:], axis=1)).tocsr()
+    for i in range(n):
+        Hm = Hm + sp.csr_matrix((-h * np.ones(N), (idx, idx ^ (1 << (n - 1 - i)))), shape=(N, N))
+    return Hm
+
+def tfim_parts(n, J, h):
+    """A = −J Σ Z_i Z_(i+1) (диагональ, вектор) и B = −h Σ X_i (плотная матрица)."""
+    idx = np.arange(2 ** n)
+    spins = 1 - 2 * ((idx[:, None] >> (n - 1 - np.arange(n))) & 1)
+    return -J * np.sum(spins[:, :-1] * spins[:, 1:], axis=1), -h * sum(op_on(n, i, X) for i in range(n))
+```
+
 
 ---
 
@@ -64,7 +139,15 @@ $$
 $$
 H = \sum_{P\in\{I,X,Y,Z\}^{\otimes n}}c_PP,\qquad c_P = \frac{\operatorname{Tr}(PH)}{2^n}\in\mathbb R . \tag{1.1}
 $$
-У $k$-локального $H$ ненулевых коэффициентов не больше $\sum_{m\le k}\binom nm3^m = O(n^k)$. Так что естественный формат входа — список паули-строк с коэффициентами. Для случайного эрмитова $8\times8$ все 64 коэффициента ненулевые и вещественные (раздел 1 `примеры.py`).
+У $k$-локального $H$ ненулевых коэффициентов не больше $\sum_{m\le k}\binom nm3^m = O(n^k)$. Так что естественный формат входа — список паули-строк с коэффициентами. Для случайного эрмитова $8\times8$ все 64 коэффициента ненулевые и вещественные:
+
+```{python}
+A = rng.normal(size=(8, 8)) + 1j * rng.normal(size=(8, 8))
+Hr = A + A.conj().T
+dec = pauli_decompose(Hr, 3)
+assert np.allclose(sum(c * pstr(s) for s, c in dec.items()), Hr)
+print(f"ненулевых коэффициентов: {len(dec)} из 64; max |Im c_P| = {max(abs(c.imag) for c in dec.values()):.1e}")
+```
 
 ### 1.2. Схема для $e^{-i\theta P/2}$
 
@@ -76,7 +159,31 @@ $$
 $$
 e^{-i\theta P/2} = V\,L^\dagger\,R_z(\theta)\,L\,V^\dagger ,\qquad L = \prod\mathrm{CNOT}(q_i\to q_{i+1}) . \tag{1.2}
 $$
-Формула (1.2) проверена для $XYZ$, $ZIZ$, $YXI$, $XXXX$, $ZYIX$ (раздел 1 `примеры.py`). Так в Qiskit работает `PauliEvolutionGate`. Знак и множитель $\frac12$ — как у поворотов $R_{\mathbf n}(\theta)$ (`Обозначения.md`, §3): при $P = Z$ получается в точности $R_z(\theta)$.
+Проверим (1.2) для $XYZ$, $ZIZ$, $YXI$, $XXXX$, $ZYIX$:
+
+```{python}
+def cnot(n, c, t):
+    P0, P1 = np.diag([1, 0]).astype(complex), np.diag([0, 1]).astype(complex)
+    return kron(*[P0 if k == c else I2 for k in range(n)]) + kron(*[P1 if k == c else (X if k == t else I2) for k in range(n)])
+
+def pauli_exp_circuit(s, theta):
+    """(1.2): смена базиса V, лесенка CNOT, R_z(θ) на последнем нетривиальном кубите, обратно."""
+    n = len(s)
+    V = kron(*[{"I": I2, "Z": I2, "X": H1, "Y": S1 @ H1}[c] for c in s])   # P_j = V Z V†
+    act = [k for k, c in enumerate(s) if c != "I"]
+    L = reduce(lambda acc, g: g @ acc, [cnot(n, act[i], act[i + 1]) for i in range(len(act) - 1)], np.eye(2 ** n))
+    Rz = op_on(n, act[-1], np.diag([np.exp(-1j * theta / 2), np.exp(1j * theta / 2)]))
+    return V @ L.conj().T @ Rz @ L @ V.conj().T, 2 * (len(act) - 1)
+
+assert np.allclose(Y, S1 @ H1 @ Z @ H1.conj().T @ S1.conj().T)          # Y = SH Z HS†
+for s in ("XYZ", "ZIZ", "YXI", "XXXX", "ZYIX"):
+    th = rng.uniform(0, 2 * pi)
+    U, nc = pauli_exp_circuit(s, th)
+    print(f"{s:4s}: схема = expm(−iθP/2)? {np.allclose(U, expm(-1j * th / 2 * pstr(s)))}, CNOT = {nc}")
+print("P = Z: схема = R_z(θ)?", np.allclose(pauli_exp_circuit("Z", 0.7)[0], np.diag([np.exp(-0.35j), np.exp(0.35j)])))
+```
+
+Так в Qiskit работает `PauliEvolutionGate`. Знак и множитель $\frac12$ — как у поворотов $R_{\mathbf n}(\theta)$ (`Обозначения.md`, §3): при $P = Z$ получается в точности $R_z(\theta)$.
 
 Если слагаемые $H_j$ коммутируют, то $e^{-iHt} = \prod_je^{-iH_jt}$ точно. Вся трудность — в некоммутирующих слагаемых.
 
@@ -94,7 +201,24 @@ $$
 $$
 a_j = Z_1\cdots Z_{j-1}\,\frac{X_j + iY_j}{2},\qquad a_j^\dagger a_j = n_j = \frac{I - Z_j}{2} . \tag{2.2}
 $$
-Соотношения (2.1) для (2.2) проверены при $n = 4$; без хвоста антикоммутация нарушается (раздел 2 `примеры.py`). Типичные слагаемые:
+Проверим соотношения (2.1) для (2.2) при $n = 4$ и то, что без хвоста антикоммутация нарушается:
+
+```{python}
+n = 4
+ops = [a_op(j, n) for j in range(n)]
+ok = all(np.allclose(ops[i] @ ops[j].conj().T + ops[j].conj().T @ ops[i], np.eye(2 ** n) * (i == j))
+         and np.allclose(ops[i] @ ops[j] + ops[j] @ ops[i], 0) for i in range(n) for j in range(n))
+print("{a_i, a_j†} = δ_ij, {a_i, a_j} = 0:", ok)
+print("n_j = a_j† a_j = (I − Z_j)/2:", all(np.allclose(ops[j].conj().T @ ops[j], (np.eye(2 ** n) - op_on(n, j, Z)) / 2) for j in range(n)))
+bad = [kron(*([I2] * j + [sig_minus] + [I2] * (n - j - 1))) for j in range(n)]
+print("без хвоста: {a_1, a_2} = 0?", np.allclose(bad[0] @ bad[1] + bad[1] @ bad[0], 0),
+      "— операторы на разных узлах коммутируют:", np.allclose(bad[0] @ bad[1], bad[1] @ bad[0]))
+hop = lambda i, j: ops[i].conj().T @ ops[j] + ops[j].conj().T @ ops[i]
+print("a_1†a_2 + h.c. = (XXII + YYII)/2:", np.allclose(hop(0, 1), (pstr("XXII") + pstr("YYII")) / 2))
+print("a_1†a_4 + h.c. = (XZZX + YZZY)/2:", np.allclose(hop(0, 3), (pstr("XZZX") + pstr("YZZY")) / 2))
+```
+
+Типичные слагаемые:
 $$
 a_i^\dagger a_j + a_j^\dagger a_i = \frac12\bigl(X_iZ_{i+1}\cdots Z_{j-1}X_j + Y_iZ_{i+1}\cdots Z_{j-1}Y_j\bigr)\quad(i<j) , \tag{2.3}
 $$
@@ -102,7 +226,26 @@ $$
 
 **Цена.** Вес паули-строки в (2.3) растёт как $\lvert i - j\rvert$, поэтому экспонента стоит $O(n)$ CNOT по (1.2). Для одномерных цепочек с прыжками между соседями хвост пуст. **Отображение Бравого–Китаева** (2002) хранит в кубитах частичные суммы чётностей и сокращает вес до $O(\log n)$. Есть и отображения, сохраняющие локальность в двумерных решётках ценой дополнительных кубитов.
 
-**Обратное применение.** TFIM (§5.1) — спиновая модель, но через (2.2) она переводится в модель свободных фермионов и решается точно (Либ, Шульц, Маттис, 1961; Пфойти, 1970). Энергии основного состояния из точной диагонализации совпали с формулой свободных фермионов до $10^{-8}$ (раздел 3 `примеры.py`). Поэтому TFIM — удобный тест: ответ известен при любом $n$.
+**Обратное применение.** TFIM (§5.1) — спиновая модель, но через (2.2) она переводится в модель свободных фермионов и решается точно (Либ, Шульц, Маттис, 1961; Пфойти, 1970). Энергии основного состояния из точной диагонализации совпадают с формулой свободных фермионов до $10^{-8}$:
+
+```{python}
+def tfim_free_fermion_E0(n, J, h):
+    """Точное решение (Либ–Шульц–Маттис): E_0 = −½ Σ ε_k, ε_k² — собственные значения (A − B)(A + B)."""
+    A, B = np.diag(np.full(n, 2.0 * h)), np.zeros((n, n))
+    for i in range(n - 1):
+        A[i, i + 1] = A[i + 1, i] = -J
+        B[i, i + 1], B[i + 1, i] = -J, J
+    return -0.5 * np.sqrt(np.clip(np.linalg.eigvalsh((A - B) @ (A + B)), 0, None)).sum()
+
+E0 = {}
+for h in (0.5, 1.0, 2.0):
+    E0[h] = eigsh(tfim_sparse(8, 1.0, h), k=1, which="SA")[0][0]
+    ff = tfim_free_fermion_E0(8, 1.0, h)
+    assert abs(ff - E0[h]) < 1e-8
+    print(f"n = 8, h/J = {h}: E_0 = {E0[h]:.6f} (диагонализация), {ff:.6f} (свободные фермионы)")
+```
+
+Поэтому TFIM — удобный тест: ответ известен при любом $n$.
 
 ---
 
@@ -129,7 +272,7 @@ $$
 r_1 = \Bigl\lceil\frac{t^2}{2\varepsilon}\sum_{j<k}\|[H_j,H_k]\|\Bigr\rceil . \tag{3.3}
 $$
 
-**Коммутаторное масштабирование** (Чайлдс, Су, Тран, Вибе, Чжу, 2021). Грубая оценка через $\bigl(\sum\|H_j\|\bigr)^2$ растёт как $L^2$. Коммутаторная (3.2) учитывает, что в локальном гамильтониане почти все пары слагаемых коммутируют. У TFIM из $L = 2n - 1$ слагаемых не коммутируют только $2(n-1)$ пар ($X_i$ с двумя соседними связями $Z_{i-1}Z_i$, $Z_iZ_{i+1}$), каждая с $\|[Z_iZ_{i+1}, X_i]\| = 2$ (раздел 4 `примеры.py`):
+**Коммутаторное масштабирование** (Чайлдс, Су, Тран, Вибе, Чжу, 2021). Грубая оценка через $\bigl(\sum\|H_j\|\bigr)^2$ растёт как $L^2$. Коммутаторная (3.2) учитывает, что в локальном гамильтониане почти все пары слагаемых коммутируют. У TFIM из $L = 2n - 1$ слагаемых не коммутируют только $2(n-1)$ пар ($X_i$ с двумя соседними связями $Z_{i-1}Z_i$, $Z_iZ_{i+1}$), каждая с $\|[Z_iZ_{i+1}, X_i]\| = 2$ (проверка — после таблицы):
 
 | $n$ | 4 | 6 | 8 | 10 |
 |---|---:|---:|---:|---:|
@@ -139,6 +282,20 @@ $$
 | $\|[A,B]\|$ при $J = h = 1$ | 8,94 | 13,98 | 19,04 | 24,11 |
 
 Здесь $A = -J\sum Z_iZ_{i+1}$, $B = -h\sum X_i$ — две группы коммутирующих слагаемых. Каждую можно экспоненцировать точно, и (3.1) применяется прямо к $A$ и $B$: $\|[A,B]\| = 19{,}04$ при $n = 8$ против $\sum_{j<k}\|[H_j,H_k]\| = 4(n-1)Jh = 28$. Чайлдс и др. показали, что коммутаторные оценки для формул любого порядка дают для решёточных моделей с близкодействием стоимость, почти линейную по $n t$, и обычно гораздо ближе к реальной ошибке, чем прежние оценки.
+
+```{python}
+print(f"||[Z1Z2, X1]|| = {opnorm(comm(pstr('ZZ'), pstr('XI'))):.1f}")
+print(" n    L   пар   некоммутирующих   ||[A,B]||   Σ_(j<k) ||[H_j,H_k]||")
+for n in (4, 6, 8, 10):
+    zz, Bm = tfim_parts(n, 1.0, 1.0)
+    terms = ["I" * i + "ZZ" + "I" * (n - i - 2) for i in range(n - 1)] + ["I" * i + "X" + "I" * (n - i - 1) for i in range(n)]
+    L = len(terms)
+    anti = lambda p, q: sum(a != "I" and b != "I" and a != b for a, b in zip(p, q)) % 2   # строки антикоммутируют
+    nc = sum(anti(terms[j], terms[k]) for j in range(L) for k in range(j))
+    nAB = opnorm(np.diag(zz) @ Bm - Bm @ np.diag(zz))
+    print(f"{n:2d}   {L:2d}   {L * (L - 1) // 2:3d}        {nc:2d}            {nAB:5.2f}         {4 * (n - 1)}")
+```
+
 
 ### 3.2. Второй порядок
 
@@ -150,7 +307,42 @@ $$
 
 **Почти бесплатно.** Соседние полушаги $e^{-iA\tau/2}e^{-iA\tau/2}$ на стыке шагов сливаются, и $S_2(\tau)^r$ стоит столько же, сколько $S_1(\tau)^r$, плюс одна лишняя экспонента (контрольный вопрос 1 ЛР8). Выгодно ставить по краям более дешёвую группу. У TFIM это $B$: однокубитные $R_x$ без CNOT.
 
-Оценки (3.1) и (3.4) проверены на шаге $\tau\in\{0{,}01;\ 0{,}05;\ 0{,}1;\ 0{,}3\}$ для TFIM и на 20 парах случайных эрмитовых $6\times6$ (раздел 4 `примеры.py`).
+Оценки (3.1) и (3.4) проверим на шаге $\tau\in\{0{,}01;\ 0{,}05;\ 0{,}1;\ 0{,}3\}$ для TFIM ($n = 8$, $J = h = 1$) и на 20 парах случайных эрмитовых $6\times6$:
+
+```{python}
+n = 8
+zzA, Bm = tfim_parts(n, 1.0, 1.0)
+Am = np.diag(zzA).astype(complex)
+nA, nBBA, nAAB = opnorm(comm(Am, Bm)), opnorm(comm(Bm, comm(Bm, Am))), opnorm(comm(Am, comm(Am, Bm)))
+wB, VB = np.linalg.eigh(Bm)
+wH, VH = np.linalg.eigh(Am + Bm)
+eA = lambda t: np.diag(np.exp(-1j * zzA * t))                       # A диагональна
+eB = lambda t: (VB * np.exp(-1j * wB * t)) @ VB.conj().T
+Uex = lambda t: (VH * np.exp(-1j * wH * t)) @ VH.conj().T            # точная e^{−iHt}
+S1f = lambda dt: eA(dt) @ eB(dt)
+S2f = lambda dt: eB(dt / 2) @ eA(dt) @ eB(dt / 2)                     # по краям — дешёвая группа B
+p4 = 1 / (4 - 4 ** (1 / 3))
+def S4f(dt):                                                        # рекурсия Сузуки (3.5), k = 2
+    a = S2f(p4 * dt)
+    return a @ a @ S2f((1 - 4 * p4) * dt) @ a @ a
+
+print(f"n = 8: ||[A,B]|| = {nA:.2f}, ||[B,[B,A]]|| = {nBBA:.2f}, ||[A,[A,B]]|| = {nAAB:.2f}")
+print("  τ      ошибка S1   оценка (3.1)   ошибка S2   оценка (3.4)")
+for dt in (0.01, 0.05, 0.1, 0.3):
+    e1, b1 = opnorm(Uex(dt) - S1f(dt)), dt ** 2 / 2 * nA
+    e2, b2 = opnorm(Uex(dt) - S2f(dt)), dt ** 3 / 12 * nBBA + dt ** 3 / 24 * nAAB
+    assert e1 <= b1 and e2 <= b2
+    print(f"{dt:5.2f}    {e1:.2e}    {b1:.2e}     {e2:.2e}    {b2:.2e}")
+for _ in range(20):
+    a = rng.normal(size=(6, 6)) + 1j * rng.normal(size=(6, 6)); a = a + a.conj().T
+    b = rng.normal(size=(6, 6)) + 1j * rng.normal(size=(6, 6)); b = b + b.conj().T
+    for dt in (0.02, 0.1, 0.4):
+        U = expm(-1j * (a + b) * dt)
+        assert opnorm(U - expm(-1j * a * dt) @ expm(-1j * b * dt)) <= dt ** 2 / 2 * opnorm(comm(a, b)) * (1 + 1e-9)
+        s2 = expm(-1j * a * dt / 2) @ expm(-1j * b * dt) @ expm(-1j * a * dt / 2)
+        assert opnorm(U - s2) <= dt ** 3 * (opnorm(comm(b, comm(b, a))) / 12 + opnorm(comm(a, comm(a, b))) / 24) * (1 + 1e-9)
+print("оценки (3.1) и (3.4) выполнены и на 20 парах случайных эрмитовых 6×6")
+```
 
 ### 3.3. Высшие порядки: рекурсия Сузуки
 
@@ -160,9 +352,15 @@ S_{2k}(\tau) = S_{2k-2}(p_k\tau)^2\,S_{2k-2}\bigl((1-4p_k)\tau\bigr)\,S_{2k-2}(p
 $$
 Для $k = 2$: $p_2 = 0{,}414491$, $1 - 4p_2 = -0{,}657963$ — средний шаг идёт **назад** во времени. Ошибка на шаге $O(\tau^{2k+1})$, но число экспонент растёт как $5^{k-1}$. При фиксированной точности стоимость $r\propto t^{1+1/2k}\varepsilon^{-1/2k}$, поэтому на практике обычно выбирают $2k = 2$ или $4$.
 
+```{python}
+print(f"p_2 = {p4:.6f}, 1 − 4p_2 = {1 - 4 * p4:.6f};  4p³ + (1 − 4p)³ = {4 * p4 ** 3 + (1 - 4 * p4) ** 3:.1e}")
+print("S_4(τ)S_4(−τ) = I?", np.allclose(S4f(0.3) @ S4f(-0.3), np.eye(2 ** n)))
+```
+
+
 ### 3.4. Численный эксперимент (ЛР8, задание 2)
 
-TFIM, $n = 8$, $J = h = 1$; ошибка $\|U(t) - S(t/r)^r\|$ (раздел 4 `примеры.py`):
+TFIM, $n = 8$, $J = h = 1$; ошибка $\|U(t) - S(t/r)^r\|$ (расчёт и рисунок — после таблицы):
 
 | $r$ | 4 | 8 | 16 | 32 | 64 | 128 | 256 | наклон |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -174,6 +372,35 @@ TFIM, $n = 8$, $J = h = 1$; ошибка $\|U(t) - S(t/r)^r\|$ (раздел 4 `
 
 Наклоны в двойном логарифмическом масштабе равны $-1$, $-2$, $-4$, как и должно быть. Значение 2,0 — максимально возможная норма разности двух унитарных: при слишком крупном шаге ответ полностью неверен. Реальная ошибка меньше оценки: при $t = 1$ отношение «факт/оценка» равно $0{,}30$ для $S_1$ и $0{,}26$ для $S_2$, а при $t = 5$ для $S_1$ — уже $0{,}06$. Оценки — на худший начальный вектор и без учёта взаимного сокращения ошибок разных шагов.
 
+```{python}
+#| fig-cap: "Ошибка формул Троттера–Сузуки $\\|U(t) - S(t/r)^r\\|$ от числа шагов $r$ для TFIM, $n = 8$, $J = h = 1$, $t = 1$ (сплошные) и $t = 5$ (пунктир). Наклоны $-1$, $-2$, $-4$; серая линия — оценка (3.2) через $\\|[A,B]\\|$ для $S_1$ при $t = 1$."
+rs = [4, 8, 16, 32, 64, 128, 256]
+res = {}
+for t in (1.0, 5.0):
+    Ut = Uex(t)
+    res[t] = {k: np.array([opnorm(Ut - np.linalg.matrix_power(f(t / r), r)) for r in rs]) for k, f in ((1, S1f), (2, S2f), (4, S4f))}
+    for k in (1, 2, 4) if t == 1 else (1, 2):
+        e = res[t][k]
+        sl = np.polyfit(np.log(rs[-4:]), np.log(e[-4:]), 1)[0]
+        print(f"t = {t:.0f}, S{k}: " + " ".join(f"{x:.1e}" for x in e) + f"   наклон {sl:.2f}")
+b1 = [1 / (2 * r) * nA for r in rs]                                 # (3.2) при t = 1
+b2 = [1 / r ** 2 * (nBBA / 12 + nAAB / 24) for r in rs]
+print(f"факт/оценка при r = 256: S1, t = 1: {res[1.0][1][-1] / b1[-1]:.2f};  S2, t = 1: {res[1.0][2][-1] / b2[-1]:.2f};  "
+      f"S1, t = 5: {res[5.0][1][-1] / (25 / 512 * nA):.2f}")
+
+fig, ax = plt.subplots(figsize=(6.4, 3.8))
+for k, mk in ((1, "o"), (2, "s"), (4, "^")):
+    line, = ax.loglog(rs, res[1.0][k], mk + "-", label=f"$S_{k}$")
+    ax.loglog(rs, res[5.0][k], mk + "--", color=line.get_color(), mfc="none")
+ax.loglog(rs, b1, color="0.6", lw=0.8)
+ax.set_xlabel("число шагов $r$")
+ax.set_ylabel("ошибка $\\|U - S^r\\|$")
+ax.legend(fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+
 **Стоимость в CNOT для $\varepsilon = 10^{-3}$.** Шаг $S_1$ или $S_2$ — это $n - 1 = 7$ экспонент $e^{-i\theta ZZ/2}$ по 2 CNOT, то есть 14 CNOT. Шаг $S_4$ — пять шагов $S_2$, 70 CNOT. Минимальное $r$ найдено бисекцией по точной ошибке:
 
 | | $S_1$ | $S_2$ | $S_4$ |
@@ -183,11 +410,64 @@ TFIM, $n = 8$, $J = h = 1$; ошибка $\|U(t) - S(t/r)^r\|$ (раздел 4 `
 | $t = 5$: $r$ | 14 440 | 502 | 30 |
 | $t = 5$: CNOT | 202 160 | 7028 | 2100 |
 
+```{python}
+def min_steps(f, t, eps=1e-3):
+    """Наименьшее r с ||U(t) − f(t/r)^r|| ≤ eps: удвоение, затем бисекция."""
+    Ut, lo, hi = Uex(t), 1, 1
+    err = lambda r: opnorm(Ut - np.linalg.matrix_power(f(t / r), r))
+    while err(hi) > eps:
+        lo, hi = hi, hi * 2
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        lo, hi = (mid, hi) if err(mid) > eps else (lo, mid)
+    return hi
+
+cnot_step = 2 * (n - 1)                                             # 7 экспонент ZZ по 2 CNOT
+for t in (1.0, 5.0):
+    out = []
+    for k, f, cs in ((1, S1f, cnot_step), (2, S2f, cnot_step), (4, S4f, 5 * cnot_step)):
+        r = min_steps(f, t)
+        out.append(f"S{k}: r = {r}, CNOT = {r * cs}")
+    print(f"t = {t:.0f}: " + ";  ".join(out) + f";  оценка (3.3) для S1: r = {int(np.ceil(t ** 2 * nA / 2e-3))}")
+```
+
+
 Оценка (3.3) через $\|[A,B]\|$ требует $r = 9518$ при $t = 1$ и $237\,939$ при $t = 5$: с запасом в 3 и 16 раз. Первый порядок для точных расчётов непригоден. Второй и четвёртый порядки — рабочие инструменты.
 
 ### 3.5. Динамика после квенча (ЛР8, задание 3)
 
-Начальное состояние $\lvert0\dots0\rangle$ (основное при $h = 0$), эволюция с $h/J = 1$. Точная $\langle Z_1\rangle(t)$ при $t = 0, 1, \dots, 5$: $1{,}000$; $-0{,}033$; $0{,}059$; $-0{,}037$; $0{,}011$; $0{,}007$. Ошибка $S_2$ с шагом $\tau = 0{,}25$ при $t = 1..5$: $2{,}8\cdot10^{-2}$, $9{,}1\cdot10^{-3}$, $4{,}1\cdot10^{-3}$, $7{,}2\cdot10^{-4}$, $1{,}2\cdot10^{-3}$; с шагом $0{,}1$ — примерно в 6,5 раза меньше ($4{,}3\cdot10^{-3}$ при $t = 1$), как и ожидается для $\tau^2$ (раздел 5 `примеры.py`). Ошибка **наблюдаемой** не растёт с $t$ так, как оценка (3.2) для оператора: локальные наблюдаемые чувствуют только ошибки внутри «светового конуса» (границы Либа–Робинсона). Это ещё одна причина, по которой оценки на операторную норму пессимистичны.
+Начальное состояние $\lvert0\dots0\rangle$ (основное при $h = 0$), эволюция с $h/J = 1$. Точная $\langle Z_1\rangle(t)$ при $t = 0, 1, \dots, 5$: $1{,}000$; $-0{,}033$; $0{,}059$; $-0{,}037$; $0{,}011$; $0{,}007$. Ошибка $S_2$ с шагом $\tau = 0{,}25$ при $t = 1..5$: $2{,}8\cdot10^{-2}$, $9{,}1\cdot10^{-3}$, $4{,}1\cdot10^{-3}$, $7{,}2\cdot10^{-4}$, $1{,}2\cdot10^{-3}$; с шагом $0{,}1$ — примерно в 6,5 раза меньше ($4{,}3\cdot10^{-3}$ при $t = 1$), как и ожидается для $\tau^2$ (ячейка ниже). Ошибка **наблюдаемой** не растёт с $t$ так, как оценка (3.2) для оператора: локальные наблюдаемые чувствуют только ошибки внутри «светового конуса» (границы Либа–Робинсона). Это ещё одна причина, по которой оценки на операторную норму пессимистичны.
+
+```{python}
+#| fig-cap: "Квенч в TFIM ($n = 8$, $J = h = 1$, начальное состояние $\\lvert0\\dots0\\rangle$): точная $\\langle Z_1\\rangle(t)$ и формула второго порядка с шагом $\\tau = 0{,}25$ (вверху); ошибка наблюдаемой при $\\tau = 0{,}25$ и $0{,}1$ (внизу)."
+psi0 = np.zeros(2 ** n, complex)
+psi0[0] = 1
+Z1 = np.diag(op_on(n, 0, Z)).real
+ts = np.round(np.arange(0, 5.001, 0.05), 10)
+ex = np.array([np.vdot(Uex(t) @ psi0, Z1 * (Uex(t) @ psi0)).real for t in ts])
+print("точная <Z1>(t), t = 0..5:", " ".join(f"{ex[int(k * 20)]:.3f}" for k in range(6)))
+fig, (ax, az) = plt.subplots(2, 1, figsize=(6.4, 4.6), sharex=True)
+ax.plot(ts, ex, color="k", lw=1, label="точно")
+for dt, mk in ((0.25, "o"), (0.1, "s")):
+    S, st, tt, tr = S2f(dt), psi0.copy(), [0.0], [1.0]
+    for j in range(1, int(round(5 / dt)) + 1):
+        st = S @ st
+        tt.append(j * dt); tr.append(np.vdot(st, Z1 * st).real)
+    tt, tr = np.array(tt), np.array(tr)
+    err = np.abs(tr - np.interp(tt, ts, ex))
+    print(f"τ = {dt}: ошибка <Z1> при t = 1..5:", " ".join(f"{err[int(round(k / dt))]:.1e}" for k in range(1, 6)))
+    if dt == 0.25:
+        ax.plot(tt, tr, mk, ms=4, label="$S_2$, $\\tau = 0{,}25$")
+    az.semilogy(tt[1:], err[1:], mk + "-", ms=3, lw=0.8, label=f"$\\tau = {dt:g}$".replace(".", "{,}"))
+ax.set_ylabel("$\\langle Z_1\\rangle$")
+ax.legend(fontsize=9)
+az.set_xlabel("время $t$")
+az.set_ylabel("ошибка $\\langle Z_1\\rangle$")
+az.legend(fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
 
 ---
 
@@ -209,7 +489,25 @@ $$
 $$
 U_H = \begin{pmatrix}H/\alpha & \ast\\ \ast & \ast\end{pmatrix} . \tag{4.3}
 $$
-Это **блочное кодирование** $H$ с нормировкой $\alpha$. Применив $U_H$ к $\lvert0\rangle\lvert\psi\rangle$ и измерив указатель в $\lvert0\rangle$, получаем $H\lvert\psi\rangle/\|H\psi\|$ с вероятностью $\|H\psi\|^2/\alpha^2$. Для TFIM с $n = 3$, $J = 1$, $h = 0{,}6$: $L = 5$, $\alpha = 3{,}8$, указатель — 3 кубита; на основном состоянии ($E_0 = -2{,}5829$) успех с вероятностью $(E_0/\alpha)^2 = 0{,}462$ (раздел 6 `примеры.py`).
+Это **блочное кодирование** $H$ с нормировкой $\alpha$. Применив $U_H$ к $\lvert0\rangle\lvert\psi\rangle$ и измерив указатель в $\lvert0\rangle$, получаем $H\lvert\psi\rangle/\|H\psi\|$ с вероятностью $\|H\psi\|^2/\alpha^2$. Для TFIM с $n = 3$, $J = 1$, $h = 0{,}6$: $L = 5$, $\alpha = 3{,}8$, указатель — 3 кубита; на основном состоянии ($E_0 = -2{,}5829$) успех с вероятностью $(E_0/\alpha)^2 = 0{,}462$. Проверим (4.2) численно:
+
+```{python}
+n, J, h = 3, 1.0, 0.6
+terms = [(-J, "I" * i + "ZZ" + "I" * (n - i - 2)) for i in range(n - 1)] + [(-h, "I" * i + "X" + "I" * (n - i - 1)) for i in range(n)]
+H3 = sum(c * pstr(s) for c, s in terms)
+alpha, L = sum(abs(c) for c, _ in terms), len(terms)
+m = int(np.ceil(np.log2(L)))
+Lp = 2 ** m
+G = np.zeros(Lp, complex)
+G[:L] = np.sqrt([abs(c) / alpha for c, _ in terms])                # |G> = PREP|0>
+SEL = sum(np.kron(np.diag(np.eye(Lp)[j]), np.sign(terms[j][0]) * pstr(terms[j][1]) if j < L else np.eye(2 ** n))
+          for j in range(Lp))                                       # SELECT; лишние индексы — I
+Gm = np.kron(G[:, None], np.eye(2 ** n))                            # |G> ⊗ I
+print(f"TFIM n = 3, J = 1, h = 0,6: L = {L}, α = {alpha:.2f}, указатель — {m} кубита")
+print("(<G| ⊗ I) SELECT (|G> ⊗ I) = H/α?", np.allclose(Gm.conj().T @ SEL @ Gm, H3 / alpha))
+wH3 = np.linalg.eigvalsh(H3)
+print(f"E_0 = {wH3[0]:.4f}; вероятность постселекции на основном состоянии (E_0/α)² = {(wH3[0] / alpha) ** 2:.3f}")
+```
 
 Неунитарные операторы — многочлены от $H$, ряд Тейлора $e^{-iH\tau}$ — тоже собираются как линейные комбинации, а малую вероятность успеха поднимают усилением амплитуды (I.14, §5; в варианте «обливиозного» усиления). Так устроен метод усечённого ряда Тейлора (Берри, Чайлдс, Клив, Котари, Сомма, 2015) со стоимостью $O\bigl(\alpha t\,\frac{\log(\alpha t/\varepsilon)}{\log\log(\alpha t/\varepsilon)}\bigr)$.
 
@@ -223,7 +521,25 @@ $$
 $$
 \operatorname{spec}W\ni e^{\pm i\arccos(E_k/\alpha)},\qquad \bigl(\langle G\rvert\otimes I\bigr)W^m\bigl(\lvert G\rangle\otimes I\bigr) = T_m\Bigl(\frac H\alpha\Bigr) , \tag{4.5}
 $$
-где $T_m$ — многочлен Чебышёва ($T_m(\cos\varphi) = \cos m\varphi$). Оба утверждения проверены для TFIM с $n = 3$ при $m = 0..7$ (раздел 6 `примеры.py`).
+где $T_m$ — многочлен Чебышёва ($T_m(\cos\varphi) = \cos m\varphi$). Оба утверждения проверим для TFIM с $n = 3$ при $m = 0..7$:
+
+```{python}
+W = np.kron(2 * np.outer(G, G.conj()) - np.eye(Lp), np.eye(2 ** n)) @ SEL       # (4.4)
+assert np.allclose(SEL @ SEL, np.eye(Lp * 2 ** n))
+Hn = H3 / alpha
+T_prev, T_cur, Wm = np.eye(2 ** n), Hn, np.eye(Lp * 2 ** n)
+ok = []
+for k in range(8):                                                  # T_0 = I, T_1 = x, T_(k+1) = 2x T_k − T_(k−1)
+    Tk = np.eye(2 ** n) if k == 0 else Hn if k == 1 else 2 * Hn @ T_cur - T_prev
+    if k >= 2:
+        T_prev, T_cur = T_cur, Tk
+    ok.append(np.allclose(Gm.conj().T @ Wm @ Gm, Tk))
+    Wm = W @ Wm
+print("(<G|) W^m (|G>) = T_m(H/α), m = 0..7:", all(ok))
+evW = np.linalg.eigvals(W)
+print("spec W ∋ e^(±i arccos(E_k/α)) для всех E_k:",
+      all(np.min(np.abs(evW - np.exp(s * 1j * np.arccos(E / alpha)))) < 1e-8 for E in wH3 for s in (1, -1)))
+```
 
 **Что это даёт.**
 - **Оценка энергии.** QPE для $W$ даёт $\arccos(E_k/\alpha)$, то есть $E_k$, без всякой аппроксимации $e^{-iHt}$: ошибка Троттера отсутствует. Одна итерация $W$ стоит одного вызова PREP и SELECT. Для точности $\varepsilon$ по энергии нужно $O(\alpha/\varepsilon)$ итераций. Это основной метод в современных ресурсных оценках для квантовой химии.
@@ -248,7 +564,7 @@ $$
 $$
 H = -J\sum_{i=1}^{n-1}Z_iZ_{i+1} - h\sum_{i=1}^nX_i . \tag{5.1}
 $$
-При $h\ll J$ основное состояние близко к ферромагнитному ($\lvert0\dots0\rangle$ и $\lvert1\dots1\rangle$), при $h\gg J$ — к парамагнитному $\lvert+\dots+\rangle$. В бесконечной цепочке квантовый фазовый переход происходит при $h = J$. Энергии основного состояния для $n = 8$ (разреженная диагонализация, раздел 3 `примеры.py`):
+При $h\ll J$ основное состояние близко к ферромагнитному ($\lvert0\dots0\rangle$ и $\lvert1\dots1\rangle$), при $h\gg J$ — к парамагнитному $\lvert+\dots+\rangle$. В бесконечной цепочке квантовый фазовый переход происходит при $h = J$. Энергии основного состояния для $n = 8$ (разреженная диагонализация; вычислены в ячейке §2):
 
 | $h/J$ | 0,5 | 1 | 2 |
 |---|---:|---:|---:|
@@ -264,7 +580,7 @@ H = E_{\text{nuc}} + \sum_{pq}h_{pq}\,a_p^\dagger a_q + \frac12\sum_{pqrs}\langl
 $$
 Здесь $p,q,r,s$ — спин-орбитали, $h_{pq}$ — интегралы кинетической энергии и притяжения к ядрам, $\langle pq|rs\rangle$ — интегралы отталкивания электронов. Число слагаемых растёт как $n^4$.
 
-**Минимальный базис STO-3G.** У каждого атома водорода одна $1s$-орбиталь, приближённая суммой трёх гауссианов (коэффициенты из таблиц STO-3G, Сабо–Остлунд, гл. 3). Все интегралы от гауссианов вычисляются в замкнутом виде; в `примеры.py` (раздел 7) это сделано с нуля, примерно в 80 строках. Контроль: при $R = 1{,}4$ бор интеграл перекрытия $S_{12} = 0{,}6593$ и $(11|11) = 0{,}7746$, как в таблицах Сабо–Остлунда. Молекулярные орбитали следуют из симметрии: связывающая $\sigma_g\propto\phi_1 + \phi_2$ и разрыхляющая $\sigma_u\propto\phi_1 - \phi_2$. С учётом спина получаем 4 спин-орбитали, то есть 4 кубита по Жордану–Вигнеру (порядок: $\sigma_g\!\uparrow$, $\sigma_g\!\downarrow$, $\sigma_u\!\uparrow$, $\sigma_u\!\downarrow$).
+**Минимальный базис STO-3G.** У каждого атома водорода одна $1s$-орбиталь, приближённая суммой трёх гауссианов (коэффициенты из таблиц STO-3G, Сабо–Остлунд, гл. 3). Все интегралы от гауссианов вычисляются в замкнутом виде; в ячейке ниже это сделано с нуля, примерно в 80 строках. Контроль: при $R = 1{,}4$ бор интеграл перекрытия $S_{12} = 0{,}6593$ и $(11|11) = 0{,}7746$, как в таблицах Сабо–Остлунда. Молекулярные орбитали следуют из симметрии: связывающая $\sigma_g\propto\phi_1 + \phi_2$ и разрыхляющая $\sigma_u\propto\phi_1 - \phi_2$. С учётом спина получаем 4 спин-орбитали, то есть 4 кубита по Жордану–Вигнеру (порядок: $\sigma_g\!\uparrow$, $\sigma_g\!\downarrow$, $\sigma_u\!\uparrow$, $\sigma_u\!\downarrow$).
 
 **Результат** при равновесном $R = 0{,}7414$ Å: $E_{\text{nuc}} = 0{,}7138$ Ха,
 $$
@@ -274,9 +590,90 @@ $E_{\text{HF}}$ — энергия хартри-фоковского опред�
 $$
 H = c_0I + c_1(Z_1 + Z_2) + c_2(Z_3 + Z_4) + \dots + c_{\text{XY}}\bigl(-X_1X_2Y_3Y_4 + X_1Y_2Y_3X_4 + Y_1X_2X_3Y_4 - Y_1Y_2X_3X_4\bigr) , \tag{5.4}
 $$
-с $c_0 = -0{,}0989$ (вместе с $E_{\text{nuc}}$), $c_1 = 0{,}1712$, $c_2 = -0{,}2228$, $c_{\text{XY}} = 0{,}0453$ и шестью коэффициентами при $Z_iZ_j$ от $0{,}1205$ до $0{,}1743$. Полный список — в выводе `примеры.py`. Четыре строки $XXYY$-типа описывают двойное возбуждение $\sigma_g^2\to\sigma_u^2$. Только они и смешивают $\lvert1100\rangle$ с $\lvert0011\rangle$. Сумма $\sum\lvert c_j\rvert$ без $I$ равна $1{,}8851$ Ха — это $\alpha$ для LCU и основа бюджета измерений VQE (I.16).
+с $c_0 = -0{,}0989$ (вместе с $E_{\text{nuc}}$), $c_1 = 0{,}1712$, $c_2 = -0{,}2228$, $c_{\text{XY}} = 0{,}0453$ и шестью коэффициентами при $Z_iZ_j$ от $0{,}1205$ до $0{,}1743$. Полный список — в выводе ячейки ниже. Четыре строки $XXYY$-типа описывают двойное возбуждение $\sigma_g^2\to\sigma_u^2$. Только они и смешивают $\lvert1100\rangle$ с $\lvert0011\rangle$. Сумма $\sum\lvert c_j\rvert$ без $I$ равна $1{,}8851$ Ха — это $\alpha$ для LCU и основа бюджета измерений VQE (I.16).
 
 Гамильтониан сохраняет число частиц, и глобальный минимум лежит в секторе $N = 2$. Такие проверки (число частиц, спин) обязательны при самостоятельной сборке гамильтониана.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Интегралы STO-3G и кубитный гамильтониан H₂ (код)"
+ANG = 1 / 0.529177210903                                           # бор в ангстреме
+sto_a = np.array([3.42525091, 0.62391373, 0.16885540])             # показатели гауссианов STO-3G
+sto_d = np.array([0.15432897, 0.53532814, 0.44463454])             # коэффициенты сжатия
+prim = [(a, d * (2 * a / pi) ** 0.75) for a, d in zip(sto_a, sto_d)]
+
+def F0(t):
+    """Функция Бойса нулевого порядка."""
+    return 1.0 if t < 1e-12 else 0.5 * sqrt(pi / t) * erf(sqrt(t))
+
+def h2_integrals(R):
+    """S, h_core = T + V и (ij|kl) для двух 1s-орбиталей на расстоянии R (бор); E_nuc = 1/R."""
+    C = [np.zeros(3), np.array([0.0, 0, R])]
+    S, T, V, ERI = np.zeros((2, 2)), np.zeros((2, 2)), np.zeros((2, 2)), np.zeros((2, 2, 2, 2))
+    for i, j in product(range(2), repeat=2):
+        AB2 = np.sum((C[i] - C[j]) ** 2)
+        for (a, ca), (b, cb) in product(prim, repeat=2):
+            p, mu = a + b, a * b / (a + b)
+            P, K = (a * C[i] + b * C[j]) / p, exp(-mu * AB2)
+            s0 = (pi / p) ** 1.5 * K
+            S[i, j] += ca * cb * s0
+            T[i, j] += ca * cb * mu * (3 - 2 * mu * AB2) * s0
+            V[i, j] += sum(-ca * cb * 2 * pi / p * K * F0(p * np.sum((P - Cn) ** 2)) for Cn in C)
+    for i, j, k, l in product(range(2), repeat=4):
+        val = 0.0
+        for (a, ca), (b, cb) in product(prim, repeat=2):
+            p = a + b
+            P, Kab = (a * C[i] + b * C[j]) / p, exp(-a * b / p * np.sum((C[i] - C[j]) ** 2))
+            for (c, cc), (d, cd) in product(prim, repeat=2):
+                q = c + d
+                Q, Kcd = (c * C[k] + d * C[l]) / q, exp(-c * d / q * np.sum((C[k] - C[l]) ** 2))
+                val += ca * cb * cc * cd * 2 * pi ** 2.5 / (p * q * sqrt(p + q)) * Kab * Kcd * F0(p * q / (p + q) * np.sum((P - Q) ** 2))
+        ERI[i, j, k, l] = val
+    return S, T + V, ERI, 1.0 / R
+
+def h2_qubit_hamiltonian(R_ang):
+    """(5.2) на 4 кубитах по Жордану–Вигнеру; спин-орбитали σg↑, σg↓, σu↑, σu↓."""
+    S, hcore, eri, Enuc = h2_integrals(R_ang * ANG)
+    Cmo = np.array([[1, 1], [1, -1]], float)                       # МО по симметрии: σg ∝ φ1 + φ2, σu ∝ φ1 − φ2
+    Cmo[:, 0] /= sqrt(2 * (1 + S[0, 1]))
+    Cmo[:, 1] /= sqrt(2 * (1 - S[0, 1]))
+    hmo = Cmo.T @ hcore @ Cmo
+    emo = np.einsum("pi,qj,rk,sl,pqrs->ijkl", Cmo, Cmo, Cmo, Cmo, eri)   # (ij|kl), химическая запись
+    so = [(0, 0), (0, 1), (1, 0), (1, 1)]                           # (пространственная МО, спин)
+    a = [a_op(j, 4) for j in range(4)]
+    Hq = Enuc * np.eye(16, dtype=complex)
+    for p, q in product(range(4), repeat=2):
+        if so[p][1] == so[q][1]:
+            Hq += hmo[so[p][0], so[q][0]] * a[p].conj().T @ a[q]
+    for p, q, r, s in product(range(4), repeat=4):
+        if so[p][1] == so[r][1] and so[q][1] == so[s][1]:          # <pq|rs> = (pr|qs)
+            Hq += 0.5 * emo[so[p][0], so[r][0], so[q][0], so[s][0]] * a[p].conj().T @ a[q].conj().T @ a[s] @ a[r]
+    return Hq, S, Enuc
+
+Nop = sum(a_op(j, 4).conj().T @ a_op(j, 4) for j in range(4))       # число частиц
+hf = np.eye(16)[int("1100", 2)]                                     # хартри-фоковский определитель
+
+def ground_N2(Hq):
+    """Наименьшая энергия и вектор в секторе N = 2."""
+    w, v = np.linalg.eigh(Hq)
+    k = next(k for k in range(16) if np.isclose(np.vdot(v[:, k], Nop @ v[:, k]).real, 2))
+    return w, v, k
+```
+
+```{python}
+S14, _, eri14, _ = h2_integrals(1.4)
+print(f"контроль, R = 1,4 бор: S_12 = {S14[0, 1]:.4f}, (11|11) = {eri14[0, 0, 0, 0]:.4f}  (Сабо–Остлунд: 0,6593 и 0,7746)")
+Hq, S, Enuc = h2_qubit_hamiltonian(0.7414)
+w, v, k0 = ground_N2(Hq)
+E_HF, E_FCI = np.vdot(hf, Hq @ hf).real, w[k0]
+print(f"R = 0,7414 Å: E_nuc = {Enuc:.4f} Ха, E_HF = {E_HF:.6f} Ха, E_FCI = {E_FCI:.6f} Ха, корреляция {E_FCI - E_HF:.4f} Ха")
+print("H сохраняет N:", np.allclose(Hq @ Nop, Nop @ Hq), "  глобальный минимум — в секторе N = 2:", np.isclose(w[0], E_FCI))
+dec = {k: c.real for k, c in pauli_decompose(Hq, 4).items()}
+print(f"{len(dec)} паули-строк; Σ|c_j| без I = {sum(abs(c) for k, c in dec.items() if k != 'IIII'):.4f}")
+for k, c in sorted(dec.items(), key=lambda kv: -abs(kv[1])):
+    print(f"   {k}: {c:+.6f}")
+```
+
 
 ### 5.3. Оценка фазы для энергии и проблема начального состояния
 
@@ -284,13 +681,52 @@ $$
 $$
 \Pr[\text{получить }E_0] = \lvert\langle E_0|\psi_0\rangle\rvert^2 . \tag{5.5}
 $$
-**H₂.** При $R = 0{,}7414$ Å перекрытие $\lvert\langle\text{HF}|E_0\rangle\rvert^2 = 0{,}9873$. QPE с $\tau = 1$ и $t = 8$ кубитами (шаг сетки $2\pi/(\tau T) = 0{,}0245$ Ха) даёт как самый вероятный исход $E = -1{,}1290$ Ха, в пределах одного шага сетки от точного $-1{,}1373$. Два ближайших к $E_0$ исхода вместе имеют вероятность $0{,}842\le0{,}9873$ (остальное — хвосты ядра Фейера; раздел 8 `примеры.py`). При растяжении связи хартри-фоковское состояние становится плохим: перекрытие $0{,}8737$ при $1{,}5$ Å и $0{,}5944$ при $2{,}5$ Å. Там важны оба определителя $\lvert1100\rangle$ и $\lvert0011\rangle$ (сильная корреляция).
+**H₂.** При $R = 0{,}7414$ Å перекрытие $\lvert\langle\text{HF}|E_0\rangle\rvert^2 = 0{,}9873$. QPE с $\tau = 1$ и $t = 8$ кубитами (шаг сетки $2\pi/(\tau T) = 0{,}0245$ Ха) даёт как самый вероятный исход $E = -1{,}1290$ Ха, в пределах одного шага сетки от точного $-1{,}1373$. Два ближайших к $E_0$ исхода вместе имеют вероятность $0{,}842\le0{,}9873$ (остальное — хвосты ядра Фейера; ячейка ниже). При растяжении связи хартри-фоковское состояние становится плохим: перекрытие $0{,}8737$ при $1{,}5$ Å и $0{,}5944$ при $2{,}5$ Å. Там важны оба определителя $\lvert1100\rangle$ и $\lvert0011\rangle$ (сильная корреляция).
 
-**Катастрофа ортогональности.** Для $n$ слабо связанных подсистем перекрытие произведения состояний с основным состоянием убывает **экспоненциально**: $\approx c^n$ с $c<1$. Пример: TFIM при $J = h = 1$ и лучшее произведение одинаковых однокубитных состояний (раздел 8 `примеры.py`):
+```{python}
+tau, tq = 1.0, 8
+T = 2 ** tq
+def qpe_probs(phi):
+    """Распределение исходов QPE (I.12, (5.3))."""
+    d = phi - np.arange(T) / T
+    small = np.abs(np.sin(pi * d)) < 1e-14
+    return np.where(small, 1.0, np.sin(pi * T * d) ** 2 / np.where(small, 1.0, (T * np.sin(pi * d)) ** 2))
+
+cs = np.abs(v.conj().T @ hf) ** 2                                   # веса |<E_k|HF>|²
+dist = sum(c * qpe_probs((-w[k] * tau / (2 * pi)) % 1) for k, c in enumerate(cs) if c > 1e-14)   # (5.5), I.12 (5.6)
+phi0 = (-E_FCI * tau / (2 * pi)) % 1
+p_near = dist[[int(np.floor(phi0 * T)) % T, int(np.ceil(phi0 * T)) % T]].sum()
+mb = int(np.argmax(dist))
+E_est = -2 * pi * mb / T / tau
+E_est += 2 * pi / tau if E_est < -pi / tau else 0
+print(f"QPE, вход |HF>, τ = 1, t = 8: самый вероятный m = {mb}, E = {E_est:.4f} Ха (точно {E_FCI:.4f}); шаг сетки {2 * pi / T:.4f} Ха")
+print(f"P(два ближайших к E_0 исхода) = {p_near:.3f} ≤ |<HF|E_0>|² = {cs[k0]:.4f}")
+for R in (1.5, 2.5):
+    w2, v2, k2 = ground_N2(h2_qubit_hamiltonian(R)[0])
+    print(f"R = {R} Å: |<HF|E_0>|² = {abs(np.vdot(hf, v2[:, k2])) ** 2:.4f}")
+```
+
+
+**Катастрофа ортогональности.** Для $n$ слабо связанных подсистем перекрытие произведения состояний с основным состоянием убывает **экспоненциально**: $\approx c^n$ с $c<1$. Пример: TFIM при $J = h = 1$ и лучшее произведение одинаковых однокубитных состояний (проверка — после таблицы):
 
 | $n$ | 4 | 6 | 8 | 10 | 12 | 14 |
 |---|---:|---:|---:|---:|---:|---:|
 | $\max\lvert\langle\phi^{\otimes n}|E_0\rangle\rvert^2$ | 0,8134 | 0,6820 | 0,5653 | 0,4654 | 0,3914 | 0,3406 |
+
+```{python}
+ns, ovs = [4, 6, 8, 10, 12, 14], []
+aa = np.linspace(0, pi / 2, 181)
+for nn in ns:
+    g0 = eigsh(tfim_sparse(nn, 1.0, 1.0), k=1, which="SA")[1][:, 0]
+    best = 0.0
+    for a in aa:                                                    # (cos a|0> + sin a|1>)^⊗n
+        best = max(best, abs(np.dot(reduce(np.kron, [np.array([np.cos(a), np.sin(a)])] * nn), g0)) ** 2)
+    ovs.append(best)
+print("  ".join(f"n = {nn}: {o:.4f}" for nn, o in zip(ns, ovs)))
+sl = np.polyfit(ns, np.log(ovs), 1)[0]
+print(f"множитель на кубит e^({sl:.4f}) = {np.exp(sl):.3f};  экстраполяция на n = 100: {np.exp(np.polyval(np.polyfit(ns, np.log(ovs), 1), 100)):.0e}")
+```
+
 
 Множитель около $0{,}915$ на кубит. Для 100 кубитов это уже $\sim10^{-4}$, и QPE пришлось бы повторять тысячи раз. Это не случайная трудность: по теореме Китаева нахождение основной энергии локального гамильтониана QMA-полно (I.10, §3.2). Поэтому квантовый компьютер **не** решает задачу об основном состоянии в общем случае. Он экспоненциально ускоряет **проекцию** на собственное состояние, если начальное приближение уже хорошее. Приготовление начального состояния (адиабатически, вариационно — I.16, или классическими методами) — главный открытый вопрос квантовой химии на квантовых компьютерах. Насколько часто в практически важных молекулах есть экспоненциальное преимущество, обсуждается (Ли и др., 2023: аргументы, что для многих химических систем хорошие классические методы конкурентоспособны).
 
@@ -332,7 +768,19 @@ $$
 9. (••) Для H₂ в базисе STO-3G объясните, почему достаточно двух определителей $\lvert1100\rangle$ и $\lvert0011\rangle$ (симметрия и сохранение спина). По выводу `примеры.py` найдите $\lvert\langle\text{HF}|E_0\rangle\rvert^2$ при $R = 0{,}7414$ и $2{,}5$ Å. Сколько в среднем запусков QPE нужно в каждом случае, чтобы получить $E_0$?
 10. (•••) (ЛР8) Почему ошибка локальной наблюдаемой $\langle Z_1\rangle(t)$ после квенча растёт с $t$ медленнее операторной оценки (3.2)? Оцените, какие слагаемые гамильтониана влияют на $\langle Z_1\rangle$ за время $t$ при скорости Либа–Робинсона $v$.
 
-### Ответы и указания
+Численная проверка ответов к задачам 1, 3, 7 (задачи 2, 5, 9 — в ячейках выше):
+
+```{python}
+print("1: |00><00| =", {k: float(round(c.real, 3)) for k, c in pauli_decompose(np.diag([1, 0, 0, 0]).astype(complex), 2).items()},
+      "; a_1†a_2 + h.c. =", {k: float(round(c.real, 3)) for k, c in pauli_decompose(a_op(0, 2).conj().T @ a_op(1, 2) + a_op(1, 2).conj().T @ a_op(0, 2), 2).items()})
+print(f"3: r через сумму по парам = {int(np.ceil(28 / 2e-3))}, через ||[A,B]|| = {int(np.ceil(nA / 2e-3))}")
+for nn in (3, 8):
+    print(f"7: n = {nn}: α = {(nn - 1) * 1.0 + 0.6 * nn:.1f}, слагаемых {2 * nn - 1}, кубитов указателя {int(np.ceil(np.log2(2 * nn - 1)))}")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
+
 - **1.** $\lvert00\rangle\langle00\rvert = \frac14(II + IZ + ZI + ZZ)$. $a_1^\dagger a_2 + \text{h.c.} = \frac12(X_1X_2 + Y_1Y_2)$.
 - **2.** $[Z_1Z_2, X_1] = [Z,X]\otimes Z = 2iY_1Z_2$, норма 2. Не коммутируют только $X_i$ со связями $Z_{i-1}Z_i$ и $Z_iZ_{i+1}$; всего $2(n-1)$ пар.
 - **3.** Вывод — в §3.1. Сумма по парам $4(n-1)Jh = 28$ даёт $r\ge28/(2\cdot10^{-3}) = 14\,000$; через $\|[A,B]\|$ — $r\ge9518$. Фактически хватает $r = 2873$.
@@ -343,12 +791,13 @@ $$
 - **8.** $W^2 = R\,\mathrm{SEL}\,R\,\mathrm{SEL}$ с $R = 2\lvert G\rangle\langle G\rvert - I$. Блок $\langle G\rvert R = \langle G\rvert$, $R\lvert G\rangle = \lvert G\rangle$; вставьте $R = 2\lvert G\rangle\langle G\rvert - I$ в середину: $2(\langle G\rvert\mathrm{SEL}\lvert G\rangle)^2 - \langle G\rvert\mathrm{SEL}^2\lvert G\rangle = 2(H/\alpha)^2 - I$.
 - **9.** Сохраняются число частиц, проекция спина и чётность по пространственной инверсии ($\sigma_g$ чётна, $\sigma_u$ нечётна). Из шести определителей с $N = 2$ полная симметрия $\Sigma_g^+$, $S_z = 0$ есть у $\lvert1100\rangle$ и $\lvert0011\rangle$. Перекрытия $0{,}9873$ и $0{,}5944$; в среднем $\approx1{,}01$ и $\approx1{,}7$ запуска.
 - **10.** Возмущение распространяется со скоростью не больше $v$ (Либ–Робинсон), поэтому на $\langle Z_1\rangle(t)$ влияют лишь слагаемые на расстоянии $\lesssim vt$ от первого узла. Ошибка Троттера для локальной наблюдаемой ограничена суммой коммутаторов внутри этого «светового конуса», то есть зависит от $vt$, а не от $n$.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 7 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет. Полный файл `примеры.py` (около 7 с) проверяет:
 1. паули-разложение (1.1) и схему (1.2) для экспонент паули-строк, число CNOT;
 2. отображение Жордана–Вигнера: соотношения (2.1), $n_j$, формулу (2.3); нарушение антикоммутации без хвоста;
 3. энергии TFIM для $n = 8$ и сверку с точным решением через свободные фермионы;
