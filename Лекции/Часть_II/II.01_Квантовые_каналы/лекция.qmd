@@ -1,10 +1,13 @@
-# Лекция II.1. Квантовые каналы
+---
+title: "Лекция II.1. Квантовые каналы"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.A «Открытые системы, характеризация, error mitigation».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (скалярное произведение Гильберта–Шмидта, §8; нормы Шаттена, §10); лекция I.3 (матрица плотности и шар Блоха, §1–2; POVM и теорема Наймарка, §3; расстояние следа и верность, §4; граница Хелстрома, §5); лекция I.4 (частичный след, §2; очищение и его единственность, §4; теорема Ульмана, §5); лекция I.5 (усреднение по группе Паули, §3.3); лекция I.7 (положительные, но не вполне положительные отображения, §2.3; сепарабельность $\rho_p$, §1–2).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (скалярное произведение Гильберта–Шмидта, §8; нормы Шаттена, §10); [лекция I.3](../../Часть_I/I.03_Матрица_плотности_POVM/лекция.qmd) (матрица плотности и шар Блоха, §1–2; POVM и теорема Наймарка, §3; расстояние следа и верность, §4; граница Хелстрома, §5); [лекция I.4](../../Часть_I/I.04_Составные_системы/лекция.qmd) (частичный след, §2; очищение и его единственность, §4; теорема Ульмана, §5); [лекция I.5](../../Часть_I/I.05_Протоколы_на_запутанности/лекция.qmd) (усреднение по группе Паули, §3.3); [лекция I.7](../../Часть_I/I.07_Меры_запутанности/лекция.qmd) (положительные, но не вполне положительные отображения, §2.3; сепарабельность $\rho_p$, §1–2).
 **Литература:** N&C, § 8.2; Watrous J. The Theory of Quantum Information, гл. 2; Wilde M. M. Quantum Information Theory, гл. 4–5; Холево А. С. Квантовые системы, каналы, информация.
-**Материалы:** `примеры.py` — численная проверка всех утверждений: транспонирование и «универсальное NOT», представление Крауса и гейзенбергова картина, матрица Чоя и переходы между представлениями, изометрия Стайнспринга и дополнительный канал, унитарная свобода, аффинное действие на шар Блоха и тетраэдр каналов Паули, каналы, разрушающие запутанность, сжатие расстояний, верность процесса, средняя верность и ромбовидная норма; задачи к семинару С1 и к ЛР9 — в § 9.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: транспонирование и «универсальное NOT», представление Крауса и гейзенбергова картина, матрица Чоя и переходы между представлениями, изометрия Стайнспринга и дополнительный канал, унитарная свобода, аффинное действие на шар Блоха и тетраэдр каналов Паули, каналы, разрушающие запутанность, сжатие расстояний, верность процесса, средняя верность и ромбовидная норма; задачи к семинару С1 и к ЛР9 — в § 9. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §5 и §12).
 - $L(\mathcal H)$ — операторы на $\mathcal H$; $\Phi: L(\mathcal H_A)\to L(\mathcal H_B)$ — линейное отображение, $d_A = \dim\mathcal H_A$, $d_B = \dim\mathcal H_B$; $\mathrm{id}_k$ — тождественное отображение на $L(\mathbb C^k)$.
@@ -13,6 +16,98 @@
 - Изометрия Стайнспринга $V = \sum_jK_j\otimes\lvert j\rangle_E$ (система — первый множитель, окружение — второй); $\Phi^c$ — дополнительный канал.
 - Стандартные каналы кубита: деполяризующий $\Delta_p(\rho) = (1-p)\rho + p\,\frac I2$; дефазировка $\mathcal D_p(\rho) = (1-p)\rho + pZ\rho Z$; амплитудное затухание $\mathcal A_\gamma$ с $K_0 = \lvert0\rangle\langle0\rvert + \sqrt{1-\gamma}\lvert1\rangle\langle1\rvert$, $K_1 = \sqrt\gamma\lvert0\rangle\langle1\rvert$.
 - $F_{\text{pro}}$ — верность процесса, $F_{\text{avg}}$ — средняя верность, $\|\cdot\|_\diamond$ — ромбовидная норма.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+from math import cos, pi, sin, sqrt
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import sqrtm
+from scipy.optimize import minimize
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULIS = [I2, X, Y, Z]
+SWAP = np.eye(4, dtype=complex)[[0, 2, 1, 3]]
+Phi_plus = np.array([1, 0, 0, 1], dtype=complex) / sqrt(2)
+
+def dag(A):
+    return A.conj().T
+
+def ket(i, d):
+    v = np.zeros(d, complex); v[i] = 1
+    return v
+
+def ptrace(R, dims, keep):
+    """Частичный след по всем множителям, кроме keep (список индексов)."""
+    n = len(dims)
+    R = R.reshape(dims + dims)
+    for i in sorted(set(range(n)) - set(keep), reverse=True):
+        R = np.trace(R, axis1=i, axis2=i + R.ndim // 2)
+    dk = int(np.prod([dims[i] for i in keep]))
+    return R.reshape(dk, dk)
+
+def apply_kraus(K, rho):
+    return sum(k @ rho @ dag(k) for k in K)
+
+def choi(channel, d):
+    """J = Σ_ij |i><j| ⊗ Φ(|i><j|) (соглашение курса: вход — первый множитель)."""
+    return sum(np.kron(np.outer(ket(i, d), ket(j, d)), channel(np.outer(ket(i, d), ket(j, d))))
+               for i in range(d) for j in range(d))
+
+def choi_kraus(K):
+    return choi(lambda r: apply_kraus(K, r), K[0].shape[1])
+
+def from_choi(J, X_in, d_in, d_out):
+    """(3.2): Φ(X) = Tr_A[(X^T ⊗ I) J]."""
+    return ptrace(np.kron(X_in.T, np.eye(d_out)) @ J, [d_in, d_out], [1])
+
+def kraus_from_choi(J, d_in, d_out, tol=1e-12):
+    """Операторы Крауса из спектрального разложения J (доказательство теоремы 3.1)."""
+    w, V = np.linalg.eigh(J)
+    return [sqrt(lam) * v.reshape(d_in, d_out).T for lam, v in zip(w, V.T) if lam > tol]
+
+def is_cptp(K, tol=1e-10):
+    return np.allclose(sum(dag(k) @ k for k in K), np.eye(K[0].shape[1]), atol=tol)
+
+def random_channel(d_in, d_out, r):
+    """Случайный канал: r операторов Крауса из случайной изометрии C^d_in → C^d_out ⊗ C^r."""
+    G = rng.normal(size=(d_out * r, d_in)) + 1j * rng.normal(size=(d_out * r, d_in))
+    V = np.linalg.qr(G)[0].reshape(d_out, r, d_in)
+    return [V[:, k, :] for k in range(r)]
+
+def random_state(d, rank=None):
+    G = rng.normal(size=(d, rank or d)) + 1j * rng.normal(size=(d, rank or d))
+    R = G @ dag(G)
+    return R / np.trace(R).real
+
+def tnorm(A):
+    """Следовая норма ||A||_1."""
+    return np.sum(np.linalg.svd(A, compute_uv=False))
+
+def fidelity(r, s):
+    sr = sqrtm(r)
+    return np.real(np.trace(sqrtm(sr @ s @ sr))) ** 2
+
+def bloch(rho):
+    return np.real([np.trace(rho @ P) for P in (X, Y, Z)])
+
+# стандартные каналы кубита (параметризация курса)
+def K_dephasing(p):
+    return [sqrt(1 - p) * I2, sqrt(p) * Z]
+
+def K_depol(p):
+    return [sqrt(1 - 3 * p / 4) * I2] + [sqrt(p / 4) * P for P in (X, Y, Z)]
+
+def K_ad(g):
+    return [np.array([[1, 0], [0, sqrt(1 - g)]], complex), np.array([[0, sqrt(g)], [0, 0]], complex)]
+```
 
 ---
 
@@ -63,7 +158,21 @@
 
 **Определение 1.1.** **Квантовый канал** — линейное вполне положительное отображение, сохраняющее след (CPTP).
 
-**Положительности недостаточно.** Транспонирование $T(X) = X^{\mathsf T}$ положительно: спектр $\rho^{\mathsf T}$ совпадает со спектром $\rho$. Но $(\mathrm{id}\otimes T)(\lvert\Phi^+\rangle\langle\Phi^+\rvert) = \frac12\mathrm{SWAP}$ имеет собственное значение $-\frac12$ (I.7, (2.2)). Транспонирование — зеркальное отражение шара Блоха $(x,y,z)\mapsto(x,-y,z)$. Отражение — не поворот, и физически его можно выполнить лишь над «изолированной» системой, а с запутанным партнёром оно даёт «отрицательные вероятности». Другой пример — **универсальное NOT** $\mathbf r\mapsto-\mathbf r$, то есть $\rho\mapsto I - \rho$: оно переводит шар Блоха в себя, но не вполне положительно (раздел 1 `примеры.py`). Положительные, но не вполне положительные отображения не реализуются физически, зато служат детекторами запутанности (I.7, §2–3).
+**Положительности недостаточно.** Транспонирование $T(X) = X^{\mathsf T}$ положительно: спектр $\rho^{\mathsf T}$ совпадает со спектром $\rho$. Но $(\mathrm{id}\otimes T)(\lvert\Phi^+\rangle\langle\Phi^+\rvert) = \frac12\mathrm{SWAP}$ имеет собственное значение $-\frac12$ (I.7, (2.2)). Транспонирование — зеркальное отражение шара Блоха $(x,y,z)\mapsto(x,-y,z)$. Отражение — не поворот, и физически его можно выполнить лишь над «изолированной» системой, а с запутанным партнёром оно даёт «отрицательные вероятности». Другой пример — **универсальное NOT** $\mathbf r\mapsto-\mathbf r$, то есть $\rho\mapsto I - \rho$: оно переводит шар Блоха в себя, но не вполне положительно (проверка — в ячейке ниже). Положительные, но не вполне положительные отображения не реализуются физически, зато служат детекторами запутанности (I.7, §2–3).
+
+```{python}
+T = lambda r: r.T
+assert all(np.linalg.eigvalsh(T(random_state(2))).min() > -1e-12 for _ in range(100))   # T положительно
+JT = choi(T, 2)
+assert np.allclose(JT, SWAP)
+print("J(T) = SWAP, спектр:", np.round(np.linalg.eigvalsh(JT), 6), "→ не вполне положительно")
+print("(id ⊗ T)(|Φ+><Φ+|) = SWAP/2, спектр:", np.round(np.linalg.eigvalsh(JT / 2), 3))
+UNOT = lambda r: np.trace(r) * I2 - r                      # ρ ↦ I − ρ
+for _ in range(50):
+    r = random_state(2)
+    assert np.allclose(bloch(UNOT(r)), -bloch(r))          # r ↦ −r: шар Блоха в себя
+print("универсальное NOT: спектр матрицы Чоя", np.round(np.linalg.eigvalsh(choi(UNOT, 2)), 6))
+```
 
 Как проверять условие 4 для всех $k$ сразу? Ответ даёт матрица Чоя (§3): достаточно $k = d_A$ и одного состояния.
 
@@ -82,7 +191,7 @@ $$
 **Примеры.**
 - Унитарная эволюция: один оператор $K_1 = U$.
 - Измерение $\{M_m\}$ с забыванием результата: $\Phi(\rho) = \sum_mM_m\rho M_m^\dagger$ (I.3, §3.1). Для проективного измерения в базисе $Z$ — полная дефазировка $\rho\mapsto\operatorname{diag}(\rho_{00},\rho_{11})$.
-- Частичный след $\operatorname{Tr}_B: L(\mathcal H_A\otimes\mathcal H_B)\to L(\mathcal H_A)$: $K_j = I_A\otimes\langle j\rvert_B$ (раздел 2 `примеры.py`).
+- Частичный след $\operatorname{Tr}_B: L(\mathcal H_A\otimes\mathcal H_B)\to L(\mathcal H_A)$: $K_j = I_A\otimes\langle j\rvert_B$.
 - Приготовление состояния $\sigma$ (замена): $\Phi(\rho) = \operatorname{Tr}(\rho)\,\sigma$, $K_{jk} = \sqrt{s_k}\lvert s_k\rangle\langle j\rvert$ при $\sigma = \sum s_k\lvert s_k\rangle\langle s_k\rvert$.
 - Стандартные каналы кубита (подробно — II.2): $\Delta_p$ с $K = \{\sqrt{1 - 3p/4}\,I, \sqrt{p/4}\,X, \sqrt{p/4}\,Y, \sqrt{p/4}\,Z\}$; $\mathcal D_p$ с $K = \{\sqrt{1-p}\,I, \sqrt p\,Z\}$; $\mathcal A_\gamma$ с $K_0$, $K_1$ из шапки.
 
@@ -91,6 +200,24 @@ $$
 \Phi^\dagger(O) = \sum_jK_j^\dagger\,O\,K_j . \tag{2.2}
 $$
 Канал действует на состояния, $\Phi^\dagger$ — на наблюдаемые. $\Phi$ сохраняет след $\iff$ $\Phi^\dagger(I) = I$ (унитальность $\Phi^\dagger$). Средние значения после канала — это средние $\Phi^\dagger(O)$ до него. Так удобно описывать шум измерения: зашумлённый POVM $\{\Phi^\dagger(E_m)\}$.
+
+Проверим представление Крауса, гейзенбергову картину (2.2) и частичный след как канал:
+
+```{python}
+K = random_channel(2, 2, 3)
+assert is_cptp(K)
+for _ in range(20):
+    r = random_state(2)
+    out = apply_kraus(K, r)
+    assert np.isclose(np.trace(out), 1) and np.linalg.eigvalsh(out).min() > -1e-12
+    O = rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2)); O = O + dag(O)
+    assert np.isclose(np.trace(out @ O), np.trace(r @ sum(dag(k) @ O @ k for k in K)))   # (2.2)
+print("случайный канал, 3 оператора Крауса: Σ K†K = I, выход — матрица плотности, Tr(Φ(ρ)O) = Tr(ρ Φ†(O))")
+Ktr = [np.kron(I2, ket(j, 2)[None, :]) for j in range(2)]          # I ⊗ <j|
+R = random_state(4)
+assert np.allclose(apply_kraus(Ktr, R), ptrace(R, [2, 2], [0]))
+print("Tr_B — канал с операторами Крауса I ⊗ <j|")
+```
 
 ---
 
@@ -120,13 +247,30 @@ $$
 
 Доказательство одновременно даёт **необходимость в теореме 2.1** и рецепт перехода «Чой → Краус». Число операторов Крауса равно числу слагаемых в разложении $J$, а минимальное — **рангу Чоя** $\operatorname{rank}J\le d_Ad_B$. Следствие: для канала на кубите хватает 4 операторов Крауса (контрольный вопрос 2 ЛР9). Полная положительность проверяется на **одном** состоянии $\lvert\Phi_d\rangle$ с $k = d_A$.
 
-**Численно** (раздел 3 `примеры.py`): для случайных каналов $2\to2$, $2\to3$, $3\to2$ выполнены (3.3) и (3.2), а операторы Крауса из спектрального разложения $J$ воспроизводят канал, и их число равно рангу $J$. Ранги Чоя стандартных каналов:
+**Численно** (ячейка ниже): для случайных каналов $2\to2$, $2\to3$, $3\to2$ выполнены (3.3) и (3.2), а операторы Крауса из спектрального разложения $J$ воспроизводят канал, и их число равно рангу $J$. Ранги Чоя стандартных каналов:
 
 | Канал | тождественный, унитарный | $\mathcal D_{0{,}3}$ | $\mathcal A_{0{,}4}$ | $\Delta_{0{,}5}$ | $\Delta_1$ |
 |---|---:|---:|---:|---:|---:|
 | $\operatorname{rank}J$ | 1 | 2 | 2 | 4 | 4 |
 
 Для транспонирования $J(T) = \sum_{ij}\lvert i\rangle\langle j\rvert\otimes\lvert j\rangle\langle i\rvert = \mathrm{SWAP}$ со спектром $\{1,1,1,-1\}$: не CP. Для полностью деполяризующего канала $J(\Delta_1) = I\otimes\frac I2$.
+
+```{python}
+for d_in, d_out, r in ((2, 2, 3), (2, 3, 2), (3, 2, 4)):
+    K = random_channel(d_in, d_out, r)
+    J = choi_kraus(K)
+    assert np.linalg.eigvalsh(J).min() > -1e-12 and np.allclose(ptrace(J, [d_in, d_out], [0]), np.eye(d_in))   # (3.3)
+    for _ in range(5):
+        Xin = rng.normal(size=(d_in, d_in)) + 1j * rng.normal(size=(d_in, d_in))
+        assert np.allclose(from_choi(J, Xin, d_in, d_out), apply_kraus(K, Xin))                            # (3.2)
+    K2 = kraus_from_choi(J, d_in, d_out)
+    assert is_cptp(K2) and np.allclose(choi_kraus(K2), J) and len(K2) == np.linalg.matrix_rank(J, tol=1e-10)
+    print(f"{d_in} → {d_out}, {r} оператора Крауса: (3.2), (3.3) выполнены; из спектрального разложения J — {len(K2)} оператора = rank J")
+for name, Kk in (("тождественный", [I2]), ("унитарный (Адамар)", [(X + Z) / sqrt(2)]), ("D_0,3", K_dephasing(0.3)),
+                 ("A_0,4", K_ad(0.4)), ("Δ_0,5", K_depol(0.5)), ("Δ_1", K_depol(1.0))):
+    print(f"  rank J({name}) = {np.linalg.matrix_rank(choi_kraus(Kk), tol=1e-10)}")
+assert np.allclose(choi_kraus(K_depol(1.0)), np.eye(4) / 2)                                               # J(Δ_1) = I ⊗ I/2
+```
 
 ---
 
@@ -146,7 +290,22 @@ $$
 $$
 \Phi(\rho) = \operatorname{Tr}_E\bigl[U\bigl(\rho\otimes\lvert0\rangle\langle0\rvert_E\bigr)U^\dagger\bigr] . \tag{4.3}
 $$
-**Любой канал — это унитарное взаимодействие с окружением в чистом начальном состоянии, после которого окружение отбрасывается.** Размерность окружения $r\le d_Ad_B$, то есть достаточно $\operatorname{rank}J$. Обе формулы проверены для случайного канала с $r = 3$ (раздел 4 `примеры.py`). Это аналог теоремы Наймарка (I.3, §3.4) для каналов: там проективное измерение на расширенной системе, здесь унитарная эволюция. Изометрию Стайнспринга можно рассматривать как очищение канала. Как и очищение (I.4, §4.2), она единственна с точностью до изометрии на окружении.
+**Любой канал — это унитарное взаимодействие с окружением в чистом начальном состоянии, после которого окружение отбрасывается.** Размерность окружения $r\le d_Ad_B$, то есть достаточно $\operatorname{rank}J$. Обе формулы проверены для случайного канала с $r = 3$ (ячейка ниже). Это аналог теоремы Наймарка (I.3, §3.4) для каналов: там проективное измерение на расширенной системе, здесь унитарная эволюция. Изометрию Стайнспринга можно рассматривать как очищение канала. Как и очищение (I.4, §4.2), она единственна с точностью до изометрии на окружении.
+
+```{python}
+K = random_channel(2, 2, 3)
+V = sum(np.kron(k, ket(j, 3)[:, None]) for j, k in enumerate(K))       # (4.1): C^2 → C^2 ⊗ C^3
+assert np.allclose(dag(V) @ V, np.eye(2))
+r = random_state(2)
+assert np.allclose(ptrace(V @ r @ dag(V), [2, 3], [0]), apply_kraus(K, r))   # (4.2)
+# дополнение до унитарного U: столбцы |ψ>⊗|0>_E — это V, остальные — ортонормированное дополнение
+Q = np.linalg.qr(np.c_[V, rng.normal(size=(6, 4)) + 1j * rng.normal(size=(6, 4))])[0]
+U = np.zeros((6, 6), complex)
+U[:, [0, 3]], U[:, [1, 2, 4, 5]] = V, Q[:, 2:]
+assert np.allclose(dag(U) @ U, np.eye(6))
+assert np.allclose(ptrace(U @ np.kron(r, np.diag([1, 0, 0])) @ dag(U), [2, 3], [0]), apply_kraus(K, r))   # (4.3)
+print("V†V = I; Φ(ρ) = Tr_E(VρV†) = Tr_E[U(ρ ⊗ |0><0|)U†]")
+```
 
 ### 4.2. Дополнительный канал
 
@@ -154,7 +313,7 @@ $$
 $$
 \Phi^c(\rho) = \operatorname{Tr}_B\bigl(V\rho V^\dagger\bigr) = \sum_{j,k}\operatorname{Tr}\bigl(K_j\rho K_k^\dagger\bigr)\,\lvert j\rangle\langle k\rvert . \tag{4.4}
 $$
-Он определён с точностью до изометрии на $E$ (из-за выбора Стайнспринга). Примеры (раздел 4 `примеры.py`):
+Он определён с точностью до изометрии на $E$ (из-за выбора Стайнспринга). Примеры (проверка — в ячейке после списка):
 - **Унитарный канал:** окружение одномерно, $\Phi^c(\rho) = \operatorname{Tr}\rho$ — постоянный. Окружение ничего не узнаёт: информация полностью остаётся в системе.
 - **Полностью деполяризующий канал** $\Delta_1$: система забывает всё, а дополнительный канал сохраняет расстояние следа между любыми входами (численно $0{,}7619\to0{,}7619$) — вся информация ушла в окружение.
 - **Амплитудное затухание** (ЛР9, задание 6): по (4.4)
@@ -162,6 +321,26 @@ $$
 \mathcal A_\gamma^c(\rho) = \begin{pmatrix}\rho_{00} + (1-\gamma)\rho_{11} & \sqrt\gamma\,\rho_{01}\\ \sqrt\gamma\,\rho_{10} & \gamma\rho_{11}\end{pmatrix} = \mathcal A_{1-\gamma}(\rho) . \tag{4.5}
 $$
 Окружение получает фотон с вероятностью $\gamma$, то есть само видит амплитудное затухание с параметром $1-\gamma$. Проверено при $\gamma = 0{,}1;\ 0{,}4;\ 0{,}75$.
+
+```{python}
+def complementary(K, rho):
+    """(4.4): Φ^c(ρ)_{jk} = Tr(K_j ρ K_k†)."""
+    return np.array([[np.trace(Ka @ rho @ dag(Kb)) for Kb in K] for Ka in K])
+
+for g in (0.1, 0.4, 0.75):
+    for _ in range(5):
+        r = random_state(2)
+        Vg = sum(np.kron(k, ket(j, 2)[:, None]) for j, k in enumerate(K_ad(g)))
+        comp = ptrace(Vg @ r @ dag(Vg), [2, 2], [1])                      # след по системе
+        assert np.allclose(comp, complementary(K_ad(g), r)) and np.allclose(comp, apply_kraus(K_ad(1 - g), r))   # (4.5)
+print("A_γ^c = A_{1−γ} при γ = 0,1; 0,4; 0,75")
+r1, r2 = random_state(2), random_state(2)
+H = (X + Z) / sqrt(2)
+assert np.allclose(complementary([H], r1), complementary([H], r2))
+print("унитарный канал: Φ^c постоянен")
+c1, c2 = complementary(K_depol(1.0), r1), complementary(K_depol(1.0), r2)
+print(f"Δ_1: D(ρ1, ρ2) = {0.5 * tnorm(r1 - r2):.4f} → D(Φ^c(ρ1), Φ^c(ρ2)) = {0.5 * tnorm(c1 - c2):.4f}")
+```
 
 Дополнительный канал — общий принцип «информационно-нарушающего возмущения»: чем меньше шумит канал, тем меньше узнаёт окружение (подслушиватель). Это основа доказательств безопасности QKD (II.14). Каналы, у которых $\Phi^c$ получается из $\Phi$ ещё одним каналом (деградируемые), играют особую роль в теории пропускных способностей (II.13). Например, $\mathcal A_\gamma$ деградируем при $\gamma\le\frac12$.
 
@@ -173,7 +352,26 @@ L_i = \sum_{j=1}^mu_{ij}K_j\quad\text{для некоторой унитарно
 $$
 *Доказательство.* Векторы $\lvert v_j\rangle = (I\otimes K_j)\sum_i\lvert ii\rangle$ дают разложение $J = \sum_j\lvert v_j\rangle\langle v_j\rvert$, и одинаковые каналы — одинаковые $J$. Два разложения одного положительного оператора на сумму $\lvert v_j\rangle\langle v_j\rvert$ связаны унитарной матрицей. Это та же теорема, что для ансамблей одной матрицы плотности (Хьюстон–Йожа–Вуттерс, I.3, §1.5) и для очищений (I.4, §4.2). $\square$
 
-Численно: перемешивание трёх операторов Крауса, дополненных нулями до пяти, случайной унитарной $5\times5$ не меняет $J$; набор из спектрального разложения $J$ связан с исходным явно найденной унитарной матрицей (раздел 5 `примеры.py`). Пример: дефазировка $\{\sqrt{1-p}\,I, \sqrt p\,Z\}$ совпадает с $\{\sqrt{1-2p}\,I, \sqrt{2p}\lvert0\rangle\langle0\rvert, \sqrt{2p}\lvert1\rangle\langle1\rvert\}$ при $p\le\frac12$. Один и тот же шум выглядит и как «случайный $Z$», и как «окружение иногда измеряет кубит». **Физически различимы только каналы, а не наборы Крауса**: модель «что именно делает окружение» по наблюдениям над системой не восстанавливается.
+Численно: перемешивание трёх операторов Крауса, дополненных нулями до пяти, случайной унитарной $5\times5$ не меняет $J$; набор из спектрального разложения $J$ связан с исходным явно найденной унитарной матрицей (ячейка ниже). Пример: дефазировка $\{\sqrt{1-p}\,I, \sqrt p\,Z\}$ совпадает с $\{\sqrt{1-2p}\,I, \sqrt{2p}\lvert0\rangle\langle0\rvert, \sqrt{2p}\lvert1\rangle\langle1\rvert\}$ при $p\le\frac12$. Один и тот же шум выглядит и как «случайный $Z$», и как «окружение иногда измеряет кубит». **Физически различимы только каналы, а не наборы Крауса**: модель «что именно делает окружение» по наблюдениям над системой не восстанавливается.
+
+```{python}
+K = random_channel(2, 2, 3)
+J = choi_kraus(K)
+for m in (3, 5):
+    Kp = K + [np.zeros((2, 2), complex)] * (m - 3)
+    u = np.linalg.qr(rng.normal(size=(m, m)) + 1j * rng.normal(size=(m, m)))[0]
+    assert np.allclose(choi_kraus([sum(u[i, j] * Kp[j] for j in range(m)) for i in range(m)]), J)   # (4.6)
+print("перемешивание унитарной u (m = 3 и 5) не меняет J")
+K2 = kraus_from_choi(J, 2, 2)
+Kv, K2v = np.array([k.reshape(-1) for k in K]), np.array([k.reshape(-1) for k in K2])
+u_rec = K2v @ np.linalg.pinv(Kv)                                       # K2 = u K
+assert np.allclose(u_rec @ Kv, K2v) and np.allclose(u_rec @ dag(u_rec), np.eye(len(K2)))
+print("набор из спектрального разложения J = u · исходный набор, u унитарна:\n", np.round(u_rec, 3))
+p = 0.3
+P0, P1 = np.diag([1, 0]).astype(complex), np.diag([0, 1]).astype(complex)
+assert np.allclose(choi_kraus(K_dephasing(p)), choi_kraus([sqrt(1 - 2 * p) * I2, sqrt(2 * p) * P0, sqrt(2 * p) * P1]))
+print("дефазировка {√(1−p) I, √p Z} = {√(1−2p) I, √(2p) |0><0|, √(2p) |1><1|} при p = 0,3")
+```
 
 ---
 
@@ -185,7 +383,7 @@ $$
 $$
 \mathbf r\ \mapsto\ M\mathbf r + \mathbf c,\qquad M_{kl} = \tfrac12\operatorname{Tr}\bigl(\sigma_k\Phi(\sigma_l)\bigr),\quad c_k = \tfrac12\operatorname{Tr}\bigl(\sigma_k\Phi(I)\bigr) . \tag{5.1}
 $$
-Шар переходит в эллипсоид внутри шара. Стандартные каналы (раздел 6 `примеры.py`; ЛР9, задание 3):
+Шар переходит в эллипсоид внутри шара. Стандартные каналы (ЛР9, задание 3; проверка и рисунок — ниже):
 
 | Канал | $M$ | $\mathbf c$ | Образ шара |
 |---|---|---|---|
@@ -195,13 +393,47 @@ $$
 
 Не всякое аффинное сжатие шара — канал: условие полной положительности сильнее (см. §5.2).
 
+```{python}
+#| fig-cap: "Сечение шара Блоха плоскостью $y = 0$ и его образы под действием стандартных каналов; точка — образ центра шара"
+def affine(K):
+    """(5.1): r ↦ M r + c."""
+    c = bloch(apply_kraus(K, I2 / 2))
+    M = np.array([bloch(apply_kraus(K, (I2 + P) / 2)) - c for P in (X, Y, Z)]).T
+    return M, c
+
+g = 0.4
+for name, Kk, M_exp, c_exp in (("Δ_0,4", K_depol(0.4), 0.6 * np.eye(3), [0, 0, 0]),
+                               ("D_0,3", K_dephasing(0.3), np.diag([0.4, 0.4, 1]), [0, 0, 0]),
+                               ("A_0,4", K_ad(g), np.diag([sqrt(1 - g), sqrt(1 - g), 1 - g]), [0, 0, g])):
+    M, c = affine(Kk)
+    assert np.allclose(M, M_exp) and np.allclose(c, c_exp)
+    print(f"{name}: M = diag{tuple(np.round(np.diag(M), 4).tolist())}, c = {tuple(np.round(c, 4).tolist())}")
+pv = rng.dirichlet(np.ones(4))                                         # случайный канал Паули
+M, c = affine([sqrt(q) * P for q, P in zip(pv, PAULIS)])
+assert np.allclose(M, np.diag([pv[0] + pv[1] - pv[2] - pv[3], pv[0] - pv[1] + pv[2] - pv[3], pv[0] - pv[1] - pv[2] + pv[3]])) and np.allclose(c, 0)
+print(f"канал Паули p = {np.round(pv, 3)}: M диагональна по (5.2)")
+
+phi = np.linspace(0, 2 * pi, 200)
+circ = np.array([np.sin(phi), np.zeros_like(phi), np.cos(phi)])          # (x, 0, z) на сфере
+fig, ax = plt.subplots(figsize=(4.6, 4.6))
+ax.plot(circ[0], circ[2], "k", lw=1, label="шар Блоха")
+for (name, Kk), st in zip((("$\\Delta_{0,4}$", K_depol(0.4)), ("$\\mathcal{D}_{0,3}$", K_dephasing(0.3)), ("$\\mathcal{A}_{0,4}$", K_ad(0.4))), ("-", "--", "-.")):
+    M, c = affine(Kk)
+    img = M @ circ + c[:, None]
+    line, = ax.plot(img[0], img[2], st, label=name)
+    ax.plot(c[0], c[2], "o", color=line.get_color(), ms=4)
+ax.set_aspect("equal"); ax.set_xlabel("$x$"); ax.set_ylabel("$z$")
+ax.legend(loc="lower right", fontsize=9)
+plt.show()
+```
+
 ### 5.2. Каналы Паули и тетраэдр
 
 **Канал Паули:** $\Phi(\rho) = p_I\rho + p_XX\rho X + p_YY\rho Y + p_ZZ\rho Z$, $\sum p = 1$. Его $M$ диагональна:
 $$
 \lambda_x = p_I + p_X - p_Y - p_Z,\quad \lambda_y = p_I - p_X + p_Y - p_Z,\quad \lambda_z = p_I - p_X - p_Y + p_Z . \tag{5.2}
 $$
-Обратно, $p_I = \frac14(1 + \lambda_x + \lambda_y + \lambda_z)$ и т. д. Диагональное $M = \operatorname{diag}(\lambda_x,\lambda_y,\lambda_z)$ задаёт канал $\iff$ все четыре $p\ge0$. Это **тетраэдр** с вершинами $(1,1,1)$, $(1,-1,-1)$, $(-1,1,-1)$, $(-1,-1,1)$ — четыре сопряжения паули-операторами (Фудзивара, Алгоэ, 1999). Положительность требует лишь $\lvert\lambda_k\rvert\le1$ (куб). Разница — ровно отображения вроде транспонирования. Проверка критерием Чоя (раздел 6 `примеры.py`):
+Обратно, $p_I = \frac14(1 + \lambda_x + \lambda_y + \lambda_z)$ и т. д. Диагональное $M = \operatorname{diag}(\lambda_x,\lambda_y,\lambda_z)$ задаёт канал $\iff$ все четыре $p\ge0$. Это **тетраэдр** с вершинами $(1,1,1)$, $(1,-1,-1)$, $(-1,1,-1)$, $(-1,-1,1)$ — четыре сопряжения паули-операторами (Фудзивара, Алгоэ, 1999). Положительность требует лишь $\lvert\lambda_k\rvert\le1$ (куб). Разница — ровно отображения вроде транспонирования. Проверка критерием Чоя (ячейка после таблицы):
 
 | $(\lambda_x,\lambda_y,\lambda_z)$ | $(p_I, p_X, p_Y, p_Z)$ | канал? |
 |---|---|---|
@@ -211,6 +443,20 @@ $$
 | $(\frac13, \frac13, \frac13)$ | $(0{,}5;\ 0{,}167;\ 0{,}167;\ 0{,}167)$ | да |
 | $(-\frac13, -\frac13, -\frac13)$ | $(0;\ 0{,}333;\ 0{,}333;\ 0{,}333)$ | да |
 | $(0{,}9;\ 0{,}9;\ -0{,}9)$ | $(0{,}475;\ 0{,}475;\ 0{,}475;\ -0{,}425)$ | нет |
+
+```{python}
+def pauli_probs(l):
+    """Обращение (5.2): (p_I, p_X, p_Y, p_Z) по (λx, λy, λz)."""
+    lx, ly, lz = l
+    return np.array([1 + lx + ly + lz, 1 + lx - ly - lz, 1 - lx + ly - lz, 1 - lx - ly + lz]) / 4
+
+for l in ((1, 1, -1), (-1, -1, -1), (1, -1, -1), (1 / 3,) * 3, (-1 / 3,) * 3, (0.9, 0.9, -0.9)):
+    pp = pauli_probs(l)
+    J = sum(q * choi_kraus([P]) for q, P in zip(pp, PAULIS))
+    cp = np.linalg.eigvalsh(J).min() > -1e-12
+    assert cp == (pp.min() > -1e-12)                                   # CP ⇔ точка в тетраэдре
+    print(f"λ = ({', '.join(f'{x:.3g}' for x in l)}): p = {np.round(pp, 3)} → {'канал' if cp else 'не CP'}")
+```
 
 Ближайшее к универсальному NOT физическое отображение — $\mathbf r\mapsto-\frac13\mathbf r$: инвертировать неизвестное состояние можно лишь с большим сжатием. Деполяризующий канал — частный случай: $p_I = 1 - \frac{3p}4$, $p_X = p_Y = p_Z = \frac p4$, $\lambda = 1 - p$.
 
@@ -224,7 +470,21 @@ $$
 
 Канал **разрушает запутанность** (entanglement-breaking, EB), если $(\mathrm{id}\otimes\Phi)(\rho)$ сепарабельно для любого $\rho$. Критерий (Хородецкий, Шор, Рускаи, 2003): $\Phi$ — EB $\iff$ $J(\Phi)$ сепарабельна $\iff$ $\Phi$ имеет вид «измерь и приготовь»: $\Phi(\rho) = \sum_m\operatorname{Tr}(E_m\rho)\,\sigma_m$ для некоторого POVM $\{E_m\}$ и состояний $\sigma_m$. Достаточно проверить вход $\lvert\Phi_d\rangle$.
 
-Для деполяризующего канала $J(\Delta_p)/2 = (1-p)\lvert\Phi^+\rangle\langle\Phi^+\rvert + p\frac I4 = \rho_{1-p}$ — изотропное состояние (I.7). Оно сепарабельно при $1 - p\le\frac13$. Значит, **$\Delta_p$ разрушает запутанность при $p\ge\frac23$** (раздел 7 `примеры.py`: минимальное собственное значение $\rho_{1-p}^\Gamma$ равно $-0{,}125$; $-0{,}05$; $0$; $+0{,}025$; $+0{,}175$ при $p = 0{,}5;\ 0{,}6;\ \frac23;\ 0{,}7;\ 0{,}9$). Через EB-канал нельзя передать квантовую информацию: его квантовая пропускная способность равна нулю (II.13). Классический порог $\frac23$ для верности телепортации (I.5, §3.4) — та же стратегия «измерь и приготовь».
+Для деполяризующего канала $J(\Delta_p)/2 = (1-p)\lvert\Phi^+\rangle\langle\Phi^+\rvert + p\frac I4 = \rho_{1-p}$ — изотропное состояние (I.7). Оно сепарабельно при $1 - p\le\frac13$. Значит, **$\Delta_p$ разрушает запутанность при $p\ge\frac23$** (ячейка ниже: минимальное собственное значение $\rho_{1-p}^\Gamma$ равно $-0{,}125$; $-0{,}05$; $0$; $+0{,}025$; $+0{,}175$ при $p = 0{,}5;\ 0{,}6;\ \frac23;\ 0{,}7;\ 0{,}9$). Через EB-канал нельзя передать квантовую информацию: его квантовая пропускная способность равна нулю (II.13). Классический порог $\frac23$ для верности телепортации (I.5, §3.4) — та же стратегия «измерь и приготовь».
+
+```{python}
+def ppt_min(R):
+    """Минимальное собственное значение частичного транспонирования (по второму кубиту)."""
+    return np.linalg.eigvalsh(R.reshape(2, 2, 2, 2).transpose(0, 3, 2, 1).reshape(4, 4)).min()
+
+for p in (0.5, 0.6, 2 / 3, 0.7, 0.9):
+    Jp = choi_kraus(K_depol(p)) / 2
+    assert np.allclose(Jp, (1 - p) * np.outer(Phi_plus, Phi_plus) + p * np.eye(4) / 4)   # изотропное ρ_{1−p}
+    print(f"p = {p:.3f}: min eig ρ_(1−p)^Γ = {round(ppt_min(Jp), 4) + 0.0:+.4f}")
+Kmp = [np.outer(ket(b, 2), ket(b, 2)) for b in range(2)]               # измерь Z и приготовь |b>
+assert ppt_min(choi_kraus(Kmp) / 2) >= -1e-12
+print("«измерь и приготовь»: матрица Чоя сепарабельна")
+```
 
 ---
 
@@ -237,7 +497,19 @@ $$
 *Доказательство.* (а) Расстояние следа. По I.3, §4.1, $D(\rho,\sigma) = \max_{0\preceq E\preceq I}\operatorname{Tr}E(\rho - \sigma)$. Для выхода $\operatorname{Tr}E(\Phi(\rho) - \Phi(\sigma)) = \operatorname{Tr}\Phi^\dagger(E)(\rho - \sigma)$. Поскольку $\Phi^\dagger$ положительно и унитально, $0\preceq\Phi^\dagger(E)\preceq I$, и максимум по таким операторам не превосходит $D(\rho,\sigma)$.
 (б) Верность. Пусть $\lvert\psi\rangle$, $\lvert\phi\rangle$ — очищения $\rho$, $\sigma$ на $AR$, на которых достигается максимум в теореме Ульмана (I.4, §5): $F(\rho,\sigma) = \lvert\langle\psi|\phi\rangle\rvert^2$. Изометрия Стайнспринга сохраняет скалярное произведение, поэтому $(V\otimes I_R)\lvert\psi\rangle$ и $(V\otimes I_R)\lvert\phi\rangle$ — очищения $\Phi(\rho)$, $\Phi(\sigma)$ (на $BER$) с тем же перекрытием. По теореме Ульмана $F(\Phi(\rho),\Phi(\sigma))$ — максимум по всем очищениям, так что он не меньше. $\square$
 
-Неравенства проверены на 300 случайных каналах $\mathbb C^3\to\mathbb C^2$ (раздел 8 `примеры.py`). Для не-канала они нарушаются: $\mathrm{id}\otimes T$ увеличивает расстояние между $\lvert\Phi^+\rangle$ и $\lvert00\rangle$ с $0{,}7071$ до $1$.
+Неравенства проверены на 300 случайных каналах $\mathbb C^3\to\mathbb C^2$ (ячейка ниже). Для не-канала они нарушаются: $\mathrm{id}\otimes T$ увеличивает расстояние между $\lvert\Phi^+\rangle$ и $\lvert00\rangle$ с $0{,}7071$ до $1$.
+
+```{python}
+for _ in range(300):
+    K = random_channel(3, 2, rng.integers(2, 6))
+    r, s_ = random_state(3), random_state(3)
+    Kr, Ks = apply_kraus(K, r), apply_kraus(K, s_)
+    assert 0.5 * tnorm(Kr - Ks) <= 0.5 * tnorm(r - s_) + 1e-10 and fidelity(Kr, Ks) >= fidelity(r, s_) - 1e-8   # (6.1)
+print("300 случайных каналов C^3 → C^2: D не растёт, F не убывает")
+r, s_ = np.outer(Phi_plus, Phi_plus.conj()), np.diag([1, 0, 0, 0]).astype(complex)
+PT = lambda R: R.reshape(2, 2, 2, 2).transpose(0, 3, 2, 1).reshape(4, 4)   # id ⊗ T
+print(f"id ⊗ T: D(Φ+, |00>) = {0.5 * tnorm(r - s_):.4f} → {0.5 * tnorm(PT(r) - PT(s_)):.4f}")
+```
 
 **Смысл:** никакая обработка не делает состояния более различимыми. Это ответ на обещания из I.3 (§4) и I.4 (§5), основа неравенства обработки данных для квантовой информации (II.11–II.12) и причина, по которой шум в QKD можно приписывать подслушивателю (II.14).
 
@@ -257,7 +529,7 @@ $$
 $$
 F_{\text{avg}}(\mathcal E) = \int d\psi\,\langle\psi\rvert\mathcal E(\lvert\psi\rangle\langle\psi\rvert)\lvert\psi\rangle = \frac{d\,F_{\text{pro}}(\mathcal E) + 1}{d + 1} . \tag{7.2}
 $$
-Для кубита интеграл по сфере равен среднему по шести состояниям $\pm X, \pm Y, \pm Z$ (I.5, задача 8). Проверка (раздел 9 `примеры.py`):
+Для кубита интеграл по сфере равен среднему по шести состояниям $\pm X, \pm Y, \pm Z$ (I.5, задача 8). Проверка (ячейка после таблицы):
 
 | Канал | $F_{\text{pro}}$ | по (7.2) | 6 состояний | Монте-Карло ($2\cdot10^4$) |
 |---|---:|---:|---:|---:|
@@ -265,6 +537,36 @@ $$
 | $\mathcal A_{0{,}2}$ | 0,8972 | 0,9315 | 0,9315 | 0,9308 |
 | случайный, $d = 2$ | 0,0897 | 0,3931 | 0,3931 | 0,3926 |
 | случайный, $d = 3$ | — | 0,2585 | — | 0,2586 |
+
+```{python}
+def F_pro(K):
+    """(7.1): <Φ_d| J |Φ_d> / d."""
+    d = K[0].shape[1]
+    phi = np.eye(d).reshape(-1) / sqrt(d)
+    return np.real(np.vdot(phi, choi_kraus(K) @ phi)) / d
+
+def F_avg_haar(K, n=20000):
+    """Монте-Карло по n хааровским чистым состояниям: среднее Σ_k |<ψ|K_k|ψ>|²."""
+    d = K[0].shape[1]
+    g = rng.normal(size=(n, 2, d))                         # тот же порядок чисел, что по одному вектору
+    v = g[:, 0] + 1j * g[:, 1]
+    v /= np.linalg.norm(v, axis=1, keepdims=True)
+    return np.mean(sum(np.abs(np.einsum("ni,ij,nj->n", v.conj(), k, v)) ** 2 for k in K))
+
+six = [np.array(v) / np.linalg.norm(v) for v in ([1, 0], [0, 1], [1, 1], [1, -1], [1, 1j], [1, -1j])]
+Kp = [sqrt(q) * P for q, P in zip([0.9, 0.05, 0.03, 0.02], PAULIS)]
+assert np.isclose(F_pro(Kp), 0.9)
+for name, Kk in (("Паули (0,9; 0,05; 0,03; 0,02)", Kp), ("A_0,2", K_ad(0.2)), ("случайный, d = 2", random_channel(2, 2, 2))):
+    fp = F_pro(Kk)
+    fa6 = np.mean([np.real(np.vdot(v, apply_kraus(Kk, np.outer(v, v.conj())) @ v)) for v in six])
+    fah = F_avg_haar(Kk)
+    assert np.isclose(fa6, (2 * fp + 1) / 3) and abs(fah - (2 * fp + 1) / 3) < 0.005           # (7.2)
+    print(f"{name:30s} F_pro = {fp:.4f}, (7.2): {(2 * fp + 1) / 3:.4f}, 6 состояний: {fa6:.4f}, Монте-Карло: {fah:.4f}")
+K3 = random_channel(3, 3, 2)
+fp3, fa3 = F_pro(K3), F_avg_haar(K3)
+assert abs(fa3 - (3 * fp3 + 1) / 4) < 0.005
+print(f"{'случайный, d = 3':30s} (7.2): {(3 * fp3 + 1) / 4:.4f}, Монте-Карло: {fa3:.4f}")
+```
 
 Именно $F_{\text{avg}}$ (или «ошибку» $1 - F_{\text{avg}}$) измеряет randomized benchmarking (II.3). Верности удобны, но это **средние** величины. Они не говорят о худшем входе и плохо складываются при композиции гейтов.
 
@@ -278,11 +580,46 @@ $$
 - **субаддитивность при композиции:** $\|\Phi_2\Phi_1 - \Psi_2\Psi_1\|_\diamond\le\|\Phi_1 - \Psi_1\|_\diamond + \|\Phi_2 - \Psi_2\|_\diamond$. Ошибки гейтов схемы складываются не хуже чем линейно — на этом стоит пороговая теорема (II.8);
 - **стабильность:** $\|\mathrm{id}\otimes(\Phi - \Psi)\|_\diamond = \|\Phi - \Psi\|_\diamond$.
 
-**Вспомогательная система нужна.** Через (3.1) максимум в (7.3) сводится к $\max_\sigma\|(\sqrt\sigma\otimes I)(J_\Phi - J_\Psi)(\sqrt\sigma\otimes I)\|_1$ по матрицам плотности $\sigma$ на $A$. Именно так она вычисляется в `примеры.py` (общий метод — полуопределённое программирование, Уотрус, 2009; дополнительное задание ЛР9). Пример — каналы Вернера–Холево на кубите: $W_0(\rho) = \frac13(I\operatorname{Tr}\rho + \rho^{\mathsf T})$ и $W_1(\rho) = I\operatorname{Tr}\rho - \rho^{\mathsf T}$ (их матрицы Чоя $\frac13(I + \mathrm{SWAP})$ и $I - \mathrm{SWAP}$ положительны). Без вспомогательной системы $\max_\rho\|W_0(\rho) - W_1(\rho)\|_1 = \frac43$. Но на синглете $\lvert\Psi^-\rangle$ выходы ортогональны: $\|W_0 - W_1\|_\diamond = 2$, каналы различимы идеально (раздел 9 `примеры.py`).
+**Вспомогательная система нужна.** Через (3.1) максимум в (7.3) сводится к $\max_\sigma\|(\sqrt\sigma\otimes I)(J_\Phi - J_\Psi)(\sqrt\sigma\otimes I)\|_1$ по матрицам плотности $\sigma$ на $A$. Именно так она вычисляется в ячейке ниже (общий метод — полуопределённое программирование, Уотрус, 2009; дополнительное задание ЛР9). Пример — каналы Вернера–Холево на кубите: $W_0(\rho) = \frac13(I\operatorname{Tr}\rho + \rho^{\mathsf T})$ и $W_1(\rho) = I\operatorname{Tr}\rho - \rho^{\mathsf T}$ (их матрицы Чоя $\frac13(I + \mathrm{SWAP})$ и $I - \mathrm{SWAP}$ положительны). Без вспомогательной системы $\max_\rho\|W_0(\rho) - W_1(\rho)\|_1 = \frac43$. Но на синглете $\lvert\Psi^-\rangle$ выходы ортогональны: $\|W_0 - W_1\|_\diamond = 2$, каналы различимы идеально (ячейка ниже).
+
+```{python}
+def diamond_dist(J1, J2, d_out=2, starts=12):
+    """||Φ1 − Φ2||_◇ = max_σ ||(√σ ⊗ I)(J1 − J2)(√σ ⊗ I)||_1 по состояниям σ кубита (вектор Блоха v)."""
+    dJ = J1 - J2
+    def val(v):
+        rv = v / max(1, np.linalg.norm(v))
+        w, U = np.linalg.eigh((I2 + rv[0] * X + rv[1] * Y + rv[2] * Z) / 2)
+        A = np.kron(U @ np.diag(np.sqrt(np.clip(w, 0, None))) @ dag(U), np.eye(d_out))
+        return tnorm(A @ dJ @ A)
+    best = val(np.zeros(3))
+    for _ in range(starts):
+        r = minimize(lambda v: -val(v), rng.normal(size=3) * 0.5, method="Nelder-Mead",
+                     options={"xatol": 1e-9, "fatol": 1e-12, "maxiter": 4000})
+        best = max(best, -r.fun)
+    return best
+
+Jid = choi_kraus([I2])
+dd = diamond_dist(choi_kraus(Kp), Jid)
+print(f"Паули против id: ||·||_◇ = {dd:.6f}, 2(1 − p_I) = {2 * (1 - 0.9):.6f}")
+assert abs(dd - 0.2) < 1e-6
+
+W0 = lambda r: (np.trace(r) * I2 + r.T) / 3                            # каналы Вернера–Холево
+W1 = lambda r: np.trace(r) * I2 - r.T
+J0, J1 = choi(W0, 2), choi(W1, 2)
+assert np.allclose(J0, (np.eye(4) + SWAP) / 3) and np.allclose(J1, np.eye(4) - SWAP)
+assert min(np.linalg.eigvalsh(J0).min(), np.linalg.eigvalsh(J1).min()) > -1e-12
+assert np.allclose(ptrace(J0, [2, 2], [0]), I2) and np.allclose(ptrace(J1, [2, 2], [0]), I2)
+vs = rng.normal(size=(2000, 2)) + 1j * rng.normal(size=(2000, 2))
+vs /= np.linalg.norm(vs, axis=1, keepdims=True)                        # случайные чистые входы без вспомогательной системы
+na = max(tnorm(W0(np.outer(v, v.conj())) - W1(np.outer(v, v.conj()))) for v in vs)
+dd_w = diamond_dist(J0, J1)
+print(f"Вернер–Холево: без вспомогательной системы max ||W0(ρ) − W1(ρ)||_1 = {na:.4f}; ||W0 − W1||_◇ = {dd_w:.4f}")
+assert abs(na - 4 / 3) < 1e-3 and abs(dd_w - 2) < 1e-6
+```
 
 ### 7.3. Когерентные ошибки против стохастических
 
-Сравним два гейта с одинаковой верностью процесса (раздел 9 `примеры.py`; дополнительное задание ЛР9):
+Сравним два гейта с одинаковой верностью процесса (дополнительное задание ЛР9; ячейка после таблицы):
 - **стохастическая ошибка** — канал Паули с $p_I = 1 - r$: $\|\mathcal E - \mathrm{id}\|_\diamond = 2(1 - p_I) = 2r$;
 - **когерентная ошибка** — лишний поворот $R_x(\varepsilon)$: $1 - F_{\text{pro}} = \sin^2\frac\varepsilon2$, а $\|\mathcal R_x(\varepsilon) - \mathrm{id}\|_\diamond = 2\sin\frac\varepsilon2 = 2\sqrt{1 - F_{\text{pro}}}$.
 
@@ -291,6 +628,17 @@ $$
 | 0,2 | $9{,}97\cdot10^{-3}$ | 0,1997 | 0,0199 |
 | 0,05 | $6{,}25\cdot10^{-4}$ | 0,0500 | 0,00125 |
 | 0,01 | $2{,}50\cdot10^{-5}$ | 0,0100 | $5{,}0\cdot10^{-5}$ |
+
+```{python}
+print("  ε      1 − F_pro    ||R_x − id||_◇   2 sin(ε/2)   Паули: 2(1 − F_pro)")
+for eps in (0.2, 0.05, 0.01):
+    Rx = np.array([[cos(eps / 2), -1j * sin(eps / 2)], [-1j * sin(eps / 2), cos(eps / 2)]])
+    infid = 1 - F_pro([Rx])
+    dRx = diamond_dist(choi_kraus([Rx]), Jid)
+    assert np.isclose(infid, sin(eps / 2) ** 2) and abs(dRx - 2 * sin(eps / 2)) < 1e-6
+    print(f"{eps:5.2f}    {infid:.3e}    {dRx:.4f}          {2 * sin(eps / 2):.4f}       {2 * infid:.3e}")
+print(f"1 − F_pro = 1e-4: когерентная {2 * sqrt(1e-4):.0e}, стохастическая {2e-4:.0e}")
+```
 
 При $1 - F_{\text{pro}} = 10^{-4}$ когерентная ошибка имеет $\|\cdot\|_\diamond = 2\cdot10^{-2}$ против $2\cdot10^{-4}$ у стохастической: **в 100 раз больше**. Причина: когерентные ошибки складываются по амплитудам. $k$ поворотов на $\varepsilon$ дают поворот на $k\varepsilon$ и инфиделити $\sim k^2\varepsilon^2$, а $k$ стохастических ошибок — лишь $\sim kr$. Поэтому средняя верность (её даёт RB) может сильно недооценивать худший случай. Твирлинг (II.2) превращает когерентную ошибку в стохастическую с той же верностью, и для неё оценки по верности становятся честными (контрольный вопрос 4 ЛР9).
 
@@ -338,7 +686,23 @@ $$
 11. (•••) Докажите (7.2) для кубита. Указание: $\langle\psi\rvert\mathcal E(\psi)\lvert\psi\rangle$ — квадратичная функция вектора Блоха; используйте $\int r_ir_j\,d\Omega/(4\pi) = \frac13\delta_{ij}$ и выразите результат через $\operatorname{Tr}M$ и $F_{\text{pro}} = \frac14(1 + \operatorname{Tr}M)$ для унитального канала (общий случай аналогичен).
 12. (•••) Каналы Вернера–Холево $W_0$, $W_1$ (§7.2): проверьте, что это каналы, найдите $\max_\rho\|W_0(\rho) - W_1(\rho)\|_1$ без вспомогательной системы и покажите, что вход $\lvert\Psi^-\rangle$ даёт ортогональные выходы.
 
-### Ответы и указания
+Численная проверка ответов к задачам 3, 4, 8, 9, 10 (задачи 1, 7, 12 — в ячейках выше):
+
+```{python}
+assert np.allclose(choi_kraus(K_dephasing(0.3)), [[1, 0, 0, 0.4], [0, 0, 0, 0], [0, 0, 0, 0], [0.4, 0, 0, 1]])
+print("3: J(D_0,3) — по формуле ответа; спектр", np.round(np.linalg.eigvalsh(choi_kraus(K_dephasing(0.3))), 4))
+Jad = choi_kraus(K_ad(0.4))
+print("4: J(A_0,4) =", np.round(Jad.real, 4).tolist())
+Kr = kraus_from_choi(Jad, 2, 2)
+assert len(Kr) == 2 and all(min(np.linalg.norm(k - sg * k0) for sg in (1, -1) for k0 in K_ad(0.4)) < 1e-10 for k in Kr)
+print("   Краус из спектрального разложения = {K0, K1} с точностью до знака")
+print(f"8: p = 2/3: F_pro = {F_pro(K_depol(2 / 3)):.4f}, F_avg = {(2 * F_pro(K_depol(2 / 3)) + 1) / 3:.4f}")
+print(f"9: F_pro = {F_pro(Kp):.4f}, F_avg = {(2 * F_pro(Kp) + 1) / 3:.4f}, ||·||_◇ = {dd:.4f}")
+print(f"10: ε = 0,01: 1 − F_pro = {sin(0.005) ** 2:.2e}, ||·||_◇ = {2 * sin(0.005):.4e}")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** $J(T) = \mathrm{SWAP}$, спектр $\{1, 1, 1, -1\}$ (собственный вектор $-1$ — синглет). $(\mathrm{id}\otimes T)(\lvert\Phi^+\rangle\langle\Phi^+\rvert) = \frac12\mathrm{SWAP}$ с собственным значением $-\frac12$ — не состояние.
 - **2.** $\mathcal A_\gamma^\dagger(Z) = K_0^\dagger ZK_0 + K_1^\dagger ZK_1 = \operatorname{diag}(1, -(1-\gamma)) + \operatorname{diag}(0, \gamma) = \gamma I + (1-\gamma)Z$. Значит, $\langle Z\rangle\mapsto(1-\gamma)\langle Z\rangle + \gamma$: релаксация к $\lvert0\rangle$.
 - **3.** $J = \begin{pmatrix}1&0&0&1-2p\\0&0&0&0\\0&0&0&0\\1-2p&0&0&1\end{pmatrix}$, собственные значения $2 - 2p$ и $2p$ (и два нуля): канал при $0\le p\le1$, ранг 2 при $0<p<1$.
@@ -351,12 +715,13 @@ $$
 - **10.** $1 - F_{\text{pro}} = 1 - \lvert\operatorname{Tr}R_x/2\rvert^2 = \sin^2\frac\varepsilon2$; собственные значения $e^{\mp i\varepsilon/2}$, $\delta = \cos\frac\varepsilon2$, $\|\cdot\|_\diamond = 2\sin\frac\varepsilon2$. При $\varepsilon = 0{,}01$: $2{,}50\cdot10^{-5}$ и $1{,}0000\cdot10^{-2}$.
 - **11.** Для $\psi$ с вектором Блоха $\mathbf r$: $\langle\psi\rvert\mathcal E(\psi)\lvert\psi\rangle = \frac12(1 + \mathbf r\cdot(M\mathbf r + \mathbf c))$. Среднее по сфере: $\frac12(1 + \frac13\operatorname{Tr}M)$ (член с $\mathbf c$ усредняется в нуль). С $F_{\text{pro}} = \frac14(1 + \operatorname{Tr}M)$ получаем $\frac{2F_{\text{pro}} + 1}3$.
 - **12.** $J(W_0) = \frac13(I + \mathrm{SWAP}) = \frac23P_{\text{sym}}\succeq0$, $J(W_1) = I - \mathrm{SWAP} = 2P_{\text{anti}}\succeq0$; частичные следы равны $I$. Без вспомогательной системы $W_0(\rho) - W_1(\rho) = \frac13(4\rho^{\mathsf T} - 2I)$, для чистого $\rho$ собственные значения $\pm\frac23$, норма $\frac43$. На $\lvert\Psi^-\rangle$ выходы пропорциональны $P_{\text{sym}}$ и $P_{\text{anti}}$ — ортогональны, норма разности 2.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 10 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, все числа совпадают с `примеры.py` (Монте-Карло для средней верности считается сразу для всех $2\cdot10^4$ состояний). Полный файл `примеры.py` (около 12 с) проверяет:
 1. положительность и неполную положительность транспонирования и универсального NOT;
 2. представление Крауса, сопряжённое отображение (2.2), частичный след как канал;
 3. критерии Чоя (3.3), восстановление (3.2), операторы Крауса из спектрального разложения, ранги Чоя стандартных каналов;
