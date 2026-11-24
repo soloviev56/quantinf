@@ -1,16 +1,104 @@
-# Лекция I.16. Вариационные алгоритмы и квантовая линейная алгебра
+---
+title: "Лекция I.16. Вариационные алгоритмы и квантовая линейная алгебра"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть I. **Модуль:** I.D «Квантовые алгоритмы».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.2 (статистика измерений и стоимость сэмплирования, §4); лекция I.10 (QMA и задача о локальном гамильтониане, §3.2; адиабатические вычисления, §5.2); лекция I.12 (оценка фазы, §5); лекция I.14 (усиление амплитуды, §5); лекция I.15 (экспоненты паули-строк, §1.2; Жордан–Вигнер, §2; TFIM и H₂, §5; проблема начального состояния, §5.3).
+**Пререквизиты:** [лекция I.2](../../Часть_I/I.02_Постулаты_и_кубит/лекция.qmd) (статистика измерений и стоимость сэмплирования, §4); [лекция I.10](../../Часть_I/I.10_Квантовая_сложность/лекция.qmd) (QMA и задача о локальном гамильтониане, §3.2; адиабатические вычисления, §5.2); [лекция I.12](../../Часть_I/I.12_QFT_и_QPE/лекция.qmd) (оценка фазы, §5); [лекция I.14](../../Часть_I/I.14_Алгоритм_Гровера/лекция.qmd) (усиление амплитуды, §5); [лекция I.15](../../Часть_I/I.15_Моделирование_гамильтонианов/лекция.qmd) (экспоненты паули-строк, §1.2; Жордан–Вигнер, §2; TFIM и H₂, §5; проблема начального состояния, §5.3).
 **Литература:** Cerezo M. et al. Variational quantum algorithms // Nat. Rev. Phys. 3, 625 (2021); Peruzzo A. et al. // Nat. Commun. 5, 4213 (2014); Farhi E., Goldstone J., Gutmann S. // arXiv:1411.4028; McClean J. R. et al. // Nat. Commun. 9, 4812 (2018); Harrow A. W., Hassidim A., Lloyd S. // PRL 103, 150502 (2009); Aaronson S. Read the fine print // Nat. Phys. 11, 291 (2015); Tang E. // Proc. STOC 2019.
-**Материалы:** `примеры.py` — численная проверка всех утверждений: VQE для H₂ с UCC-анзацем и кривая диссоциации, правило сдвига параметров и шум выборки, бюджет измерений, VQE для TFIM с двумя анзацами, QAOA для MaxCut (формула для $p = 1$, связь с отжигом), barren plateaus для глобальной и локальной функций стоимости, полная симуляция схемы HHL; задачи к ЛР8 — в § 7.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: VQE для H₂ с UCC-анзацем и кривая диссоциации, правило сдвига параметров и шум выборки, бюджет измерений, VQE для TFIM с двумя анзацами, QAOA для MaxCut (формула для $p = 1$, связь с отжигом), barren plateaus для глобальной и локальной функций стоимости, полная симуляция схемы HHL; задачи к ЛР8 — в § 7. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §13–§14).
 - $U(\boldsymbol\theta)$ — параметризованная схема (анзац), $\lvert\psi(\boldsymbol\theta)\rangle = U(\boldsymbol\theta)\lvert0\rangle$; $E(\boldsymbol\theta) = \langle\psi(\boldsymbol\theta)\rvert H\lvert\psi(\boldsymbol\theta)\rangle$.
 - $H = \sum_jc_jP_j$ — паули-разложение (I.15, (1.1)); $\lambda = \sum_{P_j\ne I}\lvert c_j\rvert$.
 - QAOA для MaxCut: $C = \sum_{(u,v)\in E}\frac12(I - Z_uZ_v)$ — размер разреза, $B = \sum_iX_i$; $\lvert\boldsymbol\gamma,\boldsymbol\beta\rangle = e^{-i\beta_pB}e^{-i\gamma_pC}\cdots e^{-i\beta_1B}e^{-i\gamma_1C}\lvert+\rangle^{\otimes n}$.
 - HHL: $A$ эрмитова, $N\times N$, собственные значения $\lambda_j$, $\kappa = \lambda_{\max}/\lambda_{\min}$ — число обусловленности; $\lvert b\rangle$, $\lvert x\rangle = A^{-1}\lvert b\rangle/\|A^{-1}\lvert b\rangle\|$.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+from functools import reduce
+from itertools import combinations, product
+from math import erf, exp, pi, sqrt
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import expm
+from scipy.optimize import minimize
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+H1 = (X + Z) / np.sqrt(2)                       # гейт Адамара
+PAULI = {"I": I2, "X": X, "Y": Y, "Z": Z}
+
+def kron(*ops):
+    return reduce(np.kron, ops, np.array([[1.0 + 0j]]))
+
+def pstr(s):
+    """Паули-строка по записи вида 'XZZI' (первый символ — старший кубит)."""
+    return kron(*[PAULI[c] for c in s])
+
+def op_on(n, j, o):
+    """Оператор o на кубите j (с нуля) из n."""
+    return kron(*[o if k == j else I2 for k in range(n)])
+
+def pauli_decompose(Hm, n):
+    """Ненулевые коэффициенты c_P = Tr(P H)/2^n (I.15, (1.1))."""
+    out = {}
+    for s in map("".join, product("IXYZ", repeat=n)):
+        c = np.trace(pstr(s) @ Hm) / 2 ** n
+        if abs(c) > 1e-12:
+            out[s] = c.real
+    return out
+
+def energy(Hm, psi):
+    return np.vdot(psi, Hm @ psi).real
+
+def apply_1q(psi, U, q, n):
+    """Однокубитный гейт U на кубите q; psi может быть пачкой векторов (…, 2^n)."""
+    sh = psi.shape
+    psi = psi.reshape(sh[:-1] + (2,) * n)
+    ax = len(sh) - 1 + q
+    psi = np.moveaxis(np.tensordot(U, psi, axes=([1], [ax])), 0, ax)
+    return psi.reshape(sh)
+
+def ry(t):
+    return np.array([[np.cos(t / 2), -np.sin(t / 2)], [np.sin(t / 2), np.cos(t / 2)]], dtype=complex)
+
+def rz(t):
+    return np.diag([np.exp(-1j * t / 2), np.exp(1j * t / 2)])
+
+def bits_of(n):
+    """Таблица битов: строка — базисное состояние, столбец — кубит."""
+    return (np.arange(2 ** n)[:, None] >> (n - 1 - np.arange(n))) & 1
+
+def cz_chain_phase(n):
+    """Диагональ цепочки CZ между соседними кубитами."""
+    b = bits_of(n)
+    return np.prod(1 - 2 * (b[:, :-1] & b[:, 1:]), axis=1).astype(float)
+
+def hea_state(params, n, layers, rot=("y", "z")):
+    """HEA: слой поворотов (R_y, R_z на каждом кубите) + цепочка CZ; повторить; в конце ещё слой поворотов."""
+    psi = np.zeros(2 ** n, complex); psi[0] = 1
+    ph = cz_chain_phase(n)
+    k = 0
+    for l in range(layers + 1):
+        for q in range(n):
+            for r in rot:
+                psi = apply_1q(psi, ry(params[k]) if r == "y" else rz(params[k]), q, n)
+                k += 1
+        if l < layers:
+            psi = ph * psi
+    return psi
+
+def n_params(n, layers, rot=("y", "z")):
+    return n * len(rot) * (layers + 1)
+```
 
 ---
 
@@ -65,22 +153,141 @@ $$
 
 **Химически мотивированный (UCC).** Унитарный вариант метода связанных кластеров: $U(\boldsymbol\theta) = e^{T(\boldsymbol\theta) - T(\boldsymbol\theta)^\dagger}$, где $T$ — сумма возбуждений из хартри-фоковского состояния (одно- и двухчастичных в UCCSD). Анзац сохраняет число частиц и симметрии. Для H₂ в STO-3G по симметрии остаётся одно двойное возбуждение $T = \theta\,a_3^\dagger a_4^\dagger a_2a_1$ (I.15, задача 9):
 $$
-e^{\theta(T - T^\dagger)}\lvert1100\rangle = \cos\theta\,\lvert1100\rangle - \sin\theta\,\lvert0011\rangle . \tag{1.1}
+e^{\theta(T - T^\dagger)}\lvert1100\rangle = \cos\theta\,\lvert1100\rangle + \sin\theta\,\lvert0011\rangle . \tag{1.1}
 $$
-По Жордану–Вигнеру генератор $i(T - T^\dagger)$ — сумма **восьми** попарно коммутирующих паули-строк веса 4 с коэффициентами $\pm\frac18$ ($XXXY$, $XXYX$, $XYXX$, …). Поэтому экспонента точно равна произведению восьми экспонент вида (I.15, (1.2)), по 6 CNOT каждая. Для H₂ этот один параметр даёт точную энергию: $\theta_{\text{opt}} = -0{,}11307$, $E_{\text{VQE}} = E_{\text{FCI}} = -1{,}137270$ Ха (раздел 1 `примеры.py`).
+По Жордану–Вигнеру генератор $i(T - T^\dagger)$ — сумма **восьми** попарно коммутирующих паули-строк веса 4 с коэффициентами $\pm\frac18$ ($XXXY$, $XXYX$, $XYXX$, …). Поэтому экспонента точно равна произведению восьми экспонент вида (I.15, (1.2)), по 6 CNOT каждая. Для H₂ этот один параметр даёт точную энергию: $\theta_{\text{opt}} = -0{,}11307$, $E_{\text{VQE}} = E_{\text{FCI}} = -1{,}137270$ Ха. Проверим численно (гамильтониан строится так же, как в I.15, §5.2):
 
-**Кривая диссоциации** (ЛР8, задание 4; раздел 1 `примеры.py`):
+```{python}
+#| code-fold: true
+#| code-summary: "Гамильтониан H₂ в STO-3G и UCC-анзац (код; интегралы — как в I.15)"
+ANG = 1 / 0.529177210903                                       # бор в ангстреме
+sto_a = np.array([3.42525091, 0.62391373, 0.16885540])
+sto_d = np.array([0.15432897, 0.53532814, 0.44463454])
+sto_norm = (2 * sto_a / pi) ** 0.75
+
+def F0(t):
+    return 1.0 if t < 1e-12 else 0.5 * sqrt(pi / t) * erf(sqrt(t))
+
+def h2_integrals(R):
+    """Интегралы STO-3G для H2 (R в борах): S, h_core, (ij|kl), E_nuc."""
+    C = [np.array([0., 0, 0]), np.array([0., 0, R])]
+    S = np.zeros((2, 2)); T = np.zeros((2, 2)); V = np.zeros((2, 2)); ERI = np.zeros((2, 2, 2, 2))
+    prim = [(a, d * nn) for a, d, nn in zip(sto_a, sto_d, sto_norm)]
+    for i in range(2):
+        for j in range(2):
+            AB2 = np.sum((C[i] - C[j]) ** 2)
+            for a, ca in prim:
+                for b, cb in prim:
+                    p = a + b; mu = a * b / p; P = (a * C[i] + b * C[j]) / p
+                    K = exp(-mu * AB2); s = (pi / p) ** 1.5 * K
+                    S[i, j] += ca * cb * s
+                    T[i, j] += ca * cb * mu * (3 - 2 * mu * AB2) * s
+                    for Cn in C:
+                        V[i, j] += -ca * cb * 2 * pi / p * K * F0(p * np.sum((P - Cn) ** 2))
+    for i, j, k, l in product(range(2), repeat=4):
+        val = 0.0
+        for a, ca in prim:
+            for b, cb in prim:
+                p = a + b; P = (a * C[i] + b * C[j]) / p
+                Kab = exp(-a * b / p * np.sum((C[i] - C[j]) ** 2))
+                for c, cc in prim:
+                    for d, cd in prim:
+                        q = c + d; Q = (c * C[k] + d * C[l]) / q
+                        Kcd = exp(-c * d / q * np.sum((C[k] - C[l]) ** 2))
+                        val += ca * cb * cc * cd * 2 * pi ** 2.5 / (p * q * sqrt(p + q)) * Kab * Kcd * F0(p * q / (p + q) * np.sum((P - Q) ** 2))
+        ERI[i, j, k, l] = val
+    return S, T + V, ERI, 1.0 / R
+
+sig_minus = (X + 1j * Y) / 2
+
+def a_op(j, n):
+    """Жордан–Вигнер: a_j = Z…Z (X + iY)/2 I…I."""
+    return kron(*([Z] * j + [sig_minus] + [I2] * (n - j - 1)))
+
+A4 = [a_op(j, 4) for j in range(4)]
+NOP = sum(a.conj().T @ a for a in A4)                          # число частиц
+
+def h2_hamiltonian(R_ang):
+    """4-кубитный гамильтониан H2 (спин-орбитали 1↑, 1↓, 2↑, 2↓)."""
+    S, hcore, eri, Enuc = h2_integrals(R_ang * ANG)
+    Cmo = np.array([[1, 1], [1, -1]], float)
+    Cmo[:, 0] /= sqrt(2 * (1 + S[0, 1])); Cmo[:, 1] /= sqrt(2 * (1 - S[0, 1]))
+    hmo = Cmo.T @ hcore @ Cmo
+    emo = np.einsum("pi,qj,rk,sl,pqrs->ijkl", Cmo, Cmo, Cmo, Cmo, eri)
+    so = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    Hq = Enuc * np.eye(16, dtype=complex)
+    for p, q in product(range(4), repeat=2):
+        if so[p][1] == so[q][1]:
+            Hq += hmo[so[p][0], so[q][0]] * A4[p].conj().T @ A4[q]
+    for p, q, r, s in product(range(4), repeat=4):
+        if so[p][1] == so[r][1] and so[q][1] == so[s][1]:
+            Hq += 0.5 * emo[so[p][0], so[r][0], so[q][0], so[s][0]] * A4[p].conj().T @ A4[q].conj().T @ A4[s] @ A4[r]
+    return Hq
+
+def fci(Hq):
+    """Основное состояние в секторе с двумя электронами."""
+    w, v = np.linalg.eigh(Hq)
+    k = [k for k in range(16) if np.isclose(energy(NOP, v[:, k]), 2)][0]
+    return w[k], v[:, k]
+
+HF = np.zeros(16, complex); HF[0b1100] = 1                     # хартри-фоковское состояние |1100>
+Tgen = A4[2].conj().T @ A4[3].conj().T @ A4[1] @ A4[0]          # a3† a4† a2 a1
+Kgen = Tgen - Tgen.conj().T                                     # антиэрмитов генератор UCC
+
+def ucc_state(theta):
+    return expm(theta * Kgen) @ HF
+```
+
+```{python}
+Hq = h2_hamiltonian(0.7414)
+E_fci, g = fci(Hq)
+dec = pauli_decompose(1j * Kgen, 4)
+assert len(dec) == 8 and all(np.isclose(abs(c), 1 / 8) for c in dec.values())
+assert all(np.allclose(pstr(a) @ pstr(b), pstr(b) @ pstr(a)) for a, b in combinations(dec, 2))
+print("i(T − T†) = (1/8)(" + " ".join(f"{'+' if c > 0 else '−'}{s}" for s, c in dec.items()) + "), строки попарно коммутируют")
+th = 0.3
+assert np.allclose(ucc_state(th)[[0b1100, 0b0011]], [np.cos(th), np.sin(th)])       # (1.1)
+res = minimize(lambda t: energy(Hq, ucc_state(t[0])), [0.0], method="BFGS")
+print(f"R = 0,7414 Å: θ_opt = {res.x[0]:.5f}, E_VQE = {res.fun:.6f}, E_FCI = {E_fci:.6f}, E_HF = {energy(Hq, HF):.6f} Ха")
+assert abs(res.fun - E_fci) < 1e-9
+```
+
+**Кривая диссоциации** (ЛР8, задание 4):
 
 | $R$, Å | 0,300 | 0,544 | 0,789 | 1,033 | 1,278 | 1,522 | 1,767 | 2,011 | 2,256 | 2,500 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | $E_{\text{FCI}} = E_{\text{VQE}}$, Ха | −0,6018 | −1,0892 | −1,1351 | −1,0940 | −1,0398 | −0,9947 | −0,9648 | −0,9481 | −0,9399 | −0,9361 |
 | $E_{\text{HF}} - E_{\text{FCI}}$, мХа | 8,0 | 13,4 | 22,8 | 37,4 | 59,6 | 90,4 | 127,6 | 166,6 | 202,6 | 233,1 |
 
+```{python}
+#| fig-cap: "Кривая диссоциации H₂ в базисе STO-3G: UCC-анзац с одним параметром совпадает с FCI, метод Хартри–Фока (RHF) неверно описывает разрыв связи"
+print(" R, Å    E_FCI = E_VQE   E_VQE − E_FCI   E_HF − E_FCI, мХа")
+for R in np.linspace(0.3, 2.5, 10):
+    Hr = h2_hamiltonian(R)
+    ef, _ = fci(Hr)
+    ev = min(minimize(lambda t: energy(Hr, ucc_state(t[0])), [x0], method="BFGS").fun for x0 in (0.0, 0.5))
+    assert abs(ev - ef) < 1e-8
+    print(f"{R:5.3f}   {ef:10.4f}      {ev - ef:9.1e}      {1e3 * (energy(Hr, HF) - ef):6.1f}")
+E_far, _ = fci(h2_hamiltonian(50 / ANG))
+print(f"R = 50 бор: E_FCI = {E_far:.4f} Ха (2E_H = −0,9332), E_HF = {energy(h2_hamiltonian(50 / ANG), HF):.4f} Ха")
+
+Rd = np.linspace(0.3, 3.0, 40)
+Ed = np.array([(fci(Hr)[0], energy(Hr, HF)) for Hr in map(h2_hamiltonian, Rd)])
+fig, ax = plt.subplots(figsize=(6.4, 3.8))
+ax.plot(Rd, Ed[:, 0], label="FCI = VQE (UCC)")
+ax.plot(Rd, Ed[:, 1], "--", label="Хартри–Фок")
+ax.axhline(2 * -0.466582, color="gray", lw=0.8, ls=":", label="$2E_{\\mathrm{H}}$ (STO-3G)")
+ax.set_xlabel("межъядерное расстояние $R$, Å")
+ax.set_ylabel("энергия, Ха")
+ax.legend()
+plt.show()
+```
+
 UCC совпадает с FCI до $10^{-14}$ во всех точках. Метод Хартри–Фока ошибается сильнее химической точности 1,6 мХа уже при равновесии и совершенно неверно описывает диссоциацию: при $R = 50$ бор $E_{\text{HF}} = -0{,}5559$ Ха вместо $2E_{\text{H}} = -0{,}9332$ Ха (это и есть FCI). Причина — сильная корреляция: основное состояние становится равной суперпозицией $\lvert1100\rangle$ и $\lvert0011\rangle$ (I.15, §5.3). Для больших молекул UCCSD содержит $O(n^2N_e^2)$ параметров и глубокие схемы, поэтому используют адаптивные анзацы (ADAPT-VQE: возбуждения добавляются по одному по величине градиента).
 
 **Аппаратно-эффективный (hardware-efficient, HEA)** (Кандала и др., 2017): слои однокубитных поворотов и запутывающих гейтов, родных для устройства. Схема неглубокая, но анзац не знает о симметриях задачи и, как мы увидим, страдает от barren plateaus (§3).
 
-**Пример: TFIM, $n = 6$, $J = h = 1$** (ЛР8, задание 6; раздел 4 `примеры.py`, точные средние, BFGS, лучший из нескольких случайных стартов). $E_0 = -7{,}296230$.
+**Пример: TFIM, $n = 6$, $J = h = 1$** (ЛР8, задание 6; точные средние, BFGS, лучший из нескольких случайных стартов; таблицу проверим в конце §1.3, где речь пойдёт о вычислении градиента на симуляторе). $E_0 = -7{,}296230$.
 
 | Анзац | слоёв | параметров | ошибка $E - E_0$ |
 |---|---:|---:|---:|
@@ -107,13 +314,118 @@ E(\theta) = a + b\cos\theta + c\sin\theta . \tag{1.3}
 $$
 Для (1.3) имеем $E'(\theta) = -b\sin\theta + c\cos\theta = \frac12[E(\theta + \frac\pi2) - E(\theta - \frac\pi2)]$. $\square$
 
-Это **точная** формула, а не конечная разность: сдвиг большой, и её не портит шум выборки, который губит конечные разности с малым шагом. Проверка (раздел 2 `примеры.py`): HEA с 18 параметрами и случайной наблюдаемой на 3 кубитах — расхождение с конечными разностями $8\cdot10^{-10}$; зависимость (1.3) точна. Для генератора со спектром $\{0, \pm1\}$ (как UCC-генератор в (1.1)) $E(\theta) = a + b\cos2\theta + c\sin2\theta$, и правило имеет вид $E'(\theta) = E(\theta + \frac\pi4) - E(\theta - \frac\pi4)$. Для генераторов с бо́льшим числом собственных значений есть обобщённые правила с несколькими сдвигами.
+Это **точная** формула, а не конечная разность: сдвиг большой, и её не портит шум выборки, который губит конечные разности с малым шагом. Проверка (ячейка ниже): HEA с 18 параметрами и случайной наблюдаемой на 3 кубитах — расхождение с конечными разностями $8\cdot10^{-10}$; зависимость (1.3) точна. Для генератора со спектром $\{0, \pm1\}$ (как UCC-генератор в (1.1)) $E(\theta) = a + b\cos2\theta + c\sin2\theta$, и правило имеет вид $E'(\theta) = E(\theta + \frac\pi4) - E(\theta - \frac\pi4)$. Для генераторов с бо́льшим числом собственных значений есть обобщённые правила с несколькими сдвигами.
+
+```{python}
+n, layers = 3, 2
+Ob = rng.normal(size=(8, 8)) + 1j * rng.normal(size=(8, 8)); Ob = Ob + Ob.conj().T   # случайная наблюдаемая
+f = lambda p: energy(Ob, hea_state(p, n, layers))
+p0 = rng.uniform(0, 2 * pi, n_params(n, layers))
+E = np.eye(len(p0))
+grad_ps = np.array([(f(p0 + pi / 2 * e) - f(p0 - pi / 2 * e)) / 2 for e in E])   # (1.2)
+grad_fd = np.array([(f(p0 + 1e-6 * e) - f(p0 - 1e-6 * e)) / 2e-6 for e in E])
+assert np.allclose(grad_ps, grad_fd, atol=1e-6)
+print(f"{len(p0)} параметров: max |правило сдвига − конечные разности| = {np.max(np.abs(grad_ps - grad_fd)):.1e}")
+ts = np.linspace(0, 2 * pi, 9)
+M = np.c_[np.ones_like(ts), np.cos(ts), np.sin(ts)]
+vals = [f(np.r_[t, p0[1:]]) for t in ts]
+assert np.allclose(M @ np.linalg.lstsq(M, vals, rcond=None)[0], vals)                # (1.3)
+print("E(θ_1) = a + b cos θ_1 + c sin θ_1 — точно по 9 точкам")
+Eu = lambda t: energy(Hq, ucc_state(t))
+for t in (0.0, 0.2, -0.4):
+    assert abs((Eu(t + pi / 4) - Eu(t - pi / 4)) - (Eu(t + 1e-6) - Eu(t - 1e-6)) / 2e-6) < 1e-6
+print("UCC для H₂: E'(θ) = E(θ + π/4) − E(θ − π/4) — выполнено")
+```
 
 **Цена.** Градиент по $P$ параметрам требует $2P$ оценок средних, каждая — со своим шумом. Если плечо (1.2) оценивается по $N$ запускам наблюдаемой $Z$ с исходами $\pm1$, то
 $$
 \sigma\bigl(\widehat{\partial E}\bigr) = \frac12\sqrt{\frac{(1 - \langle Z\rangle_+^2) + (1 - \langle Z\rangle_-^2)}{N}} . \tag{1.4}
 $$
-Моделирование по 2000 повторам (раздел 2 `примеры.py`): при $N = 100, 1000, 10\,000$ стандартное отклонение $0{,}068$; $0{,}021$; $0{,}0065$ против $0{,}067$; $0{,}021$; $0{,}0067$ по (1.4). Для классических симуляторов используют дифференцирование методом сопряжённого состояния (adjoint): все производные за один прямой и один обратный проход (так в `примеры.py`, раздел 4). На устройстве это невозможно, нужны сдвиги или стохастические методы (SPSA: два запуска на шаг при любом $P$, ЛР8, задание 6).
+Моделирование по 2000 повторам (ячейка ниже): при $N = 100, 1000, 10\,000$ стандартное отклонение $0{,}068$; $0{,}021$; $0{,}0065$ против $0{,}067$; $0{,}021$; $0{,}0067$ по (1.4). Для классических симуляторов используют дифференцирование методом сопряжённого состояния (adjoint): все производные за один прямой и один обратный проход (так в ячейке с VQE для TFIM ниже). На устройстве это невозможно, нужны сдвиги или стохастические методы (SPSA: два запуска на шаг при любом $P$, ЛР8, задание 6).
+
+```{python}
+Zo = op_on(n, 0, Z)                                     # наблюдаемая Z на первом кубите
+fz = lambda p: energy(Zo, hea_state(p, n, layers))
+mp, mm = fz(p0 + pi / 2 * E[0]), fz(p0 - pi / 2 * E[0])  # точные <Z>_+ и <Z>_-
+for Nsh in (100, 1000, 10000):
+    est = []
+    for _ in range(2000):
+        xp = 2 * rng.binomial(Nsh, (1 + mp) / 2) / Nsh - 1
+        xm = 2 * rng.binomial(Nsh, (1 + mm) / 2) / Nsh - 1
+        est.append((xp - xm) / 2)
+    pred = 0.5 * sqrt((1 - mp ** 2 + 1 - mm ** 2) / Nsh)
+    print(f"N = {Nsh:5d}: стандартное отклонение {np.std(est):.4f}, по (1.4) {pred:.4f}")
+    assert abs(np.std(est) / pred - 1) < 0.08
+```
+
+Теперь таблица VQE для TFIM из §1.2. Градиент HEA вычисляется методом сопряжённого состояния и сверяется с правилом сдвига; для каждой глубины берётся лучший из 6 случайных стартов BFGS (HEA) или из 10 (HVA):
+
+```{python}
+def tfim_dense(n, J, h):
+    return sum(-J * op_on(n, i, Z) @ op_on(n, i + 1, Z) for i in range(n - 1)) + sum(-h * op_on(n, i, X) for i in range(n))
+
+def iy_tables(n):
+    """(-iY) на кубите q как перестановка со знаками: (-iY)_q ψ = sign[q] * ψ[perm[q]]."""
+    idx, b = np.arange(2 ** n), bits_of(n)
+    return [idx ^ (1 << (n - 1 - q)) for q in range(n)], [np.where(b[:, q] == 0, -1.0, 1.0) for q in range(n)]
+
+def ry_real(psi, t, q, n):
+    """R_y(t) = cos(t/2) I + sin(t/2) (-iY) на кубите q для вещественного вектора psi."""
+    return np.cos(t / 2) * psi + np.sin(t / 2) * IY_SIGN[q] * psi[IY_PERM[q]]
+
+def hea_y_energy_grad(params, n, layers, Hm):
+    """R_y-анзац + цепочки CZ: энергия и градиент за один прямой и один обратный проход."""
+    ph = cz_chain_phase(n)
+    ops = []
+    for l in range(layers + 1):
+        ops += [(q, l * n + q) for q in range(n)] + ([(None, None)] if l < layers else [])
+    psi = np.zeros(2 ** n); psi[0] = 1
+    for q, k in ops:
+        psi = ph * psi if q is None else ry_real(psi, params[k], q, n)
+    lam = Hm @ psi                                       # сопряжённое состояние H|psi>
+    E_val, grad = psi @ lam, np.zeros(len(params))
+    for q, k in reversed(ops):
+        if q is None:
+            psi, lam = ph * psi, ph * lam
+            continue
+        grad[k] = lam @ (IY_SIGN[q] * psi[IY_PERM[q]])   # 2<λ|(-iY/2)|ψ>
+        psi, lam = ry_real(psi, -params[k], q, n), ry_real(lam, -params[k], q, n)
+    return E_val, grad
+
+n = 6
+IY_PERM, IY_SIGN = iy_tables(n)
+Ht = tfim_dense(n, 1.0, 1.0)
+E0t = np.linalg.eigvalsh(Ht)[0]
+Ht_r = Ht.real
+print(f"TFIM, n = 6, J = h = 1: E_0 = {E0t:.6f}")
+pt = rng.uniform(0, 2 * pi, n_params(n, 2, rot=("y",)))
+gg = hea_y_energy_grad(pt, n, 2, Ht_r)[1]
+for k in (0, 5, 11):
+    e = np.eye(len(pt))[k] * pi / 2
+    assert abs((hea_y_energy_grad(pt + e, n, 2, Ht_r)[0] - hea_y_energy_grad(pt - e, n, 2, Ht_r)[0]) / 2 - gg[k]) < 1e-10
+vqe_res = {}
+for layers in (1, 2, 3, 6):
+    P = n_params(n, layers, rot=("y",))
+    vqe_res[layers] = min(minimize(hea_y_energy_grad, rng.uniform(0, 2 * pi, P), args=(n, layers, Ht_r), jac=True,
+                                   method="BFGS", options={"gtol": 1e-10, "maxiter": 2000}).fun for _ in range(6))
+    print(f"HEA, слоёв {layers}: {P:2d} параметров, ошибка {vqe_res[layers] - E0t:.3f}")
+assert abs(vqe_res[6] - vqe_res[3]) < 1e-4              # 3 и 6 слоёв застревают на одном значении
+
+zz = np.diag(sum(-op_on(n, i, Z) @ op_on(n, i + 1, Z) for i in range(n - 1))).real   # A (J = 1), диагональ
+wB, VB = np.linalg.eigh(sum(-op_on(n, i, X) for i in range(n)))                       # B (h = 1)
+def hva_energy(p):
+    L = len(p) // 2
+    psi = np.full(2 ** n, 2 ** (-n / 2), complex)       # |+>^n
+    for gm, bt in zip(p[:L], p[L:]):
+        psi = np.exp(-1j * gm * zz) * psi
+        psi = VB @ (np.exp(-1j * bt * wB) * (VB.conj().T @ psi))
+    return energy(Ht, psi)
+hva_res = {}
+for L in (1, 2, 3, 4):
+    hva_res[L] = min(minimize(hva_energy, rng.uniform(0, 1, 2 * L), method="BFGS").fun for _ in range(10)) - E0t
+    print(f"HVA, слоёв {L}: {2 * L} параметров, ошибка {hva_res[L]:.3g}")
+assert all(hva_res[L + 1] < hva_res[L] for L in (1, 2, 3)) and hva_res[4] < vqe_res[6] - E0t
+```
 
 ### 1.4. Бюджет измерений
 
@@ -121,10 +433,29 @@ $$
 $$
 N = \frac{\bigl(\sum_j\lvert c_j\rvert\sigma_j\bigr)^2}{\varepsilon^2}\ \le\ \frac{\lambda^2}{\varepsilon^2},\qquad \sigma_j^2 = 1 - \langle P_j\rangle^2 . \tag{1.5}
 $$
-Для H₂ ($\lambda = 1{,}8851$ Ха) и химической точности $\varepsilon = 1{,}6$ мХа (раздел 3 `примеры.py`):
+Для H₂ ($\lambda = 1{,}8851$ Ха) и химической точности $\varepsilon = 1{,}6$ мХа:
 - верхняя оценка $\lambda^2/\varepsilon^2 = 1{,}39\cdot10^6$ запусков;
 - (1.5) с дисперсиями в основном состоянии: $4{,}88\cdot10^4$;
 - одновременное измерение коммутирующих групп (10 $Z$-строк в базисе $Z$; 4 строки $XXYY$-типа попарно коммутируют и измеряются одной схемой со сменой базиса) уменьшает число **различных схем** с 14 до 2. Число запусков в этом примере не меняется ($4{,}88\cdot10^4$): основное состояние H₂ лежит в двумерном подпространстве, где слагаемые каждой группы полностью скоррелированы.
+
+```{python}
+decH = pauli_decompose(Hq, 4)
+eps = 1.6e-3
+terms = [s for s in decH if s != "IIII"]
+lam = sum(abs(decH[s]) for s in terms)
+sig = {s: sqrt(1 - energy(pstr(s), g) ** 2) for s in terms}          # sigma_j в основном состоянии
+N_naive = lam ** 2 / eps ** 2
+N_opt = sum(abs(decH[s]) * sig[s] for s in terms) ** 2 / eps ** 2   # (1.5)
+zgroup = [s for s in terms if set(s) <= {"I", "Z"}]
+xy = [s for s in terms if s not in zgroup]
+assert all(np.allclose(pstr(a) @ pstr(b), pstr(b) @ pstr(a)) for a, b in combinations(xy, 2))
+sd = lambda grp: sqrt(energy(sum(decH[s] * pstr(s) for s in grp) @ sum(decH[s] * pstr(s) for s in grp), g)
+                      - energy(sum(decH[s] * pstr(s) for s in grp), g) ** 2)
+N_group = (sd(zgroup) + sd(xy)) ** 2 / eps ** 2
+print(f"λ = {lam:.4f} Ха; λ²/ε² = {N_naive:.2e}; (1.5) по слагаемым: {N_opt:.2e}")
+print(f"{len(zgroup)} Z-строк + {len(xy)} XY-строки: {len(terms)} схем → 2 схемы, запусков {N_group:.2e}")
+assert N_group <= N_opt * (1 + 1e-9) < N_naive
+```
 
 Всё это — для **одной** оценки энергии. Оптимизация требует сотен–тысяч таких оценок. Для молекул с сотнями спин-орбиталей $\lambda$ составляет десятки–сотни хартри, и (1.5) даёт $10^9$ и больше запусков на точку. Бюджет измерений — одно из главных практических ограничений VQE (Гонтье и др., 2020: подробные оценки для молекул). Помогают группировка, классические тени (II.3) и сокращение $\lambda$ факторизацией гамильтониана.
 
@@ -142,7 +473,49 @@ $e^{-i\gamma C}$ — произведение $e^{i\gamma Z_uZ_v/2}$ по рёб
 
 ### 2.2. Связь с адиабатическими вычислениями
 
-$\lvert+\rangle^{\otimes n}$ — собственный вектор $B$ с наибольшим собственным значением. Адиабатическая эволюция (I.10, §5.2) с $H(s) = (1 - s)B + sC$ при медленном $s: 0\to1$ переводит его в собственный вектор $C$ с наибольшим значением, то есть в максимальный разрез. Троттеризация этой эволюции (I.15, §3) — частный случай (2.1) с $\gamma_k = s_k\,\delta t$, $\beta_k = (1 - s_k)\,\delta t$. Поэтому при $p\to\infty$ QAOA не хуже адиабатического алгоритма. Для куба $Q_3$ и $\delta t = 0{,}5$ (раздел 5 `примеры.py`): $\langle C\rangle/\mathrm{MaxCut} = 0{,}7385$, $0{,}9294$, $0{,}9960$ при $p = 5, 20, 60$. Оптимизированные углы дают то же качество при гораздо меньшем $p$ (см. ниже).
+$\lvert+\rangle^{\otimes n}$ — собственный вектор $B$ с наибольшим собственным значением. Адиабатическая эволюция (I.10, §5.2) с $H(s) = (1 - s)B + sC$ при медленном $s: 0\to1$ переводит его в собственный вектор $C$ с наибольшим значением, то есть в максимальный разрез. Троттеризация этой эволюции (I.15, §3) — частный случай (2.1) с $\gamma_k = s_k\,\delta t$, $\beta_k = (1 - s_k)\,\delta t$. Поэтому при $p\to\infty$ QAOA не хуже адиабатического алгоритма. Для куба $Q_3$ и $\delta t = 0{,}5$ (ячейка ниже): $\langle C\rangle/\mathrm{MaxCut} = 0{,}7385$, $0{,}9294$, $0{,}9960$ при $p = 5, 20, 60$. Оптимизированные углы дают то же качество при гораздо меньшем $p$ (см. ниже).
+
+```{python}
+def cut_diag(n, edges):
+    """Диагональ оператора C: размер разреза для каждой строки z."""
+    b = bits_of(n)
+    return sum((b[:, u] ^ b[:, v]).astype(float) for u, v in edges)
+
+HN = reduce(np.kron, [H1] * 8)                          # H^{⊗8}: в этом базисе B диагонален
+bB = (8 - 2 * bits_of(8).sum(axis=1)).astype(float)   # собственные значения B = ΣX_i в этом базисе
+
+def qaoa_state(gammas, betas, n, Cd):
+    """(2.1) для n = 8: e^{-iβB} = H^{⊗n} diag(e^{-iβ b}) H^{⊗n}."""
+    psi = np.full(2 ** n, 2 ** (-n / 2), complex)
+    for gm, bt in zip(gammas, betas):
+        psi = HN @ (np.exp(-1j * bt * bB) * (HN @ (np.exp(-1j * gm * Cd) * psi)))
+    return psi
+
+def qaoa_exp(params, n, Cd):
+    p = len(params) // 2
+    return np.abs(qaoa_state(params[:p], params[p:], n, Cd)) ** 2 @ Cd
+
+def qaoa_exp_grad(params, n, Cd):
+    """<C> и градиент методом сопряжённого состояния: d<C>/dθ = 2 Im<λ|G|ψ> для гейта e^{-iθG}."""
+    p = len(params) // 2
+    gms, bts = params[:p], params[p:]
+    psi = qaoa_state(gms, bts, n, Cd)
+    lam = Cd * psi
+    val, grad = np.vdot(psi, lam).real, np.zeros(2 * p)
+    for k in reversed(range(p)):
+        hp, hl = HN @ psi, HN @ lam                     # базис, где B диагонален
+        grad[p + k] = 2 * np.vdot(hl, bB * hp).imag
+        psi, lam = HN @ (np.exp(1j * bts[k] * bB) * hp), HN @ (np.exp(1j * bts[k] * bB) * hl)
+        grad[k] = 2 * np.vdot(lam, Cd * psi).imag
+        psi, lam = np.exp(1j * gms[k] * Cd) * psi, np.exp(1j * gms[k] * Cd) * lam
+    return val, grad
+
+cube = [(u, v) for u in range(8) for v in range(u + 1, 8) if bin(u ^ v).count("1") == 1]   # куб Q3
+Cc = cut_diag(8, cube)
+for p in (5, 20, 60):                                    # линейный отжиг, δt = 0,5
+    s_k = (np.arange(p) + 0.5) / p
+    print(f"p = {p:2d}, T = p·δt = {p * 0.5:4.1f}: <C>/MaxCut = {qaoa_exp(np.r_[s_k * 0.5, (1 - s_k) * 0.5], 8, Cc) / 12:.4f}")
+```
 
 ### 2.3. Что известно
 
@@ -150,9 +523,29 @@ $\lvert+\rangle^{\otimes n}$ — собственный вектор $B$ с на
 $$
 \langle C_{uv}\rangle = \frac12 + \frac12\sin4\beta\,\sin\gamma\,\cos^{d-1}\gamma . \tag{2.2}
 $$
-Максимум по $\beta$ даёт $\sin4\beta = 1$. Для $d = 3$ максимум $\sin\gamma\cos^2\gamma$ достигается при $\operatorname{tg}^2\gamma = \frac12$ и равен $\frac2{3\sqrt3}$, откуда $\langle C\rangle/\lvert E\rvert = \frac12 + \frac1{3\sqrt3} = 0{,}6925$. Для двудольных графов это и есть отношение к MaxCut. Для произвольных 3-регулярных графов Фархи и др. доказали гарантию $\ge0{,}6924$. Формула (2.2) и значение $0{,}692450$ проверены на кубе $Q_3$ (3-регулярный, двудольный, 12 рёбер); для кольца $p = 1$ даёт ровно $\frac34$ (раздел 5 `примеры.py`).
+Максимум по $\beta$ даёт $\sin4\beta = 1$. Для $d = 3$ максимум $\sin\gamma\cos^2\gamma$ достигается при $\operatorname{tg}^2\gamma = \frac12$ и равен $\frac2{3\sqrt3}$, откуда $\langle C\rangle/\lvert E\rvert = \frac12 + \frac1{3\sqrt3} = 0{,}6925$. Для двудольных графов это и есть отношение к MaxCut. Для произвольных 3-регулярных графов Фархи и др. доказали гарантию $\ge0{,}6924$. Формула (2.2) и значение $0{,}692450$ проверены на кубе $Q_3$ (3-регулярный, двудольный, 12 рёбер); для кольца $p = 1$ даёт ровно $\frac34$:
 
-**Численно** (раздел 5 `примеры.py`, лучший из 20 стартов BFGS):
+```{python}
+def qaoa_opt(p, n, Cd, starts=20):
+    """Лучший из starts запусков BFGS: (max <C>, углы)."""
+    best = None
+    for _ in range(starts):
+        x0 = np.r_[rng.uniform(0, pi, p), rng.uniform(0, pi / 2, p)]
+        r = minimize(lambda x: tuple(-v for v in qaoa_exp_grad(x, n, Cd)), x0, jac=True, method="BFGS")
+        if best is None or -r.fun > best[0]:
+            best = (-r.fun, r.x)
+    return best
+
+assert len(cube) == 12 and Cc.max() == 12
+for _ in range(5):
+    gm, bt = rng.uniform(0, pi), rng.uniform(0, pi)
+    assert np.isclose(qaoa_exp(np.array([gm, bt]), 8, Cc) / 12, 0.5 + 0.5 * np.sin(4 * bt) * np.sin(gm) * np.cos(gm) ** 2)   # (2.2)
+best1 = qaoa_opt(1, 8, Cc)
+print(f"куб Q3, p = 1: формула (2.2) выполнена; max <C>/MaxCut = {best1[0] / 12:.6f}, 1/2 + 1/(3√3) = {0.5 + 1 / (3 * sqrt(3)):.6f}")
+assert abs(best1[0] / 12 - (0.5 + 1 / (3 * sqrt(3)))) < 1e-6
+```
+
+**Численно** (лучший из 20 стартов BFGS):
 
 | Граф | MaxCut | $p = 1$ | $p = 2$ | $p = 3$ |
 |---|---:|---:|---:|---:|
@@ -160,6 +553,31 @@ $$
 | случайный 3-регулярный, 8 вершин (2 треугольника) | 10 | 0,8007 | 0,8784 | 0,9361 |
 
 При $p = 3$ на случайном графе оптимальный разрез измеряется с вероятностью $0{,}617$ (у случайной строки — $0{,}016$). Для сравнения: алгоритм Гоэманса–Уильямсона (полуопределённое программирование и случайное округление) гарантирует $0{,}878$ на любом графе, а на 8 вершинах полный перебор тривиален.
+
+```{python}
+for p in (2, 3):
+    print(f"куб Q3, p = {p}: <C>/MaxCut = {qaoa_opt(p, 8, Cc)[0] / 12:.4f}")
+Cr = cut_diag(8, [(i, (i + 1) % 8) for i in range(8)])
+print(f"кольцо из 8 вершин, p = 1: <C>/MaxCut = {qaoa_opt(1, 8, Cr)[0] / Cr.max():.4f}")
+
+def random_3reg(nv, rng):
+    """Случайный 3-регулярный граф (модель конфигураций, без петель и кратных рёбер)."""
+    while True:
+        stubs = np.repeat(np.arange(nv), 3)
+        rng.shuffle(stubs)
+        e = [tuple(int(x) for x in sorted(stubs[i:i + 2])) for i in range(0, len(stubs), 2)]
+        if all(u != v for u, v in e) and len(set(e)) == len(e):
+            return e
+rg = random_3reg(8, rng)
+Cg = cut_diag(8, rg)
+tri = sum(1 for a, b, c in combinations(range(8), 3) if {(a, b), (a, c), (b, c)} <= set(rg))
+print(f"случайный 3-регулярный граф: рёбра {sorted(rg)}; треугольников {tri}; MaxCut = {Cg.max():.0f}")
+for p in (1, 2, 3):
+    print(f"  p = {p}: <C>/MaxCut = {qaoa_opt(p, 8, Cg)[0] / Cg.max():.4f}")
+b3 = qaoa_opt(3, 8, Cg)
+psi3 = qaoa_state(b3[1][:3], b3[1][3:], 8, Cg)
+print(f"  p = 3: P(оптимальный разрез) = {np.sum(np.abs(psi3[Cg == Cg.max()]) ** 2):.3f}, у случайной строки {np.mean(Cg == Cg.max()):.3f}")
+```
 
 **Трезвая оценка.** Доказанного преимущества QAOA над лучшими классическими алгоритмами нет.
 - При малых $p$ QAOA «видит» только окрестность радиуса $p$ каждого ребра. Для таких локальных алгоритмов есть ограничения: на некоторых семействах графов QAOA с $p$, растущим медленнее $\log n$, уступает классическим алгоритмам (Брави, Клиш, Кёниг, Тан, 2020; Фархи, Гамарник, Гутманн, 2020). Для $p = 1$ известны классические локальные алгоритмы с не худшей гарантией.
@@ -186,7 +604,7 @@ C_G = 1 - \lvert\langle0^n|\psi(\boldsymbol\theta)\rangle\rvert^2,\qquad C_L = 1
 $$
 Обе равны нулю ровно на $\lvert0^n\rangle$. Но $C_G$ — глобальная наблюдаемая (проектор на одно состояние из $2^n$), а $C_L$ — среднее однокубитных. Для неглубоких анзацев ($O(\log n)$ слоёв) у $C_G$ плато есть всегда, а у $C_L$ дисперсия убывает лишь полиномиально. Для глубоких анзацев плато есть у обеих.
 
-**Численно** (ЛР8, задание 7; раздел 6 `примеры.py`). Анзац: слои $R_yR_z$ на каждом кубите и цепочка CZ; $\operatorname{Var}[\partial C/\partial\theta_1]$ по 200 случайным наборам параметров:
+**Численно** (ЛР8, задание 7). Анзац: слои $R_yR_z$ на каждом кубите и цепочка CZ; $\operatorname{Var}[\partial C/\partial\theta_1]$ по 200 случайным наборам параметров:
 
 | $n$ | 2 | 4 | 6 | 8 | 10 | 12 | масштабирование |
 |---|---:|---:|---:|---:|---:|---:|---|
@@ -197,6 +615,54 @@ $$
 - $C_G$ при глубине $n$: прямая в полулогарифмическом масштабе с наклоном около $-1{,}9$ по $\log_2$, то есть почти $4^{-n}$. Так и должно быть: для случайного состояния сама величина $\lvert\langle0^n|\psi\rangle\rvert^2$ порядка $2^{-n}$, а её флуктуации — того же порядка.
 - $C_L$ при той же глубине тоже убывает экспоненциально, но медленнее: глубокий HEA близок к 2-дизайну.
 - $C_L$ при двух слоях убывает **степенно**, как $n^{-2}$: величина $n^2\operatorname{Var}$ равна $0{,}060$–$0{,}066$ при $n = 4..12$. Множитель $n^{-2}$ — просто нормировка $\frac1n$ в (3.2): на $\theta_1$ реагируют лишь кубиты в его «световом конусе».
+
+```{python}
+#| fig-cap: "Дисперсия производной функции стоимости по первому параметру (200 случайных наборов параметров): глобальная стоимость при глубине $n$ убывает почти как $4^{-n}$, локальная при двух слоях — степенно"
+def grads_first(n, layers, kind, samples=200):
+    """dC/dθ_1 по правилу сдвига сразу для пачки случайных наборов параметров (числа те же, что по одному).
+    Повороты на разных кубитах коммутируют, поэтому слой = (все R_z) · (все R_y): R_z слоя и цепочка CZ
+    объединяются в одно диагональное умножение."""
+    P = n_params(n, layers)
+    th = rng.uniform(0, 2 * pi, (samples, P))
+    ph, zsign = cz_chain_phase(n), 1 - 2 * bits_of(n)
+    def costs(params):
+        psi = np.zeros((2 ** n, samples), complex); psi[0] = 1         # столбец — свой набор параметров
+        for l in range(layers + 1):
+            for q in range(n):
+                t = params[:, 2 * (l * n + q)]
+                c, sn = np.cos(t / 2), np.sin(t / 2)
+                v = psi.reshape(2 ** q, 2, -1, samples)                  # ось 1 — кубит q
+                a = v[:, 0].copy()
+                v[:, 0] *= c; v[:, 0] -= sn * v[:, 1]                    # R_y
+                v[:, 1] *= c; v[:, 1] += sn * a
+            phase = np.exp(-0.5j * (zsign @ params[:, 2 * l * n + 1:2 * (l + 1) * n:2].T))   # R_z на всех кубитах
+            psi *= phase * ph[:, None] if l < layers else phase
+        pr = np.abs(psi) ** 2
+        if kind == "global":
+            return 1 - pr[0]
+        return 1 - ((1 - bits_of(n)).T @ pr).mean(axis=0)               # (3.2): 1 − среднее P(0) по кубитам
+    sh = np.zeros(P); sh[0] = pi / 2
+    return (costs(th + sh) - costs(th - sh)) / 2
+
+ns = [2, 4, 6, 8, 10, 12]
+bp = {}
+for kind, depth, name in (("global", "n", "C_G, L = n"), ("local", "n", "C_L, L = n"), ("local", "2", "C_L, L = 2")):
+    bp[name] = [np.var(grads_first(nn, nn if depth == "n" else 2, kind)) for nn in ns]
+    sl = np.polyfit(ns[1:], np.log2(bp[name][1:]), 1)[0]
+    print(f"{name}: " + "  ".join(f"{v:.1e}" for v in bp[name]) + f"   ≈ 2^({sl:.2f} n)")
+ll = np.polyfit(np.log(ns[1:]), np.log(bp["C_L, L = 2"][1:]), 1)[0]
+print(f"C_L, L = 2: ≈ n^({ll:.2f}); n² Var = " + " ".join(f"{nn ** 2 * v:.3f}" for nn, v in zip(ns, bp["C_L, L = 2"])))
+assert -2.5 < ll < -1.5 and bp["C_G, L = n"][-1] < bp["C_L, L = 2"][-1] / 50
+
+fig, ax = plt.subplots(figsize=(6.4, 3.8))
+labels = ["$C_G$, $L = n$", "$C_L$, $L = n$", "$C_L$, $L = 2$"]
+for v, m, lab in zip(bp.values(), "osd", labels):
+    ax.semilogy(ns, v, m + "-", label=lab)
+ax.set_xlabel("число кубитов $n$")
+ax.set_ylabel(r"$\mathrm{Var}\,[\partial C/\partial\theta_1]$")
+ax.legend()
+plt.show()
+```
 
 ### 3.3. Источники плато и связь с классической симулируемостью
 
@@ -222,10 +688,45 @@ P_{\text{succ}} = C^2\,\bigl\|A^{-1}\lvert b\rangle\bigr\|^2\ \ge\ \frac{C^2}{\l
 $$
 С усилением амплитуды (I.14, §5) достаточно $O(\kappa)$ повторений. Итоговая стоимость в исходной работе — $\tilde O(\log(N)\,s^2\kappa^2/\varepsilon)$ для $s$-разреженной $A$. Последующие работы улучшили зависимость от $\varepsilon$ до $\mathrm{polylog}(1/\varepsilon)$ (Чайлдс, Котари, Сомма, 2017) и от $\kappa$ до линейной (Коста и др., 2022, через дискретную адиабатическую теорему). Экспоненциальный выигрыш по $N$ по сравнению с $O(N)$ классических операций — главный рекламный аргумент.
 
-**Численно** (раздел 7 `примеры.py`, полная матричная симуляция схемы):
+**Численно** (полная матричная симуляция схемы, ячейка ниже):
 - $A$ размера $4\times4$ со спектром $\{1, 2, 5, 12\}$ ($\kappa = 12$), $t = 4$ кубита часов, $U = e^{2\pi iA/16}$: собственные значения точно на сетке, и верность $\lvert\langle x|x_{\text{HHL}}\rangle\rvert^2 = 1$ до $10^{-10}$. Вероятность успеха $0{,}0907$ совпадает с (4.1).
 - Если $\lvert b\rangle$ — собственный вектор с $\lambda_{\max}$, а $C = \lambda_{\min} = 1$, то $P_{\text{succ}} = 1/\kappa^2$: $0{,}25$; $0{,}0625$; $0{,}0156$; $0{,}0044$ при $\kappa = 2, 4, 8, 15$.
 - Спектр $\{1{,}3;\ 2{,}7;\ 4{,}45;\ 6{,}1\}$ не на сетке: верность $0{,}9985$; $0{,}9979$; $0{,}9997$; $1{,}0000$; $0{,}9999$ при $t = 3..7$. Ошибка QPE (хвосты ядра Фейера, I.12, §5.2) — источник погрешности. Именно поэтому стоимость содержит $1/\varepsilon$ при наивной реализации.
+
+```{python}
+def hhl(A, b, t, C=None, s=1.0):
+    """Схема HHL: QPE (t кубитов часов) для U = exp(2πi A s/T), поворот вспомогательного кубита на C/λ,
+    обратная QPE. Возвращает (вероятность успеха, состояние системы при успехе, C)."""
+    d, T = A.shape[0], 2 ** t
+    U = expm(2j * pi * A * s / T)
+    j, k = np.meshgrid(np.arange(T), np.arange(T), indexing="ij")
+    F = np.exp(2j * pi * j * k / T) / sqrt(T)                         # QFT
+    ctrl = sum(np.kron(np.diag(np.eye(T)[m]), np.linalg.matrix_power(U, m)) for m in range(T))
+    QPE = np.kron(F.conj().T, np.eye(d)) @ ctrl @ np.kron(reduce(np.kron, [H1] * t), np.eye(d))
+    C = np.min(np.abs(np.linalg.eigvalsh(A))) if C is None else C
+    st = (QPE @ np.kron(np.eye(T)[0], b)).reshape(T, d)              # часы ⊗ система
+    lam = np.arange(T) / s                                           # λ, записанное в часах
+    c = np.where(lam > 0, np.minimum(1.0, C / np.where(lam > 0, lam, 1)), 0.0)
+    anc1 = (QPE.conj().T @ (c[:, None] * st).reshape(-1)).reshape(T, d)   # ветвь «вспомогательный = 1»
+    return np.sum(np.abs(anc1[0]) ** 2), anc1[0] / np.linalg.norm(anc1[0]), C
+
+Q, _ = np.linalg.qr(rng.normal(size=(4, 4)) + 1j * rng.normal(size=(4, 4)))
+A = Q @ np.diag([1, 2, 5, 12]) @ Q.conj().T
+b = rng.normal(size=4) + 1j * rng.normal(size=4); b /= np.linalg.norm(b)
+xe = np.linalg.solve(A, b)
+ps, x, C = hhl(A, b, 4)
+fid = abs(np.vdot(xe / np.linalg.norm(xe), x)) ** 2
+print(f"спектр {{1, 2, 5, 12}}, t = 4: 1 − верность = {1 - fid:.1e}; P_succ = {ps:.4f}, (4.1): {C ** 2 * np.linalg.norm(xe) ** 2:.4f}")
+assert fid > 1 - 1e-10 and np.isclose(ps, C ** 2 * np.linalg.norm(xe) ** 2)
+for kap in (2, 4, 8, 15):                                            # b — собственный вектор с λ_max
+    ps2 = hhl(np.diag([1, kap]).astype(complex), np.array([0, 1], complex), 4)[0]
+    assert np.isclose(ps2, 1 / kap ** 2)
+    print(f"κ = {kap:2d}: P_succ = {ps2:.4f} = 1/κ²")
+A3 = Q @ np.diag([1.3, 2.7, 4.45, 6.1]) @ Q.conj().T
+xe3 = np.linalg.solve(A3, b); xe3 /= np.linalg.norm(xe3)
+print("спектр {1,3; 2,7; 4,45; 6,1}: верность " + "; ".join(
+    f"{abs(np.vdot(xe3, hhl(A3, b, t, C=1.0, s=2 ** t / 8)[1])) ** 2:.4f} (t = {t})" for t in range(3, 8)))
+```
 
 ### 4.2. Мелкий шрифт (Ааронсон, 2015)
 
@@ -299,7 +800,19 @@ $$
 9. (••) Почему вывод HHL — состояние, а не вектор? Сколько повторений нужно, чтобы оценить все $N$ компонент $\lvert x\rangle$ с точностью $\varepsilon$ по модулю? А чтобы оценить $\langle x\rvert M\lvert x\rangle$ для наблюдаемой с $\|M\|\le1$?
 10. (•••) Пусть есть доступ к выборкам $i\sim\lvert v_i\rvert^2/\|v\|^2$ и к значениям $v_i$, $w_i$. Постройте несмещённую оценку $\langle v, w\rangle$ и оцените её дисперсию. Почему это ключевой примитив деквантизации?
 
-### Ответы и указания
+Численная проверка ответов к задачам 3, 5, 8:
+
+```{python}
+print(f"3: N ≤ λ²/ε² = {N_naive:.2e} → {N_naive / 1e4 / 60:.1f} мин при 10 кГц; по (1.5) {N_opt:.2e} → {N_opt / 1e4:.1f} с;"
+      f" 200 оценок: {200 * N_opt / 1e4 / 60:.0f} мин … {200 * N_naive / 1e4 / 3600:.1f} ч")
+gs = np.arctan(1 / sqrt(2))
+print(f"5: d = 3: max sin γ cos²γ = {np.sin(gs) * np.cos(gs) ** 2:.4f} = 2/(3√3), <C_uv> = {0.5 + 0.5 * np.sin(gs) * np.cos(gs) ** 2:.4f};"
+      f" d = 2: 1/2 + 1/2·max sin γ cos γ = {0.5 + 0.5 * 0.5:.2f}")
+print(f"8: κ = 100: P ≥ 1/κ² = {1 / 100 ** 2:.0e}; без усиления ~{100 ** 2} повторений, с усилением ~{100}")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** $\langle\psi\rvert H\lvert\psi\rangle = \sum_k\lvert\langle E_k|\psi\rangle\rvert^2E_k\ge E_0\sum_k\lvert\langle E_k|\psi\rangle\rvert^2 = E_0$. Оценка по $N$ запускам — случайная величина со стандартным отклонением $\sim\lambda/\sqrt N$. Вблизи оптимума она с заметной вероятностью опускается ниже $E_0$.
 - **2.** См. §1.3. Если $\theta$ входит дважды, $E(\theta)$ — тригонометрический многочлен степени 2, и (1.2) неверна. Используйте правило произведения: продифференцируйте каждое вхождение отдельно (два сдвига на $\pm\frac\pi2$ для каждого) и сложите.
 - **3.** $N\le\lambda^2/\varepsilon^2 = 1{,}39\cdot10^6$ запусков, около 2,3 мин при 10 кГц. По (1.5) в основном состоянии — $4{,}88\cdot10^4$, около 5 с. Градиентный спуск: на каждом шаге две оценки по правилу сдвига, 200 оценок — от 16 мин до 7,7 ч в зависимости от оценки $N$.
@@ -310,12 +823,13 @@ $$
 - **8.** $P\ge1/\kappa^2 = 10^{-4}$: без усиления $\sim10^4$ повторений, с усилением амплитуды $\sim\kappa = 100$.
 - **9.** Измерение даёт выборки $i\sim\lvert x_i\rvert^2$; для оценки всех $N$ вероятностей с точностью $\varepsilon$ нужно $\sim N/\varepsilon^2$ повторений (точнее, $\Omega(N)$ при любом методе — это томография). Для $\langle x\rvert M\lvert x\rangle$ — $O(1/\varepsilon^2)$ повторений (или $O(1/\varepsilon)$ с оценкой амплитуды, I.14, §6), не зависящих от $N$.
 - **10.** Выберем $i\sim\lvert v_i\rvert^2/\|v\|^2$ и положим $Z = \|v\|^2w_i/v_i$. Тогда $\mathbb EZ = \sum_iv_i^*w_i$ (с сопряжением, если нужно), $\operatorname{Var}Z\le\|v\|^2\|w\|^2$. Среднее $O(1/\varepsilon^2)$ таких оценок даёт точность $\varepsilon\|v\|\|w\|$ за время, не зависящее от $N$. Это классический аналог swap-теста.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 100 с; дольше всего — barren plateaus для $n$ до 12) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, все числа совпадают с `примеры.py`. Чтобы страница собиралась за ~30 с, ячейки считают быстрее: barren plateaus — сразу для всех 200 наборов параметров, QAOA — с градиентом методом сопряжённого состояния. Полный файл `примеры.py` (около 80 с; дольше всего — barren plateaus) проверяет:
 1. VQE для H₂: генератор UCC (8 коммутирующих паули-строк), состояние (1.1), совпадение с FCI на кривой диссоциации из 10 точек, неверную диссоциацию RHF;
 2. правило сдвига (1.2) против конечных разностей, вид (1.3), правило со сдвигом $\pi/4$ для UCC, шум выборки (1.4);
 3. бюджет измерений (1.5) для H₂ и группировку слагаемых;
