@@ -1,10 +1,13 @@
-# Лекция II.2. Стандартные каналы и уравнение Линдблада
+---
+title: "Лекция II.2. Стандартные каналы и уравнение Линдблада"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.A «Открытые системы, характеризация, error mitigation».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.2 (уравнение Шрёдингера и ларморова прецессия, §3); лекция I.3 (шар Блоха, §2); лекция I.9 (группа Клиффорда, §2); лекция II.1 (представление Крауса, §2; матрица Чоя, §3; Стайнспринг, §4; аффинное действие на шар Блоха и каналы Паули, §5.1–5.2; верность процесса и ромбовидная норма, §7). Из общего курса физики: гармонический осциллятор, операторы рождения и уничтожения, золотое правило Ферми.
+**Пререквизиты:** [лекция I.2](../../Часть_I/I.02_Постулаты_и_кубит/лекция.qmd) (уравнение Шрёдингера и ларморова прецессия, §3); [лекция I.3](../../Часть_I/I.03_Матрица_плотности_POVM/лекция.qmd) (шар Блоха, §2); [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (группа Клиффорда, §2); [лекция II.1](../../Часть_II/II.01_Квантовые_каналы/лекция.qmd) (представление Крауса, §2; матрица Чоя, §3; Стайнспринг, §4; аффинное действие на шар Блоха и каналы Паули, §5.1–5.2; верность процесса и ромбовидная норма, §7). Из общего курса физики: гармонический осциллятор, операторы рождения и уничтожения, золотое правило Ферми.
 **Литература:** N&C, § 8.3–8.4; Breuer H.-P., Petruccione F. The Theory of Open Quantum Systems, гл. 3; Lindblad G. // Commun. Math. Phys. 48, 119 (1976); Gorini V., Kossakowski A., Sudarshan E. C. G. // J. Math. Phys. 17, 821 (1976); Krantz P. et al. A quantum engineer's guide to superconducting qubits // Appl. Phys. Rev. 6, 021318 (2019); Breuer H.-P., Laine E.-M., Piilo J. // PRL 103, 210401 (2009).
-**Материалы:** `примеры.py` — численная проверка всех утверждений: стандартные каналы и их композиция, паули- и клиффордов твирлинг, рандомизированная компиляция CNOT, генератор ГКСЛ и полугруппа, вывод из короткого шага Крауса, распад в широкополосную баню (Вигнер–Вайскопф), тепловая баня, эксперименты по измерению T₁, T₂, T₂*, стационарное решение уравнений Блоха, немарковская динамика кубита в резонаторе, коллективная дефазировка; задачи к семинару С2 и к ЛР9–ЛР10 — в § 7.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: стандартные каналы и их композиция, паули- и клиффордов твирлинг, рандомизированная компиляция CNOT, генератор ГКСЛ и полугруппа, вывод из короткого шага Крауса, распад в широкополосную баню (Вигнер–Вайскопф), тепловая баня, эксперименты по измерению T₁, T₂, T₂*, стационарное решение уравнений Блоха, немарковская динамика кубита в резонаторе, коллективная дефазировка; задачи к семинару С2 и к ЛР9–ЛР10 — в § 7. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §12 и §15).
 - Стандартные каналы — как в II.1: $\Delta_p$, $\mathcal D_p$, $\mathcal A_\gamma$; **обобщённое амплитудное затухание** $\mathcal A_{\gamma,p}$ (стационарное состояние $\operatorname{diag}(p, 1-p)$, §1).
@@ -12,6 +15,111 @@
 - Генератор (лиувиллиан) $\mathcal L$, $\dot\rho = \mathcal L(\rho)$; диссипатор $\mathcal D[L]\rho = L\rho L^\dagger - \frac12\{L^\dagger L, \rho\}$.
 - $T_1 = 1/\gamma_1$, $T_\varphi = 1/\gamma_\varphi$ при операторах скачков $\sqrt{\gamma_1}\,\sigma_-$ и $\sqrt{\gamma_\varphi/2}\,Z$; $T_2$, $T_2^*$ — §4.
 - $\mathcal T_P$, $\mathcal T_C$ — паули- и клиффордов твирлинг (§2).
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+from functools import reduce
+from itertools import product
+from math import cos, exp, log, pi, sin, sqrt
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import expm, null_space
+from scipy.optimize import brentq, curve_fit
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULIS = [I2, X, Y, Z]
+SM = np.array([[0, 1], [0, 0]], dtype=complex)      # σ_- = |0><1|  (|0> — основное состояние)
+SP = SM.conj().T                                    # σ_+ = |1><0|
+H1 = np.array([[1, 1], [1, -1]], dtype=complex) / sqrt(2)
+S1 = np.diag([1, 1j])
+CNOT = np.eye(4, dtype=complex)[[0, 1, 3, 2]]
+
+def dag(A):
+    return A.conj().T
+
+def kron(*ops):
+    return reduce(np.kron, ops)
+
+def ket(i, d):
+    v = np.zeros(d, complex); v[i] = 1
+    return v
+
+def apply_kraus(K, rho):
+    return sum(k @ rho @ dag(k) for k in K)
+
+def ch(K):
+    """Канал как функция по набору Крауса."""
+    return lambda r: apply_kraus(K, r)
+
+def choi_map(channel, d):
+    """Матрица Чоя (вход — первый множитель)."""
+    return sum(np.kron(np.outer(ket(i, d), ket(j, d)), channel(np.outer(ket(i, d), ket(j, d))))
+               for i in range(d) for j in range(d))
+
+def is_cptp_choi(J, d, tol=1e-9):
+    tr = J.reshape(d, d, d, d).trace(axis1=1, axis2=3)
+    return np.linalg.eigvalsh((J + dag(J)) / 2).min() > -tol and np.allclose(tr, np.eye(d), atol=tol)
+
+def bloch(rho):
+    return np.real([np.trace(rho @ P) for P in (X, Y, Z)])
+
+def rho_of(r):
+    return (I2 + r[0] * X + r[1] * Y + r[2] * Z) / 2
+
+def affine(channel):
+    """r ↦ M r + c (II.1, (5.1))."""
+    M = np.array([[0.5 * np.trace(sk @ channel(sl)).real for sl in (X, Y, Z)] for sk in (X, Y, Z)])
+    c = np.array([0.5 * np.trace(sk @ channel(I2)).real for sk in (X, Y, Z)])
+    return M, c
+
+def F_pro_kraus(K):
+    """II.1, (7.1): Σ|Tr K_j|²/d²."""
+    return sum(abs(np.trace(k)) ** 2 for k in K) / K[0].shape[0] ** 2
+
+def F_pro_map(channel, d):
+    phi = np.eye(d).reshape(-1) / sqrt(d)
+    return (phi.conj() @ choi_map(channel, d) @ phi).real / d
+
+# стандартные каналы
+def K_dep(p):
+    return [sqrt(1 - 3 * p / 4) * I2] + [sqrt(p / 4) * P for P in (X, Y, Z)]
+
+def K_deph(p):
+    return [sqrt(1 - p) * I2, sqrt(p) * Z]
+
+def K_ad(g):
+    return [np.array([[1, 0], [0, sqrt(1 - g)]], complex), np.array([[0, sqrt(g)], [0, 0]], complex)]
+
+def K_gad(g, p):
+    """(1.1): обобщённое амплитудное затухание, стационарное состояние diag(p, 1−p)."""
+    return [sqrt(p) * np.array([[1, 0], [0, sqrt(1 - g)]], complex), sqrt(p) * np.array([[0, sqrt(g)], [0, 0]], complex),
+            sqrt(1 - p) * np.array([[sqrt(1 - g), 0], [0, 1]], complex), sqrt(1 - p) * np.array([[0, 0], [sqrt(g), 0]], complex)]
+
+# уравнение Линдблада в векторизованной форме: vec(A X B) = (A ⊗ B^T) vec(X), векторизация по строкам
+def lindbladian(H, Ls):
+    d = H.shape[0]
+    Id = np.eye(d)
+    Lsup = -1j * (np.kron(H, Id) - np.kron(Id, H.T))
+    for L in Ls:
+        LdL = dag(L) @ L
+        Lsup = Lsup + np.kron(L, L.conj()) - 0.5 * np.kron(LdL, Id) - 0.5 * np.kron(Id, LdL.T)
+    return Lsup
+
+def evolve(Lsup, rho, t):
+    d = rho.shape[0]
+    return (expm(Lsup * t) @ rho.reshape(-1)).reshape(d, d)
+
+def channel_of(Lsup, t, d):
+    E = expm(Lsup * t)
+    return lambda r: (E @ r.reshape(-1)).reshape(d, d)
+```
 
 ---
 
@@ -61,7 +169,7 @@ $$
 $$
 С вероятностью $p$ окружение «холодное» и забирает возбуждение, с вероятностью $1-p$ — «горячее» и отдаёт его. $\mathcal A_{\gamma,1} = \mathcal A_\gamma$.
 
-Действие на вектор Блоха $\mathbf r\mapsto M\mathbf r + \mathbf c$ (II.1, (5.1)) — во всех четырёх случаях $M$ диагональна (раздел 1 `примеры.py`):
+Действие на вектор Блоха $\mathbf r\mapsto M\mathbf r + \mathbf c$ (II.1, (5.1)) — во всех четырёх случаях $M$ диагональна (проверка — после таблицы):
 
 | Канал | $\operatorname{diag}M$ | $\mathbf c$ | Неподвижная точка | $\operatorname{rank}J$ |
 |---|---|---|---|---:|
@@ -72,15 +180,39 @@ $$
 
 Например, $\mathcal A_{0{,}4;\,0{,}8}$: $\operatorname{diag}M = (0{,}7746;\ 0{,}7746;\ 0{,}6)$, $\mathbf c = (0, 0, 0{,}24)$, неподвижная точка $z = 0{,}6$. При $p = \frac12$ («бесконечная температура») $\mathbf c = 0$ и канал унитален.
 
+```{python}
+for name, K in (("Δ_0,3", K_dep(0.3)), ("D_0,2", K_deph(0.2)), ("A_0,4", K_ad(0.4)), ("A_{0,4; 0,8}", K_gad(0.4, 0.8))):
+    assert np.allclose(sum(dag(k) @ k for k in K), I2)
+    M, c = affine(ch(K))
+    assert np.allclose(M, np.diag(np.diag(M)))
+    rk = np.linalg.matrix_rank(choi_map(ch(K), 2), tol=1e-10)
+    print(f"{name:13s} diag M = {np.round(np.diag(M), 4).tolist()}, c = {np.round(c, 4).tolist()}, rank J = {rk}")
+g, p = 0.4, 0.8
+assert np.allclose(apply_kraus(K_gad(g, p), np.diag([p, 1 - p])), np.diag([p, 1 - p]))     # неподвижная точка
+assert np.allclose(choi_map(ch(K_gad(g, 1.0)), 2), choi_map(ch(K_ad(g)), 2))                # A_{γ,1} = A_γ
+assert np.allclose(affine(ch(K_gad(0.4, 0.5)))[1], 0)                                       # p = 1/2: унитален
+print("неподвижная точка A_{0,4; 0,8}: diag(0,8; 0,2), т. е. z = 0,6; A_{γ,1} = A_γ; при p = 1/2 c = 0")
+```
+
 **Важное наблюдение:** у $\mathcal A_\gamma$ поперечные компоненты сжимаются в $\sqrt{1-\gamma}$, а продольная — в $1-\gamma$ раз. Если $\gamma = 1 - e^{-t/T_1}$, то когерентности затухают с временем $2T_1$, а населённости — с $T_1$. Отсюда граница $T_2\le2T_1$ (§4).
 
 ### 1.2. Композиция и полугруппы
 
-Каналы одного семейства образуют однопараметрические полугруппы (раздел 1 `примеры.py`):
+Каналы одного семейства образуют однопараметрические полугруппы (проверка — в конце пункта):
 $$
 \Delta_a\circ\Delta_b = \Delta_{1-(1-a)(1-b)},\qquad \mathcal A_a\circ\mathcal A_b = \mathcal A_{1-(1-a)(1-b)},\qquad \mathcal D_a\circ\mathcal D_b = \mathcal D_c,\ \ 1 - 2c = (1-2a)(1-2b) . \tag{1.2}
 $$
 Мультипликативны величины $1-p$, $1-\gamma$, $1-2p$ — коэффициенты сжатия шара. Поэтому естественная параметризация по времени экспоненциальна: $1 - p = e^{-\Gamma t}$, $1 - \gamma = e^{-t/T_1}$, $1 - 2p = e^{-t/T_\varphi}$. Именно такие каналы получаются из уравнения Линдблада (§3.3). Кроме того, $\mathcal A_\gamma$ и $\mathcal D_p$ **коммутируют**: оба сохраняют ось $z$ и симметричны относительно поворотов вокруг неё.
+
+```{python}
+same = lambda f1, f2: np.allclose(choi_map(f1, 2), choi_map(f2, 2))
+for a, b in ((0.2, 0.3), (0.5, 0.1)):
+    assert same(lambda r: apply_kraus(K_dep(a), apply_kraus(K_dep(b), r)), ch(K_dep(1 - (1 - a) * (1 - b))))
+    assert same(lambda r: apply_kraus(K_ad(a), apply_kraus(K_ad(b), r)), ch(K_ad(1 - (1 - a) * (1 - b))))
+    assert same(lambda r: apply_kraus(K_deph(a), apply_kraus(K_deph(b), r)), ch(K_deph((1 - (1 - 2 * a) * (1 - 2 * b)) / 2)))
+assert same(lambda r: apply_kraus(K_ad(0.3), apply_kraus(K_deph(0.2), r)), lambda r: apply_kraus(K_deph(0.2), apply_kraus(K_ad(0.3), r)))
+print("(1.2) выполнены для (a, b) = (0,2; 0,3) и (0,5; 0,1); A_0,3 и D_0,2 коммутируют")
+```
 
 ---
 
@@ -102,7 +234,7 @@ $$
 
 *Доказательство.* Разложим $K_j = \sum_Qc_{jQ}Q$ по базису Паули, $c_{jQ} = 2^{-n}\operatorname{Tr}(QK_j)$. Тогда $\mathcal E(\rho) = \sum_{Q,Q'}\chi_{QQ'}Q\rho Q'$ с $\chi_{QQ'} = \sum_jc_{jQ}\overline{c_{jQ'}}$. Сопряжение: $PQP = \pm Q$, и знак — $(-1)^{\langle P,Q\rangle}$ (симплектическая форма, I.9, (1.3)). Слагаемое $Q\rho Q'$ получает множитель $(-1)^{\langle P,Q\rangle + \langle P,Q'\rangle}$. Среднее по всем $P$ этого знака равно $\delta_{QQ'}$: характеры группы ортогональны. Остаётся $\sum_Q\chi_{QQ}Q\rho Q$. $\square$
 
-На языке шара Блоха (кубит): твирлинг заменяет $M$ на её диагональ и обнуляет $\mathbf c$ (раздел 2 `примеры.py`). Пропадают и неунитальная часть, и «повороты».
+На языке шара Блоха (кубит): твирлинг заменяет $M$ на её диагональ и обнуляет $\mathbf c$ (проверка — после примеров). Пропадают и неунитальная часть, и «повороты».
 
 **Примеры.**
 - **Амплитудное затухание** (ЛР9, задание 5): $\lambda_x = \lambda_y = \sqrt{1-\gamma}$, $\lambda_z = 1-\gamma$, и по II.1, (5.2)
@@ -113,17 +245,94 @@ $$
 - **Когерентная ошибка** $R_x(\varepsilon)$: $p_I = \cos^2\frac\varepsilon2$, $p_X = \sin^2\frac\varepsilon2$ — стохастический переворот $X$ с той же верностью. Ромбовидное расстояние до тождественного падает с $2\sin\frac\varepsilon2$ до $2\sin^2\frac\varepsilon2$: при $\varepsilon = 0{,}02$ — с $2{,}0\cdot10^{-2}$ до $2{,}0\cdot10^{-4}$ (II.1, §7.3).
 - Канал Паули — неподвижная точка твирлинга; $\mathcal T_P$ идемпотентен.
 
+```{python}
+def pauli_twirl(channel):
+    """(2.1) для одного кубита."""
+    return lambda r: sum(P @ channel(P @ r @ P) @ P for P in PAULIS) / 4
+
+def chi_diag(K):
+    """(2.2): p_P = Σ_j |Tr(P K_j)|² / d² по всем паули-строкам P."""
+    d = K[0].shape[0]
+    n = int(round(np.log2(d)))
+    return np.array([sum(abs(np.trace(kron(*[PAULIS[i] for i in idx]) @ k)) ** 2 for k in K) / d ** 2
+                     for idx in product(range(4), repeat=n)])
+
+pauli_ch = lambda pp: (lambda r: sum(q * P @ r @ P for q, P in zip(pp, PAULIS)))
+for name, K in (("A_0,1", K_ad(0.1)), ("A_{0,3; 0,7}", K_gad(0.3, 0.7))):
+    T = pauli_twirl(ch(K))
+    pp = chi_diag(K)
+    assert np.allclose(choi_map(T, 2), choi_map(pauli_ch(pp), 2)) and abs(F_pro_map(T, 2) - F_pro_kraus(K)) < 1e-12
+    print(f"твирлинг {name}: (p_I, p_X, p_Y, p_Z) = {np.round(pp, 6).tolist()}, F_pro = {F_pro_kraus(K):.6f} до и после")
+g = 0.1
+assert np.allclose(chi_diag(K_ad(g)), [(1 + sqrt(1 - g)) ** 2 / 4, g / 4, g / 4, (1 - sqrt(1 - g)) ** 2 / 4])   # (2.3)
+for eps in (0.1, 0.02):
+    pp = chi_diag([expm(-1j * eps / 2 * X)])
+    assert np.allclose(pp, [cos(eps / 2) ** 2, sin(eps / 2) ** 2, 0, 0])
+    print(f"твирлинг R_x({eps}): p_X = {pp[1]:.3e}; ||· − id||_◇: {2 * sin(eps / 2):.4e} → {2 * sin(eps / 2) ** 2:.3e}")
+pv = [0.9, 0.05, 0.03, 0.02]
+assert np.allclose(choi_map(pauli_twirl(pauli_ch(pv)), 2), choi_map(pauli_ch(pv), 2))        # неподвижная точка
+Mt, ct = affine(pauli_twirl(ch(K_gad(0.3, 0.7))))
+M0, _ = affine(ch(K_gad(0.3, 0.7)))
+assert np.allclose(Mt, np.diag(np.diag(M0))) and np.allclose(ct, 0)
+print("канал Паули не меняется; для A_{0,3; 0,7}: M → diag M, c → 0")
+```
+
 ### 2.2. Клиффордов твирлинг
 
 Если усреднять по всей группе Клиффорда (I.9, §2; $\lvert\mathcal C_1\rvert = 24$ по модулю фазы), то останется лишь один параметр:
 $$
 \mathcal T_C(\mathcal E)(\rho) = \lambda\rho + (1 - \lambda)\frac Id,\qquad \lambda = \frac{d^2F_{\text{pro}}(\mathcal E) - 1}{d^2 - 1} . \tag{2.4}
 $$
-Клиффорды переставляют неединичные паули-операторы между собой транзитивно (с точностью до знака), поэтому все $p_P$, $P\ne I$, усредняются в одно число. В наших обозначениях это $\Delta_{1-\lambda}$. Проверено для $\mathcal A_{0{,}1}$ ($\lambda = 0{,}932456$), $R_x(0{,}1)$ ($\lambda = 0{,}996669$) и случайного канала (раздел 2 `примеры.py`). Для случайного канала получилось $\lambda = -0{,}0056<0$: (2.4) допускает $\lambda\ge-1/(d^2-1)$, это всё ещё канал. Формула (2.4) — основа randomized benchmarking (II.3).
+Клиффорды переставляют неединичные паули-операторы между собой транзитивно (с точностью до знака), поэтому все $p_P$, $P\ne I$, усредняются в одно число. В наших обозначениях это $\Delta_{1-\lambda}$. Проверено для $\mathcal A_{0{,}1}$ ($\lambda = 0{,}932456$), $R_x(0{,}1)$ ($\lambda = 0{,}996669$) и случайного канала (ячейка ниже). Для случайного канала получилось $\lambda = -0{,}0056<0$: (2.4) допускает $\lambda\ge-1/(d^2-1)$, это всё ещё канал. Формула (2.4) — основа randomized benchmarking (II.3).
+
+```{python}
+def canon(U):
+    """Нормировка глобальной фазы: первый ненулевой элемент вещественный положительный."""
+    u = U.reshape(-1)
+    k = np.argmax(np.abs(u) > 1e-9)
+    return U / (u[k] / abs(u[k]))
+
+C1 = [I2]                                   # группа Клиффорда кубита: обход в ширину по образующим H, S
+frontier = [I2]
+while frontier:
+    new = []
+    for U in frontier:
+        for G in (H1, S1):
+            V = canon(G @ U)
+            if not any(np.allclose(V, W) for W in C1):
+                C1.append(V); new.append(V)
+    frontier = new
+assert len(C1) == 24
+clifford_twirl = lambda channel: (lambda r: sum(dag(C) @ channel(C @ r @ dag(C)) @ C for C in C1) / len(C1))
+for name, K in (("A_0,1", K_ad(0.1)), ("R_x(0,1)", [expm(-0.05j * X)]), ("случайный", None)):
+    if K is None:
+        V = np.linalg.qr(rng.normal(size=(6, 2)) + 1j * rng.normal(size=(6, 2)))[0]
+        K = [V[2 * j:2 * j + 2, :] for j in range(3)]
+    lam = (4 * F_pro_kraus(K) - 1) / 3                                                   # (2.4), d = 2
+    assert np.allclose(choi_map(clifford_twirl(ch(K)), 2), choi_map(lambda r: lam * r + (1 - lam) * np.trace(r) * I2 / 2, 2))
+    print(f"|C_1| = 24; клиффордов твирлинг {name:9s} = деполяризующий с λ = {lam:.6f}")
+```
 
 ### 2.3. Зачем это нужно и что теряется
 
-На практике шум сидит внутри схемы, после гейтов. Для клиффордова гейта $G$ (например, CNOT) твирлинг делают так: перед гейтом ставят случайный $P$, после — $P' = GPG^\dagger$ (это тоже паули-оператор). Идеальная схема не меняется, $P'GP = G$, а шум после гейта твирлируется. Это **рандомизированная компиляция** (Уоллман, Эмерсон, 2016): случайные паули-«рамки» вливают в соседние однокубитные гейты, глубина не растёт. В `примеры.py` (раздел 2) зашумлённый CNOT (случайный канал плюс когерентный поворот $e^{-i0{,}08\,ZZ}$) после усреднения по 16 рамкам точно равен «канал Паули $\circ$ CNOT», и $p_{II} = F_{\text{pro}} = 0{,}94640$.
+На практике шум сидит внутри схемы, после гейтов. Для клиффордова гейта $G$ (например, CNOT) твирлинг делают так: перед гейтом ставят случайный $P$, после — $P' = GPG^\dagger$ (это тоже паули-оператор). Идеальная схема не меняется, $P'GP = G$, а шум после гейта твирлируется. Это **рандомизированная компиляция** (Уоллман, Эмерсон, 2016): случайные паули-«рамки» вливают в соседние однокубитные гейты, глубина не растёт. В ячейке ниже зашумлённый CNOT (случайный канал плюс когерентный поворот $e^{-i0{,}08\,ZZ}$) после усреднения по 16 рамкам точно равен «канал Паули $\circ$ CNOT», и $p_{II} = F_{\text{pro}} = 0{,}94640$.
+
+```{python}
+V = np.linalg.qr(rng.normal(size=(12, 4)) + 1j * rng.normal(size=(12, 4)))[0]
+Kn = [sqrt(1 - 0.05) * expm(-0.08j * np.kron(Z, Z))] + [sqrt(0.05) * V[4 * j:4 * j + 4, :] for j in range(3)]   # шум после CNOT
+assert np.allclose(sum(dag(k) @ k for k in Kn), np.eye(4))
+noisy_cnot = lambda r: apply_kraus(Kn, CNOT @ r @ dag(CNOT))
+P2 = [np.kron(PAULIS[a], PAULIS[b]) for a, b in product(range(4), repeat=2)]
+
+def twirled_cnot(r):
+    """Случайная рамка: P до гейта, P' = CNOT P CNOT† после; усреднение по 16 рамкам."""
+    return sum((CNOT @ P @ dag(CNOT)) @ noisy_cnot(P @ r @ P) @ dag(CNOT @ P @ dag(CNOT)) for P in P2) / 16
+
+pp2 = chi_diag(Kn)
+J_target = choi_map(lambda r: sum(q * P @ (CNOT @ r @ dag(CNOT)) @ P for q, P in zip(pp2, P2)), 4)
+assert np.allclose(choi_map(twirled_cnot, 4), J_target) and abs(pp2[0] - F_pro_kraus(Kn)) < 1e-12
+print(f"после рандомизированной компиляции: (канал Паули) ∘ CNOT, p_II = {pp2[0]:.5f} = F_pro шума {F_pro_kraus(Kn):.5f}")
+```
 
 Зачем:
 - **QEC.** Паули-шум после измерения синдрома дискретен: ошибки — это паули-операторы с вероятностями. Пороги и логические ошибки считаются для паули-шума, а его быстро моделируют стабилизаторные симуляторы (Stim, I.9, §4).
@@ -146,13 +355,38 @@ $$
 $$
 с эрмитовым $H$ и произвольными операторами $L_k$ («операторы скачков», jump operators; в конечной размерности их не больше $d^2 - 1$).
 
-Первое слагаемое — когерентная эволюция (возможно, с перенормированным окружением гамильтонианом), второе — диссипация. Пара $(H, \{L_k\})$ определена неоднозначно: генератор не меняется при унитарном перемешивании $L_k$ (как операторы Крауса, II.1, (4.6)) и при сдвиге $L\to L + cI$, $H\to H - \frac i2(\bar cL - cL^\dagger)$ (раздел 3 `примеры.py`).
+Первое слагаемое — когерентная эволюция (возможно, с перенормированным окружением гамильтонианом), второе — диссипация. Пара $(H, \{L_k\})$ определена неоднозначно: генератор не меняется при унитарном перемешивании $L_k$ (как операторы Крауса, II.1, (4.6)) и при сдвиге $L\to L + cI$, $H\to H - \frac i2(\bar cL - cL^\dagger)$ (проверка — в конце пункта).
 
 **Достаточность — из короткого шага Крауса.** Канал за время $dt$ с операторами
 $$
 K_0 = I - \Bigl(iH + \frac12\sum_kL_k^\dagger L_k\Bigr)dt,\qquad K_k = \sqrt{dt}\,L_k \tag{3.2}
 $$
-сохраняет след с точностью $O(dt^2)$ и даёт $\rho + \mathcal L(\rho)\,dt + O(dt^2)$. Произведение $t/dt$ таких шагов сходится к $e^{t\mathcal L}$, а предел каналов — канал. Численно (раздел 3 `примеры.py`, $t = 2$, накачка $0{,}7X$) ошибка убывает как $dt^{1{,}02}$: от $1{,}09\cdot10^{-1}$ при $dt = 0{,}04$ до $6{,}44\cdot10^{-3}$ при $dt = 0{,}0025$. Отсюда же физический смысл: за время $dt$ с вероятностью $\operatorname{Tr}(L_k\rho L_k^\dagger)\,dt$ происходит «скачок» $L_k$ (фотон ушёл в окружение), иначе — плавная неэрмитова эволюция с $H_{\text{eff}} = H - \frac i2\sum L_k^\dagger L_k$. Это основа метода квантовых траекторий (дополнительное задание ЛР10).
+сохраняет след с точностью $O(dt^2)$ и даёт $\rho + \mathcal L(\rho)\,dt + O(dt^2)$. Произведение $t/dt$ таких шагов сходится к $e^{t\mathcal L}$, а предел каналов — канал. Численно (ячейка ниже; $t = 2$, накачка $0{,}7X$) ошибка убывает как $dt^{1{,}02}$: от $1{,}09\cdot10^{-1}$ при $dt = 0{,}04$ до $6{,}44\cdot10^{-3}$ при $dt = 0{,}0025$. Отсюда же физический смысл: за время $dt$ с вероятностью $\operatorname{Tr}(L_k\rho L_k^\dagger)\,dt$ происходит «скачок» $L_k$ (фотон ушёл в окружение), иначе — плавная неэрмитова эволюция с $H_{\text{eff}} = H - \frac i2\sum L_k^\dagger L_k$. Это основа метода квантовых траекторий (дополнительное задание ЛР10).
+
+```{python}
+A_, B_, R_ = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3)) for _ in range(3))
+assert np.allclose((A_ @ R_ @ B_).reshape(-1), np.kron(A_, B_.T) @ R_.reshape(-1))      # правило векторизации
+w0, g1, gphi = 2.0, 0.3, 0.2
+Ls = [sqrt(g1) * SM, sqrt(gphi / 2) * Z]
+Lq = lindbladian(-w0 / 2 * Z, Ls)
+assert np.allclose(expm(Lq * 2.5), expm(Lq * 0.8) @ expm(Lq * 1.7))                    # полугруппа
+c0, L0 = 0.3 + 0.2j, sqrt(g1) * SM
+Hb = -w0 / 2 * Z - 0.5j * (np.conj(c0) * L0 - c0 * dag(L0))
+assert np.allclose(lindbladian(-w0 / 2 * Z, [L0]), lindbladian(Hb, [L0 + c0 * I2]))      # неоднозначность (H, L)
+print("e^{(t+s)L} = e^{tL} e^{sL}; (H, L) → (H − (i/2)(c̄L − cL†), L + cI) не меняет генератор")
+
+H_dr = -w0 / 2 * Z + 0.7 * X                                                              # с накачкой 0,7 X
+E_ex = expm(lindbladian(H_dr, Ls) * 2.0)
+errs = []
+for n in (50, 100, 200, 400, 800):
+    dt = 2.0 / n
+    Kd = [I2 - (1j * H_dr + 0.5 * sum(dag(L) @ L for L in Ls)) * dt] + [sqrt(dt) * L for L in Ls]   # (3.2)
+    errs.append((dt, np.abs(np.linalg.matrix_power(sum(np.kron(k, k.conj()) for k in Kd), n) - E_ex).max()))
+    print(f"dt = {dt:.4f}: ошибка короткого шага Крауса {errs[-1][1]:.3e}")
+sl = np.polyfit(*np.log(np.array(errs)).T, 1)[0]
+print(f"наклон: ошибка ∝ dt^{sl:.2f}")
+assert abs(sl - 1) < 0.05
+```
 
 Необходимость доказывается разложением генератора по базису операторов и проверкой условного (на подпространстве, ортогональном $I$) положительного определения матрицы коэффициентов. Доказательство см. Breuer–Petruccione, §3.2.
 
@@ -186,9 +420,40 @@ $$
 
 ### 3.3. Проверка на модели: распад в широкополосную баню
 
-Микроскопический вывод можно проверить численно без каких-либо приближений (раздел 4 `примеры.py`). Возбуждённый кубит связан с $N = 2001$ модами с равномерно распределёнными частотами в полосе ширины $W = 100$ (шаг $\delta = 0{,}05$, плотность состояний $1/\delta$) с константой $g = 0{,}06$. В секторе с одним возбуждением это матрица $(N+1)\times(N+1)$, её диагонализация даёт точную $P_e(t)$. Золотое правило: $\Gamma = 2\pi g^2/\delta = 0{,}4524$. На отрезке $[0, 4/\Gamma]$ точное решение отличается от $e^{-\Gamma t}$ не больше чем на $0{,}0058$. Время возврата $2\pi/\delta\approx126$ много больше времени распада: дискретная баня неотличима от непрерывной.
+Микроскопический вывод можно проверить численно без каких-либо приближений (ячейка и рисунок ниже). Возбуждённый кубит связан с $N = 2001$ модами с равномерно распределёнными частотами в полосе ширины $W = 100$ (шаг $\delta = 0{,}05$, плотность состояний $1/\delta$) с константой $g = 0{,}06$. В секторе с одним возбуждением это матрица $(N+1)\times(N+1)$, её диагонализация даёт точную $P_e(t)$. Золотое правило: $\Gamma = 2\pi g^2/\delta = 0{,}4524$. На отрезке $[0, 4/\Gamma]$ точное решение отличается от $e^{-\Gamma t}$ не больше чем на $0{,}0058$. Время возврата $2\pi/\delta\approx126$ много больше времени распада: дискретная баня неотличима от непрерывной.
 
 Если же сузить полосу до $W = 0{,}3<\Gamma$ (при той же «золотой» скорости), отклонение достигает $0{,}561$: память бани $\tau_B\sim1/W$ уже не мала, и марковское приближение неприменимо (§5).
+
+```{python}
+#| fig-cap: "Распад возбуждённого кубита в дискретную баню: при широкой полосе ($W = 100$) точное решение неотличимо от золотого правила $e^{-\\Gamma t}$, при узкой ($W = 0{,}3$) — нет"
+def bath_decay(W, N, gc, ts):
+    """Точная P_e(t) в секторе с одним возбуждением: кубит + N мод в полосе [−W/2, W/2]."""
+    Hm = np.diag(np.r_[0.0, np.linspace(-W / 2, W / 2, N)])
+    Hm[0, 1:] = Hm[1:, 0] = gc
+    ev, U = np.linalg.eigh(Hm)
+    return np.abs((U[0] ** 2) @ np.exp(-1j * np.outer(ev, ts))) ** 2
+
+N_modes, W, gc = 2001, 100.0, 0.06
+delta = W / (N_modes - 1)
+Gamma = 2 * pi * gc ** 2 / delta                                   # золотое правило
+ts = np.linspace(0, 4 / Gamma, 60)
+dev = np.abs(bath_decay(W, N_modes, gc, ts) - np.exp(-Gamma * ts)).max()
+print(f"W = {W:.0f}, δ = {delta:.2f}, g = {gc}: Γ = {Gamma:.4f}; max|P_e − e^(−Γt)| на [0, 4/Γ] = {dev:.4f}; 2π/δ = {2 * pi / delta:.0f}")
+W2, N2 = 0.3, 801
+g2 = sqrt(Gamma * (W2 / (N2 - 1)) / (2 * pi))                      # та же «золотая» скорость
+dev2 = np.abs(bath_decay(W2, N2, g2, ts) - np.exp(-Gamma * ts)).max()
+print(f"W = {W2}: max|P_e − e^(−Γt)| = {dev2:.3f}")
+assert dev < 0.01 and dev2 > 0.1
+
+tf = np.linspace(0, 4 / Gamma, 300)
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.plot(Gamma * tf, np.exp(-Gamma * tf), "k:", lw=2, label="$e^{-\\Gamma t}$ (золотое правило)")
+ax.plot(Gamma * tf, bath_decay(W, N_modes, gc, tf), label=f"широкая баня, $W = {W:.0f}$")
+ax.plot(Gamma * tf, bath_decay(W2, N2, g2, tf), "--", label="узкая баня, $W = 0{,}3$")
+ax.set_xlabel("$\\Gamma t$"); ax.set_ylabel("$P_e(t)$")
+ax.legend()
+plt.show()
+```
 
 ### 3.4. Решение для кубита
 
@@ -196,7 +461,7 @@ $$
 $$
 \dot\rho = -i\Bigl[-\frac\omega2Z, \rho\Bigr] + \gamma_1\,\mathcal D[\sigma_-]\rho + \frac{\gamma_\varphi}2\,\mathcal D[Z]\rho . \tag{3.7}
 $$
-Решение (раздел 3 `примеры.py`; проверено при $\omega = 2$, $\gamma_1 = 0{,}3$, $\gamma_\varphi = 0{,}2$):
+Решение (проверено численно при $\omega = 2$, $\gamma_1 = 0{,}3$, $\gamma_\varphi = 0{,}2$; ячейка ниже):
 $$
 \rho_{11}(t) = \rho_{11}(0)\,e^{-\gamma_1t},\qquad \rho_{01}(t) = \rho_{01}(0)\,e^{i\omega t}\,e^{-(\gamma_1/2 + \gamma_\varphi)t} . \tag{3.8}
 $$
@@ -214,9 +479,58 @@ $$
 $$
 \frac1{T_1} = \gamma_0(2\bar n + 1) = \gamma_0\coth\frac\omega{2T} . \tag{3.11}
 $$
-С ростом температуры $T_1$ уменьшается (ЛР10, задание 6). При $\omega/T = 5;\ 2;\ 1$ (в единицах $\gamma_0$) $1/T_1 = 1{,}0136;\ 1{,}3130;\ 2{,}1640$ (раздел 4 `примеры.py`). Для кубита на частоте 5 ГГц при 50 мК $hf/k_BT = 4{,}80$, $\bar n = 0{,}0083$: тепловая населённость $\lvert1\rangle$ около $0{,}8\,\%$.
+С ростом температуры $T_1$ уменьшается (ЛР10, задание 6). При $\omega/T = 5;\ 2;\ 1$ (в единицах $\gamma_0$) $1/T_1 = 1{,}0136;\ 1{,}3130;\ 2{,}1640$. Для кубита на частоте 5 ГГц при 50 мК $hf/k_BT = 4{,}80$, $\bar n = 0{,}0083$: тепловая населённость $\lvert1\rangle$ около $0{,}8\,\%$.
+
+```{python}
+rho0 = rho_of([0.6, 0.0, -0.8])
+for t in (0.5, 2.0, 5.0):
+    rt = evolve(Lq, rho0, t)
+    assert np.isclose(rt[1, 1].real, rho0[1, 1].real * exp(-g1 * t))                                     # (3.8)
+    assert np.isclose(rt[0, 1], rho0[0, 1] * np.exp(1j * w0 * t) * exp(-(g1 / 2 + gphi) * t))
+    assert is_cptp_choi(choi_map(channel_of(Lq, t, 2), 2), 2)
+print(f"(3.8) выполнено: T1 = {1 / g1:.4f}, T2 = 1/(γ1/2 + γφ) = {1 / (g1 / 2 + gphi):.4f}")
+same = lambda f1, f2: np.allclose(choi_map(f1, 2), choi_map(f2, 2))
+for t in (0.7, 3.0):                                                                                      # (3.10)
+    assert same(channel_of(lindbladian(0 * Z, [sqrt(g1) * SM]), t, 2), ch(K_ad(1 - exp(-g1 * t))))
+    assert same(channel_of(lindbladian(0 * Z, [sqrt(gphi / 2) * Z]), t, 2), ch(K_deph((1 - exp(-gphi * t)) / 2)))
+    assert same(channel_of(lindbladian(0 * Z, [sqrt(0.4 / 4) * P for P in (X, Y, Z)]), t, 2), ch(K_dep(1 - exp(-0.4 * t))))
+print("(3.10) выполнено при t = 0,7 и 3")
+g0, wq = 1.0, 1.0
+for Tb in (0.2, 0.5, 1.0):                                                                                # тепловая баня (3.6)
+    nb = 1 / (exp(wq / Tb) - 1)
+    Lth = lindbladian(-wq / 2 * Z, [sqrt(g0 * (nb + 1)) * SM, sqrt(g0 * nb) * SP])
+    ss = null_space(Lth)[:, 0].reshape(2, 2)
+    boltz = np.array([1, exp(-wq / Tb)]) / (1 + exp(-wq / Tb))
+    assert np.allclose(np.diag(ss / np.trace(ss)).real, boltz)
+    g1_eff = -log((evolve(Lth, np.diag([0, 1]).astype(complex), 1.0)[1, 1].real - boltz[1]) / (1 - boltz[1]))
+    assert np.isclose(g1_eff, g0 / np.tanh(wq / (2 * Tb)))                                                   # (3.11)
+    gt = 1 - exp(-g1_eff * 0.37)
+    assert same(channel_of(lindbladian(0 * Z, [sqrt(g0 * (nb + 1)) * SM, sqrt(g0 * nb) * SP]), 0.37, 2), ch(K_gad(gt, boltz[0])))
+    print(f"ω/T = {wq / Tb:.0f}: стационарное = Больцман diag({boltz[0]:.4f}, {boltz[1]:.4f}), 1/T1 = γ0 cth(ω/2T) = {g1_eff:.4f}")
+h, kB = 6.62607015e-34, 1.380649e-23
+x5 = h * 5e9 / (kB * 0.05)
+n5 = 1 / (exp(x5) - 1)
+print(f"5 ГГц, 50 мК: hf/kT = {x5:.2f}, n = {n5:.4f}, населённость |1> = {n5 / (2 * n5 + 1):.4f}")
+```
 
 **Расщепление «гамильтониан + каналы»** (ЛР10, задание 3). Без накачки части генератора (3.7) коммутируют, и последовательное применение $\mathcal A$ и $\mathcal D$ на шаге $\Delta t$ даёт точное решение. С резонансной накачкой $0{,}7X$ расщепление Ли «сначала $H$, потом каналы» имеет ошибку $\propto\Delta t$ (наклон $0{,}996$), симметричное (Стрэнга) — $\propto\Delta t^2$ (наклон $2{,}001$), как у формул Троттера (I.15, §3).
+
+```{python}
+Hs, Ds = lindbladian(H_dr, []), lindbladian(0 * Z, Ls)
+spl = []
+for n in (20, 40, 80, 160):
+    dt = 2.0 / n
+    e1 = np.abs(np.linalg.matrix_power(expm(Ds * dt) @ expm(Hs * dt), n) - E_ex).max()                           # Ли
+    e2 = np.abs(np.linalg.matrix_power(expm(Hs * dt / 2) @ expm(Ds * dt) @ expm(Hs * dt / 2), n) - E_ex).max()   # Стрэнг
+    spl.append((dt, e1, e2))
+    print(f"Δt = {dt:.4f}: Ли {e1:.3e}, Стрэнг {e2:.3e}")
+lg = np.log(np.array(spl))
+s1, s2 = np.polyfit(lg[:, 0], lg[:, 1], 1)[0], np.polyfit(lg[:, 0], lg[:, 2], 1)[0]
+print(f"наклоны: Ли {s1:.3f}, Стрэнг {s2:.3f}")
+step = expm(Ds * 0.1) @ expm(lindbladian(-w0 / 2 * Z, []) * 0.1)
+assert np.allclose(np.linalg.matrix_power(step, 20), expm(lindbladian(-w0 / 2 * Z, Ls) * 2.0))        # без накачки — точно
+assert abs(s1 - 1) < 0.1 and abs(s2 - 2) < 0.1
+```
 
 ---
 
@@ -241,7 +555,7 @@ P_1(t) = \frac12\Bigl(1 + e^{-t/T_2}\,e^{-\sigma^2t^2/2}\cos\Delta t\Bigr) . \ta
 $$
 Огибающая Рамзи затухает быстрее и становится гауссовой. Время её затухания называют $T_2^*$ («звёздочка» — неоднородное уширение). Эхо снимает квазистатическую часть: для постоянной на время запуска $\delta$ фаза отменяется точно, и огибающая эха равна $e^{-t/T_2}$.
 
-Численный «эксперимент» (раздел 5 `примеры.py`): $T_1 = 50$ мкс, $T_\varphi = 60$ мкс, $\sigma = 0{,}05$ рад/мкс, усреднение по $\delta$ квадратурой Гаусса–Эрмита по 100 узлам. Полная модель — уравнение (3.7) с импульсами — совпадает с (4.2) до $10^{-6}$.
+Численный «эксперимент» (ячейка и рисунок после таблицы): $T_1 = 50$ мкс, $T_\varphi = 60$ мкс, $\sigma = 0{,}05$ рад/мкс, усреднение по $\delta$ квадратурой Гаусса–Эрмита по 100 узлам. Полная модель — уравнение (3.7) с импульсами — совпадает с (4.2) до $10^{-6}$.
 
 | Эксперимент | Огибающая | Подгонка |
 |---|---|---|
@@ -251,7 +565,58 @@ $$
 
 Всегда $T_2^*\le T_2\le2T_1$.
 
+```{python}
+#| fig-cap: "«Эксперименты» с квазистатическим шумом расстройки ($T_1 = 50$, $T_\\varphi = 60$ мкс, $\\sigma = 0{,}05$ рад/мкс): точки — полная модель с импульсами, линии — формулы $e^{-t/T_1}$, $e^{-t/T_2}$ и (4.2)"
+T1, Tphi, sig = 50.0, 60.0, 0.05                       # мкс, мкс, рад/мкс
+T2 = 1 / (1 / (2 * T1) + 1 / Tphi)
+Ls5 = [sqrt(1 / T1) * SM, sqrt(1 / (2 * Tphi)) * Z]
+Rx = lambda th: expm(-1j * th / 2 * X)
+sup = lambda U: np.kron(U, U.conj())                   # унитарный гейт как супероператор
+free = lambda dl, t: expm(lindbladian(-dl / 2 * Z, Ls5) * t)   # свободная эволюция при расстройке dl
+gh_x, gh_w = np.polynomial.hermite_e.hermegauss(100)   # квадратура Гаусса–Эрмита по δ ~ N(Δ, σ²)
+gh_w = gh_w / gh_w.sum()
+g_vec = np.array([1, 0, 0, 0], complex)                # |0><0| в векторизованной форме
+p1 = lambda S: (S @ g_vec)[3].real                      # P_1 = ρ_11
+
+taus = np.linspace(0, 200, 41)
+ir = np.array([p1(free(0, t) @ sup(Rx(pi))) for t in taus])
+def ramsey(Dl, t):
+    return sum(w * p1(sup(Rx(pi / 2)) @ free(Dl + sig * x, t) @ sup(Rx(pi / 2))) for x, w in zip(gh_x, gh_w))
+def echo(t):
+    return sum(w * p1(sup(Rx(pi / 2)) @ free(sig * x, t / 2) @ sup(Rx(pi)) @ free(sig * x, t / 2) @ sup(Rx(pi / 2)))
+               for x, w in zip(gh_x, gh_w))
+ram = np.array([ramsey(0.3, t) for t in taus])                                         # намеренная расстройка Δ = 0,3
+ram0, ech = np.array([ramsey(0.0, t) for t in taus]), np.array([echo(t) for t in taus])
+env = lambda t: np.exp(-t / T2) * np.exp(-sig ** 2 * t ** 2 / 2)
+assert np.abs(ram - (1 + np.cos(0.3 * taus) * env(taus)) / 2).max() < 1e-6                 # (4.2)
+assert np.allclose(2 * ram0 - 1, env(taus), atol=1e-8) and np.allclose(1 - 2 * ech, np.exp(-taus / T2), atol=1e-8)
+pT1 = curve_fit(lambda t, a, T: a * np.exp(-t / T), taus, ir, p0=[1, 30])[0][1]
+pT2 = curve_fit(lambda t, a, T, b: a * np.exp(-t / T) + b, taus, ech, p0=[0.5, 30, 0.5])[0][1]
+T2s = brentq(lambda t: env(t) - exp(-1), 1, 200)
+print(f"подгонка: T1 = {pT1:.3f} мкс, T2 (эхо) = {pT2:.3f} мкс, 1/T2 = {1 / pT2:.6f} = 1/(2T1) + 1/Tφ = {1 / (2 * T1) + 1 / Tphi:.6f}")
+print(f"Рамзи: T2* (уровень 1/e) = {T2s:.2f} мкс; только гауссова часть √2/σ = {sqrt(2) / sig:.2f} мкс")
+assert abs(pT1 - T1) < 1e-3 and abs(pT2 - T2) < 1e-3 and T2s < T2
+
+tf = np.linspace(0, 200, 800)
+fig, ax = plt.subplots(figsize=(6.6, 3.8))
+ax.plot(tf, (1 + np.cos(0.3 * tf) * env(tf)) / 2, color="C0", lw=0.8, label="Рамзи, $\\Delta = 0{,}3$ рад/мкс")
+ax.plot(taus, ram, "o", color="C0", ms=3)
+ax.plot(tf, (1 + env(tf)) / 2, color="C0", ls="--", label="огибающая Рамзи ($T_2^*$)")
+ax.plot(tf, (1 - np.exp(-tf / T2)) / 2, color="C1", label="спин-эхо ($T_2$)")
+ax.plot(taus, ech, "s", color="C1", ms=3)
+ax.plot(tf, np.exp(-tf / T1), color="C2", label="инверсия-восстановление ($T_1$)")
+ax.plot(taus, ir, "^", color="C2", ms=3)
+ax.set_xlabel("$t$, мкс"); ax.set_ylabel("$P_1$")
+ax.legend(fontsize=8, loc="upper right")
+plt.show()
+```
+
 **Почему эхо восстанавливает $T_2$, но не $T_1$** (контрольный вопрос 2 ЛР10)? Эхо отменяет *унитарную* фазу, которая в каждом запуске одна и та же, но неизвестна. Это обратимая ошибка, и она отменяется обратимой операцией. Релаксация $T_1$ — необратимая передача энергии окружению, скачок $\sigma_-$ (§3.1). Её импульсом не вернуть: после последовательности «$\pi$ — $\frac t2$ — $\pi$ — $\frac t2$» из основного состояния при $t = 60$ мкс $P_1 = 0{,}2476\ne0$.
+
+```{python}
+ir_echo = p1(free(0, 30) @ sup(Rx(pi)) @ free(0, 30) @ sup(Rx(pi)))
+print(f"«π — t/2 — π — t/2» из |0> при t = 60 мкс: P_1 = {ir_echo:.4f}")
+```
 
 ### 4.3. Динамическая развязка и спектр шума
 
@@ -263,7 +628,23 @@ $$
 $$
 x_{\text{ss}} = 0,\qquad y_{\text{ss}} = -\frac{\Omega T_2}{1 + \Omega^2T_1T_2},\qquad z_{\text{ss}} = \frac1{1 + \Omega^2T_1T_2} . \tag{4.3}
 $$
-Проверено по ядру генератора $\mathcal L$ (раздел 6 `примеры.py`; $T_1 = 50$, $T_2 = 37{,}5$ мкс): при $\Omega = 0{,}05;\ 0{,}2;\ 1$ рад/мкс $z_{\text{ss}} = 0{,}1758;\ 0{,}0132;\ 0{,}0005$, $y_{\text{ss}} = -0{,}3297;\ -0{,}0987;\ -0{,}0200$. Сильная накачка **насыщает** переход: $P_1\to\frac12$, но не больше. При $\Omega = 0{,}5$ осцилляции Раби с периодом $12{,}57$ мкс затухают от $\max P_1 = 0{,}9273$ к $0{,}4989$. Инверсию населённостей непрерывной накачкой двухуровневой системы получить нельзя.
+Проверено по ядру генератора $\mathcal L$ (ячейка ниже; $T_1 = 50$, $T_2 = 37{,}5$ мкс): при $\Omega = 0{,}05;\ 0{,}2;\ 1$ рад/мкс $z_{\text{ss}} = 0{,}1758;\ 0{,}0132;\ 0{,}0005$, $y_{\text{ss}} = -0{,}3297;\ -0{,}0987;\ -0{,}0200$. Сильная накачка **насыщает** переход: $P_1\to\frac12$, но не больше. При $\Omega = 0{,}5$ осцилляции Раби с периодом $12{,}57$ мкс затухают от $\max P_1 = 0{,}9273$ к $0{,}4989$. Инверсию населённостей непрерывной накачкой двухуровневой системы получить нельзя.
+
+```{python}
+rho_g = np.diag([1, 0]).astype(complex)
+for Om in (0.05, 0.2, 1.0):
+    ss = null_space(lindbladian(Om / 2 * X, Ls5))[:, 0].reshape(2, 2)
+    r = bloch(ss / np.trace(ss))
+    z_th, y_th = 1 / (1 + Om ** 2 * T1 * T2), -Om * T2 / (1 + Om ** 2 * T1 * T2)
+    assert np.allclose(r, [0, y_th, z_th], atol=1e-10)                                   # (4.3)
+    print(f"Ω = {Om}: z_ss = {r[2]:.4f}, y_ss = {r[1]:.4f}")
+Om = 0.5
+E_step = expm(lindbladian(Om / 2 * X, Ls5) * 0.5)                                           # шаг 0,5 мкс
+v, P1r = rho_g.reshape(-1), []
+for _ in range(801):
+    P1r.append(v[3].real); v = E_step @ v
+print(f"Ω = 0,5: период 2π/Ω = {2 * pi / Om:.2f} мкс, max P_1 = {max(P1r):.4f}, P_1(400 мкс) = {P1r[-1]:.4f}")
+```
 
 ---
 
@@ -279,19 +660,74 @@ $$
 $$
 Не путайте с «неэкспоненциальным затуханием»: гауссова огибающая Рамзи (4.2) неэкспоненциальна, но $D$ монотонно убывает (контрольный вопрос 3 ЛР10).
 
-**Пример: кубит в резонаторе с потерями** (ЛР10, задание 5). Модель Джейнса–Каммингса $H = g(\sigma_+a + \sigma_-a^\dagger)$ на резонансе, резонатор теряет фотоны со скоростью $\kappa$: $L = \sqrt\kappa\,a$. Начнём с $\lvert1\rangle\otimes\lvert0_{\text{ф}}\rangle$. Возбуждение живёт в двумерном пространстве $\{\lvert1, 0_{\text{ф}}\rangle, \lvert0, 1_{\text{ф}}\rangle\}$ с эффективным гамильтонианом $H_{\text{eff}} = \begin{pmatrix}0&g\\g&-i\kappa/2\end{pmatrix}$, а потеря фотона переводит систему в $\lvert0, 0_{\text{ф}}\rangle$. Значит, редуцированная динамика кубита — амплитудное затухание с $1 - \gamma(t) = \lvert c(t)\rvert^2$, где $c(t) = \langle1, 0\rvert e^{-iH_{\text{eff}}t}\lvert1, 0\rangle$. Полное уравнение Линдблада для кубита с резонатором при усечении пространства Фока до 2, 3 и 5 уровней совпадает с этим ответом до $10^{-10}$ (раздел 7 `примеры.py`). Сходимость по числу уровней обязательно проверять: при тепловом или сильно накачанном резонаторе двух уровней не хватит (контрольный вопрос 4 ЛР10).
+**Пример: кубит в резонаторе с потерями** (ЛР10, задание 5). Модель Джейнса–Каммингса $H = g(\sigma_+a + \sigma_-a^\dagger)$ на резонансе, резонатор теряет фотоны со скоростью $\kappa$: $L = \sqrt\kappa\,a$. Начнём с $\lvert1\rangle\otimes\lvert0_{\text{ф}}\rangle$. Возбуждение живёт в двумерном пространстве $\{\lvert1, 0_{\text{ф}}\rangle, \lvert0, 1_{\text{ф}}\rangle\}$ с эффективным гамильтонианом $H_{\text{eff}} = \begin{pmatrix}0&g\\g&-i\kappa/2\end{pmatrix}$, а потеря фотона переводит систему в $\lvert0, 0_{\text{ф}}\rangle$. Значит, редуцированная динамика кубита — амплитудное затухание с $1 - \gamma(t) = \lvert c(t)\rvert^2$, где $c(t) = \langle1, 0\rvert e^{-iH_{\text{eff}}t}\lvert1, 0\rangle$. Полное уравнение Линдблада для кубита с резонатором при усечении пространства Фока до 2, 3 и 5 уровней совпадает с этим ответом до $10^{-10}$ (ячейка ниже). Сходимость по числу уровней обязательно проверять: при тепловом или сильно накачанном резонаторе двух уровней не хватит (контрольный вопрос 4 ЛР10).
 - **Слабая связь** $g\ll\kappa$: резонатор — широкополосная баня, распад экспоненциальный со скоростью Парселла $4g^2/\kappa$. Для $g = 0{,}05$, $\kappa = 2$ подгонка даёт $0{,}005013$ при $4g^2/\kappa = 0{,}005$. Мера (5.1) равна нулю.
 - **Сильная связь** $g\gg\kappa$: возбуждение перекачивается между кубитом и резонатором — вакуумные осцилляции Раби. Для пары $\lvert1\rangle$, $\lvert0\rangle$ расстояние $D(t) = \lvert c(t)\rvert^2$ падает почти до нуля ($3{,}9\cdot10^{-6}$ при $t = 1{,}625$) и снова растёт до $0{,}7301$ при $t = 3{,}145$. При $g = 1$, $\kappa = 0{,}2$ на отрезке $[0, 20]$ сумма возрастаний $D$ равна $2{,}2955$.
 
 Промежуточное отображение здесь — «амплитудное затухание» с $1 - \gamma = \lvert c(t_2)\rvert^2/\lvert c(t_1)\rvert^2$. При возрождении это больше единицы, и отображение не CP: для $t_1 = 1{,}5$, $t_2 = 2{,}5$ отношение равно $35{,}65$, а у матрицы Чоя есть собственное значение $-34{,}65$. Никакое уравнение вида (3.1) с положительными скоростями такую динамику не даёт.
+
+```{python}
+#| fig-cap: "Расстояние следа $D(t) = \\lvert c(t)\\rvert^2$ между эволюциями $\\lvert1\\rangle$ и $\\lvert0\\rangle$ для кубита в резонаторе с потерями: при слабой связи — монотонный распад, при сильной — возрождения (обратный поток информации)"
+def jc_amp(gq, kap, ts):
+    """c(t) = <1,0| e^{−iH_eff t} |1,0> для H_eff = [[0, g], [g, −iκ/2]]."""
+    w, V = np.linalg.eig(np.array([[0, gq], [gq, -1j * kap / 2]]))
+    return (V[0] * np.linalg.solve(V, [1, 0])) @ np.exp(-1j * np.outer(w, np.atleast_1d(ts)))
+
+def jc_lindblad(gq, kap, nf, t):
+    """Полное уравнение Линдблада: кубит ⊗ резонатор (усечение Фока до nf уровней); возвращает P_1."""
+    a = np.diag(np.sqrt(np.arange(1, nf)), 1).astype(complex)
+    H = gq * (np.kron(SP, a) + np.kron(SM, dag(a)))
+    rho = np.kron(np.diag([0, 1]), np.diag(ket(0, nf).real)).astype(complex)
+    rt = evolve(lindbladian(H, [np.kron(I2, sqrt(kap) * a)]), rho, t)
+    return rt.reshape(2, nf, 2, nf).trace(axis1=1, axis2=3)[1, 1].real
+
+for nf in (2, 3, 5):
+    assert np.allclose([jc_lindblad(1.0, 0.5, nf, t) for t in (1.0, 3.0)], np.abs(jc_amp(1.0, 0.5, [1.0, 3.0])) ** 2, atol=1e-10)
+print("полное уравнение Линдблада (2, 3, 5 уровней Фока) = эффективная модель 2×2")
+gw, kw = 0.05, 2.0
+tw = np.linspace(0, 6 / (4 * gw ** 2 / kw), 80)
+rate = -np.polyfit(tw[10:], np.log(np.abs(jc_amp(gw, kw, tw[10:])) ** 2), 1)[0]
+print(f"слабая связь: скорость распада {rate:.6f}, Парселл 4g²/κ = {4 * gw ** 2 / kw:.6f}")
+ts7 = np.linspace(0, 20, 4001)
+D7 = np.abs(jc_amp(1.0, 0.2, ts7)) ** 2
+inc = np.clip(np.diff(D7), 0, None).sum()
+inc_w = np.clip(np.diff(np.abs(jc_amp(gw, kw, np.linspace(0, 200, 2001))) ** 2), 0, None).sum()
+i1 = np.argmin(D7[:800]); i2 = i1 + np.argmax(D7[i1:i1 + 800])
+print(f"сильная связь g = 1, κ = 0,2: минимум D = {D7[i1]:.1e} при t = {ts7[i1]:.3f}, возрождение до {D7[i2]:.4f} при t = {ts7[i2]:.3f}")
+print(f"сумма возрастаний D на [0, 20] = {inc:.4f} (слабая связь: {inc_w:.1e})")
+ca, cb = jc_amp(1.0, 0.2, [1.5, 2.5])
+cr = cb / ca                                                                                 # промежуточное отображение
+Jr = choi_map(lambda r: np.array([[r[0, 0] + (1 - abs(cr) ** 2) * r[1, 1], cr * r[0, 1]], [np.conj(cr) * r[1, 0], abs(cr) ** 2 * r[1, 1]]]), 2)
+print(f"Λ(2,5; 1,5): |c_b/c_a|² = {abs(cr) ** 2:.2f}, минимальное собственное значение Чоя {np.linalg.eigvalsh(Jr).min():.2f}")
+assert abs(rate / (4 * gw ** 2 / kw) - 1) < 0.01 and inc > 1 and inc_w < 1e-12 and np.linalg.eigvalsh(Jr).min() < 0
+
+fig, ax = plt.subplots(figsize=(6.4, 3.4))
+ax.plot(ts7, D7, label="сильная связь: $g = 1$, $\\kappa = 0{,}2$")
+ax.plot(ts7, np.abs(jc_amp(gw, kw, ts7)) ** 2, "--", label="слабая связь: $g = 0{,}05$, $\\kappa = 2$")
+ax.set_xlabel("$t$"); ax.set_ylabel("$D(t)$")
+ax.legend(fontsize=9)
+plt.show()
+```
 
 ### 5.2. Когерентные и коррелированные ошибки (обзорно)
 
 Модели §1–§4 описывают **некоррелированный стохастический** шум: каждый кубит шумит независимо, ошибки разных гейтов независимы. Реальные устройства отклоняются от этого тремя способами.
 
 - **Когерентные ошибки:** систематический пере- или недоповорот, неточная калибровка частоты, паразитное $ZZ$-взаимодействие между соседними кубитами (в сверхпроводящих процессорах — постоянная перекрёстная связь). Это унитарные ошибки, они складываются по амплитудам (II.1, §7.3). Средства: калибровка, эхо и динамическая развязка, твирлинг (§2).
-- **Коррелированные (пространственно):** общий источник шума у нескольких кубитов. Простейший пример — **коллективная дефазировка** $L = \sqrt{\gamma/2}(Z_1 + Z_2)$ (раздел 8 `примеры.py`, $\gamma = 0{,}1$, $t = 3$). Когерентность $\lvert\Phi^+\rangle$ затухает как $e^{-4\gamma t} = 0{,}3012$ — вдвое быстрее (в показателе), чем при независимом шуме ($e^{-2\gamma t} = 0{,}5488$). Когерентность $\lvert\Psi^+\rangle$ не затухает вовсе: $\lvert01\rangle$ и $\lvert10\rangle$ имеют одинаковое собственное значение $Z_1 + Z_2$. Это **подпространство без декогеренции** (decoherence-free subspace). Корреляции могут и вредить (коды QEC рассчитаны на независимые ошибки), и помогать.
+- **Коррелированные (пространственно):** общий источник шума у нескольких кубитов. Простейший пример — **коллективная дефазировка** $L = \sqrt{\gamma/2}(Z_1 + Z_2)$ ($\gamma = 0{,}1$, $t = 3$; ячейка после списка). Когерентность $\lvert\Phi^+\rangle$ затухает как $e^{-4\gamma t} = 0{,}3012$ — вдвое быстрее (в показателе), чем при независимом шуме ($e^{-2\gamma t} = 0{,}5488$). Когерентность $\lvert\Psi^+\rangle$ не затухает вовсе: $\lvert01\rangle$ и $\lvert10\rangle$ имеют одинаковое собственное значение $Z_1 + Z_2$. Это **подпространство без декогеренции** (decoherence-free subspace). Корреляции могут и вредить (коды QEC рассчитаны на независимые ошибки), и помогать.
 - **Коррелированные во времени и «катастрофические»:** дрейф параметров, двухуровневые дефекты, которые переключаются; всплески ошибок сразу на многих кубитах от попадания частиц высокой энергии (обсуждаются для сверхпроводящих процессоров). Плюс **утечка** (leakage) из вычислительного подпространства на высшие уровни трансмона или потеря атома в ловушке: такую ошибку не описать каналом на кубите.
+
+```{python}
+gam, t8 = 0.1, 3.0
+Z1, Z2 = np.kron(Z, I2), np.kron(I2, Z)
+phip, psip = (ket(0, 4) + ket(3, 4)) / sqrt(2), (ket(1, 4) + ket(2, 4)) / sqrt(2)
+out = {}
+for name, Ls8 in (("независимая", [sqrt(gam / 2) * Z1, sqrt(gam / 2) * Z2]), ("коллективная", [sqrt(gam / 2) * (Z1 + Z2)])):
+    L8 = lindbladian(np.zeros((4, 4)), Ls8)
+    out[name] = (2 * abs(evolve(L8, np.outer(phip, phip), t8)[0, 3]), 2 * abs(evolve(L8, np.outer(psip, psip), t8)[1, 2]))
+    print(f"{name:12s}: когерентность Φ+ = {out[name][0]:.4f}, Ψ+ = {out[name][1]:.4f}")
+assert np.allclose(out["независимая"], exp(-2 * gam * t8)) and np.allclose(out["коллективная"], [exp(-4 * gam * t8), 1])
+```
 
 Все эти эффекты RB видит плохо (II.3), а пороговые теоремы требуют для них отдельных оговорок (II.8).
 
@@ -341,7 +777,22 @@ $$
 12. (•••) Для семейства «амплитудных затуханий» с $1 - \gamma(t) = \lvert c(t)\rvert^2$ докажите: динамика CP-делима тогда и только тогда, когда $\lvert c(t)\rvert$ не возрастает. Найдите меру БЛП (5.1) для пары $\lvert0\rangle$, $\lvert1\rangle$.
 13. (••) Для двух кубитов с коллективной дефазировкой $L = \sqrt{\gamma/2}(Z_1 + Z_2)$ найдите скорости затухания когерентностей $\lvert\Phi^+\rangle$ и $\lvert\Psi^+\rangle$ и сравните с независимой дефазировкой $\sqrt{\gamma/2}Z_1$, $\sqrt{\gamma/2}Z_2$.
 
-### Ответы и указания
+Численная проверка ответов к задачам 3, 5, 7, 9 (задачи 8, 12, 13 — в ячейках выше):
+
+```{python}
+print(f"3: A_0,1 после твирлинга: {np.round(chi_diag(K_ad(0.1)), 6).tolist()}, F_pro = {F_pro_kraus(K_ad(0.1)):.6f}")
+assert np.isclose(evolve(lindbladian(0 * Z, [sqrt(0.3) * Z]), rho_of([1, 0, 0]), 1.0)[0, 1], 0.5 * exp(-2 * 0.3))
+print("5: L = √κ Z, κ = 0,3: ρ_01(1) = ρ_01(0) e^{−2κ}")
+Om7, T17, T27 = 0.1, 50.0, 37.5
+Ld7 = lindbladian(Om7 / 2 * X, [sqrt(1 / T17) * SM, sqrt((1 / T27 - 1 / (2 * T17)) / 2) * Z])
+ss7 = null_space(Ld7)[:, 0].reshape(2, 2); ss7 /= np.trace(ss7)
+r7 = bloch(ss7)
+print(f"7: z_ss = {r7[2]:.4f}, y_ss = {r7[1]:.4f}, P_1 = {(1 - r7[2]) / 2:.4f}")
+print(f"9: n(50 мК) = {n5:.4f}, n(20 мК) = {1 / (exp(h * 5e9 / (kB * 0.02)) - 1):.1e}, T1(50 мК)/T1(0) = th(hf/2kT) = {np.tanh(x5 / 2):.4f}")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** $(x, y, z)\mapsto(\sqrt{1-\gamma}\,x, \sqrt{1-\gamma}\,y, (1-\gamma)z + \gamma(2p-1))$; неподвижная точка $z = 2p - 1$, т. е. $\operatorname{diag}(p, 1-p)$. $K_0^\dagger K_0 + K_1^\dagger K_1 = p\,I$, $K_2^\dagger K_2 + K_3^\dagger K_3 = (1-p)\,I$. Унитален при $p = \frac12$.
 - **2.** Коэффициенты сжатия шара перемножаются: $(1-a)(1-b)$, $(1-2a)(1-2b)$. Если $\Lambda_{t+s} = \Lambda_t\Lambda_s$ и $1 - \gamma(t)$ мультипликативна и непрерывна, то $1 - \gamma(t) = e^{-t/T_1}$.
 - **3.** По (2.3): $(0{,}949342;\ 0{,}025;\ 0{,}025;\ 0{,}000658)$; $F_{\text{pro}} = 0{,}949342$ до и после.
@@ -355,12 +806,13 @@ $$
 - **11.** $\dot c_e = -igc_{\text{ф}}$, $\dot c_{\text{ф}} = -igc_e - \frac\kappa2c_{\text{ф}}$. При $\dot c_{\text{ф}}\approx0$: $c_{\text{ф}} = -2igc_e/\kappa$, $\dot c_e = -(2g^2/\kappa)c_e$, $\lvert c_e\rvert^2\propto e^{-4g^2t/\kappa}$.
 - **12.** Промежуточное отображение — «затухание» с параметром $1 - \gamma' = \lvert c(t_2)\rvert^2/\lvert c(t_1)\rvert^2$ (и фазой). Оно CP $\iff\gamma'\in[0,1]$. Для пары $\lvert0\rangle$, $\lvert1\rangle$: $D(t) = \lvert c(t)\rvert^2$, $\mathcal N$ равна сумме возрастаний $\lvert c\rvert^2$ (при $g = 1$, $\kappa = 0{,}2$ на $[0, 20]$ — $2{,}2955$; максимум в (5.1) по парам здесь не ищем).
 - **13.** Независимая: обе когерентности $e^{-2\gamma t}$. Коллективная: $\lvert00\rangle\langle11\rvert$ затухает как $e^{-4\gamma t}$ (разность собственных значений $Z_1 + Z_2$ равна 4, скорость $\frac\gamma2\cdot\frac{4^2}2 = 4\gamma$), $\lvert01\rangle\langle10\rvert$ не затухает.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 12 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, все числа совпадают с `примеры.py`. Полный файл `примеры.py` (около 13 с) проверяет:
 1. стандартные каналы: CPTP, аффинные представления, неподвижные точки, ранги Чоя, законы композиции (1.2), коммутирование $\mathcal A_\gamma$ и $\mathcal D_p$;
 2. паули-твирлинг (2.1)–(2.3) для $\mathcal A_\gamma$, $\mathcal A_{\gamma,p}$ и $R_x(\varepsilon)$; сохранение $F_{\text{pro}}$; построение группы Клиффорда $\mathcal C_1$ (24 элемента) и клиффордов твирлинг (2.4); рандомизированную компиляцию CNOT с 16 паули-рамками;
 3. генератор ГКСЛ (3.1) в векторизованной форме, решение (3.8), соответствие (3.10) стандартным каналам, полугрупповое свойство, неоднозначность $(H, L)$, сходимость короткого шага Крауса (3.2), ошибки расщепления Ли и Стрэнга;
