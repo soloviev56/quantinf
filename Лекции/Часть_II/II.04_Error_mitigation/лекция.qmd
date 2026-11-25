@@ -1,10 +1,13 @@
-# Лекция II.4. Error mitigation
+---
+title: "Лекция II.4. Error mitigation"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.A «Открытые системы, характеризация, error mitigation».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.2 (статистика измерений и стоимость сэмплирования, §4); лекция I.9 (клиффордовы схемы моделируются эффективно, §4); лекция I.15 (троттеризация и TFIM, §3, §5); лекция I.16 (VQE и бюджет измерений, §1.4); лекция II.1 (каналы Паули, §5.2; сжатие расстояний, §6); лекция II.2 (стандартные каналы, §1; паули-твирлинг, §2); лекция II.3 (томография и SPAM, §2; RB, §3; классические тени, §5).
+**Пререквизиты:** [лекция I.2](../../Часть_I/I.02_Постулаты_и_кубит/лекция.qmd) (статистика измерений и стоимость сэмплирования, §4); [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (клиффордовы схемы моделируются эффективно, §4); [лекция I.15](../../Часть_I/I.15_Моделирование_гамильтонианов/лекция.qmd) (троттеризация и TFIM, §3, §5); [лекция I.16](../../Часть_I/I.16_Вариационные_алгоритмы/лекция.qmd) (VQE и бюджет измерений, §1.4); [лекция II.1](../II.01_Квантовые_каналы/лекция.qmd) (каналы Паули, §5.2; сжатие расстояний, §6); [лекция II.2](../II.02_Уравнение_Линдблада/лекция.qmd) (стандартные каналы, §1; паули-твирлинг, §2); [лекция II.3](../II.03_Характеризация/лекция.qmd) (томография и SPAM, §2; RB, §3; классические тени, §5).
 **Литература:** Cai Z., Babbush R., Benjamin S. C. et al. Quantum error mitigation // RMP 95, 045005 (2023); Temme K., Bravyi S., Gambetta J. M. // PRL 119, 180509 (2017); Czarnik P. et al. // Quantum 5, 592 (2021); van den Berg E. et al. // Nat. Phys. 19, 1116 (2023); Takagi R. et al. // npj Quantum Inf. 8, 114 (2022); Quek Y. et al. // Nat. Phys. 20, 1648 (2024); Kim Y. et al. // Nature 618, 500 (2023); LaRose R. et al. Mitiq // Quantum 6, 774 (2022).
-**Материалы:** `примеры.py` — численная проверка всех утверждений на задаче-бенчмарке ЛР12 (троттеризованная динамика TFIM на 4 кубитах): подавление ошибок считывания, ZNE с глобальным и локальным фолдингом и тремя экстраполяциями, PEC (точная и выборочная), разреженная модель Паули–Линдблада, CDR, проверка симметрий, виртуальная дистилляция, рост оверхеда с глубиной; задачи к ЛР12 — в § 8.
+**Материалы:** `примеры.py` — численная проверка всех утверждений на задаче-бенчмарке ЛР12 (троттеризованная динамика TFIM на 4 кубитах): подавление ошибок считывания, ZNE с глобальным и локальным фолдингом и тремя экстраполяциями, PEC (точная и выборочная), разреженная модель Паули–Линдблада, CDR, проверка симметрий, виртуальная дистилляция, рост оверхеда с глубиной; задачи к ЛР12 — в § 8. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §15–§17).
 - $\langle O\rangle_0$ — идеальное (бесшумное) значение, $\langle O\rangle_\lambda$ — значение при шуме, усиленном в $\lambda$ раз ($\lambda = 1$ — исходный шум); $\hat E$ — оценка после mitigation.
@@ -12,6 +15,130 @@
 - PEC: квазивероятностное разложение $\mathcal U = \sum_iq_i\mathcal B_i$, $\gamma = \sum_i\lvert q_i\rvert$; **выборочный оверхед** $C = \gamma^2$.
 - Модель Паули–Линдблада: скорости $\mu_k\ge0$ при генераторах $\mathcal L_k(\rho) = P_k\rho P_k - \rho$ (буква $\lambda$ занята коэффициентом растяжения шума).
 - Задача-бенчмарк: $H = -J\sum Z_iZ_{i+1} - h\sum X_i$ (I.15, (5.1)), $n = 4$, $J = h = 1$, $t = 1$, $d$ шагов формулы Троттера 1-го порядка из $\lvert0000\rangle$, наблюдаемая $O = Z_2Z_3$.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты, схема Троттера и модель шума"
+from functools import lru_cache, reduce
+from math import exp, log, pi, sqrt
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import expm
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULIS = [I2, X, Y, Z]
+CNOT2 = np.eye(4, dtype=complex)[[0, 1, 3, 2]]
+H1 = np.array([[1, 1], [1, -1]], complex) / sqrt(2)
+
+def dag(A):
+    return A.conj().T
+
+def kron(*ops):
+    return reduce(np.kron, ops)
+
+def Rz(t):
+    return np.diag([np.exp(-1j * t / 2), np.exp(1j * t / 2)])
+
+def Rx(t):
+    return expm(-1j * t / 2 * X)
+
+N_Q, DIM = 4, 16
+J_, h_, T_TOT = 1.0, 1.0, 1.0
+
+def embed1(U, q, n=N_Q):
+    return kron(*[U if i == q else I2 for i in range(n)])
+
+def embed2(U, q, n=N_Q):
+    return kron(*([I2] * q + [U] + [I2] * (n - q - 2)))
+
+PF = [[embed1(P, q) for q in range(N_Q)] for P in PAULIS]          # PF[k][q] — паули k на кубите q
+
+def trotter_circuit(d, n=N_Q):
+    """d шагов: e^{iJdtZZ} = CNOT·R_z(−2Jdt)·CNOT на соседних парах, затем R_x(−2hdt) на всех кубитах."""
+    dt = T_TOT / d
+    gates = []
+    for _ in range(d):
+        for q in range(n - 1):
+            gates += [("cx", q), ("rz", q + 1, -2 * J_ * dt), ("cx", q)]
+        gates += [("rx", q, -2 * h_ * dt) for q in range(n)]
+    return gates
+
+_GATE_CACHE = {}
+
+def gate_unitary(g):
+    key = (g[0], g[1], round(g[2], 12) if len(g) > 2 else None)
+    if key not in _GATE_CACHE:
+        _GATE_CACHE[key] = embed2(CNOT2, g[1]) if g[0] == "cx" else embed1((Rz if g[0] == "rz" else Rx)(g[2]), g[1])
+    return _GATE_CACHE[key]
+
+def inverse_gate(g):
+    return g if g[0] == "cx" else (g[0], g[1], -g[2])
+
+def dep1_kraus(p):
+    return [sqrt(1 - 3 * p / 4) * I2] + [sqrt(p / 4) * P for P in (X, Y, Z)]
+
+def ad_kraus(g):
+    return [np.array([[1, 0], [0, sqrt(1 - g)]], complex), np.array([[0, sqrt(g)], [0, 0]], complex)]
+
+def superop(K):
+    """Σ K ⊗ K* в виде тензора [i, j, i', j']."""
+    return sum(np.kron(k, k.conj()) for k in K).reshape(2, 2, 2, 2)
+
+S_dep = lru_cache(maxsize=None)(lambda p: superop(dep1_kraus(p)))
+S_ad = lru_cache(maxsize=None)(lambda g: superop(ad_kraus(g)))
+
+def apply_S(rho, S4, q, n=N_Q):
+    """Однокубитное отображение на кубите q; rho формы (16, 16) или пачка (S, 16, 16)."""
+    a, b = 2 ** q, 2 ** (n - q - 1)
+    R = rho.reshape(-1, a, 2, b, a, 2, b)
+    return np.einsum("ijkl,sakbcld->saibcjd", S4, R).reshape(rho.shape)
+
+class Noise:
+    def __init__(self, p1=0.0, p2=0.0, gad=0.0, coh=0.0, scale=1.0):
+        self.p1, self.p2, self.gad, self.coh, self.scale = p1, p2, gad, coh, scale
+
+    def scaled(self, s):
+        return Noise(self.p1, self.p2, self.gad, self.coh, self.scale * s)
+
+def run(gates, noise=None):
+    """Матрица плотности после схемы: деполяризация и затухание после каждого гейта (CNOT — на обоих кубитах)."""
+    rho = np.zeros((DIM, DIM), complex); rho[0, 0] = 1
+    for g in gates:
+        U = gate_unitary(g)
+        if noise is not None and noise.coh and g[0] == "rx":
+            U = embed1(Rx(g[2] * (1 + noise.coh)), g[1])            # систематический пере-поворот
+        rho = U @ rho @ dag(U)
+        if noise is None:
+            continue
+        s = noise.scale
+        p = noise.p2 if g[0] == "cx" else noise.p1
+        for q in ((g[1], g[1] + 1) if g[0] == "cx" else (g[1],)):
+            if p:
+                rho = apply_S(rho, S_dep(min(1, s * p)), q)
+            if noise.gad:
+                rho = apply_S(rho, S_ad(min(1, s * noise.gad)), q)
+    return rho
+
+OBS = PF[3][1] @ PF[3][2]                                          # Z_2 Z_3 (кубиты 1, 2 при нумерации с 0)
+diagO = np.real(np.diag(OBS))
+
+def expval(rho, readout=None):
+    p = np.real(np.diag(rho))
+    if readout is not None:
+        p = readout @ p
+    return float(p @ diagO)
+
+NOISE = Noise(p1=0.002, p2=0.01, gad=0.003)
+E0, E1 = 0.02, 0.05                                                # считывание 0 → 1 и 1 → 0
+A1 = np.array([[1 - E0, E1], [E0, 1 - E1]])                        # p_изм = A p_ист
+A_ro = kron(*[A1] * N_Q).real
+```
 
 ---
 
@@ -50,7 +177,7 @@ $$
 $$
 $C$ — **выборочный оверхед**: во сколько раз больше запусков нужно для той же статистической погрешности. Без mitigation смещение $\langle O\rangle_\lambda - \langle O\rangle_0$ не убывает с числом запусков $N$. Mitigation уменьшает смещение, но увеличивает дисперсию, и выигрыш есть, лишь пока смещение — главная часть ошибки.
 
-**Задача-бенчмарк** (ЛР12, задание 1; раздел 0 `примеры.py`). Шаг Троттера — три $e^{iJ\,dt\,Z_iZ_{i+1}}$ (каждая — CNOT, $R_z$, CNOT) и четыре $R_x$: 13 гейтов, из них 6 CNOT. Шум: деполяризация $p = 0{,}01$ на каждом кубите после CNOT, $p = 0{,}002$ после однокубитных гейтов, амплитудное затухание $\gamma = 0{,}003$ после каждого гейта; ошибки считывания $e_0 = 0{,}02$, $e_1 = 0{,}05$. Цель — значение **идеальной схемы**: mitigation не исправляет ошибку Троттера.
+**Задача-бенчмарк** (ЛР12, задание 1; ячейка после таблицы). Шаг Троттера — три $e^{iJ\,dt\,Z_iZ_{i+1}}$ (каждая — CNOT, $R_z$, CNOT) и четыре $R_x$: 13 гейтов, из них 6 CNOT. Шум: деполяризация $p = 0{,}01$ на каждом кубите после CNOT, $p = 0{,}002$ после однокубитных гейтов, амплитудное затухание $\gamma = 0{,}003$ после каждого гейта; ошибки считывания $e_0 = 0{,}02$, $e_1 = 0{,}05$. Цель — значение **идеальной схемы**: mitigation не исправляет ошибку Троттера.
 
 | $d$ | 1 | 2 | 4 | 6 | 8 | 10 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -58,6 +185,24 @@ $C$ — **выборочный оверхед**: во сколько раз бо
 | $\langle O\rangle_0$ (идеальная схема) | 0,1732 | 0,4036 | 0,4306 | 0,4355 | 0,4372 | 0,4380 |
 | $\langle O\rangle_1$ (шум гейтов) | 0,1553 | 0,3404 | 0,3180 | 0,2796 | 0,2450 | 0,2155 |
 | то же + считывание | 0,1135 | 0,3070 | 0,2894 | 0,2556 | 0,2249 | 0,1988 |
+
+```{python}
+H_tfim = sum(-J_ * PF[3][q] @ PF[3][q + 1] for q in range(N_Q - 1)) + sum(-h_ * PF[1][q] for q in range(N_Q))
+psi_ex = expm(-1j * H_tfim * T_TOT)[:, 0]
+U1 = reduce(lambda A, B: B @ A, [gate_unitary(g) for g in trotter_circuit(1)], np.eye(DIM))
+Hzz = sum(-J_ * PF[3][q] @ PF[3][q + 1] for q in range(N_Q - 1))
+assert np.allclose(U1, expm(-1j * (H_tfim - Hzz)) @ expm(-1j * Hzz))   # шаг = e^{−iH_x dt} e^{−iH_zz dt}
+IDEAL, NOISY, NG = {}, {}, {}
+print(" d  гейтов  CNOT   <O>_0     <O>_1    + считывание")
+for d in range(1, 11):
+    gs = trotter_circuit(d)
+    IDEAL[d] = expval(run(gs))
+    rn = run(gs, NOISE)
+    NOISY[d] = expval(rn)
+    NG[d] = (len(gs), sum(g[0] == "cx" for g in gs))
+    print(f"{d:2d}   {NG[d][0]:4d}   {NG[d][1]:3d}   {IDEAL[d]:.4f}   {NOISY[d]:.4f}   {expval(rn, A_ro):.4f}")
+print(f"точная динамика: {np.real(psi_ex.conj() @ OBS @ psi_ex):.4f}")
+```
 
 Точная динамика даёт $0{,}4394$: с ростом $d$ ошибка Троттера падает, а ошибка шума растёт. Так выглядит типичный компромисс NISQ-эпохи.
 
@@ -71,12 +216,61 @@ A_j = \begin{pmatrix}1 - e_0&e_1\\e_0&1 - e_1\end{pmatrix},\qquad \hat{\mathbf p
 $$
 Для одного кубита $\langle Z\rangle_{\text{изм}} = (1 - e_0 - e_1)\langle Z\rangle + (e_1 - e_0)$. Обращение даёт несмещённую оценку, но дисперсия растёт в $(1 - e_0 - e_1)^{-2}$ раз на каждый кубит наблюдаемой: для $Z_2Z_3$ при наших $e_0$, $e_1$ — в $1{,}3368$ раза. Для наблюдаемой веса $k$ рост экспоненциален по $k$ — первый пример общего правила (§6).
 
-Калибровка — приготовить базисные состояния и измерить. **Полная матрица** требует $2^n$ калибровочных схем (при $n = 20$ — $1\,048\,576$) и обращения матрицы $2^n\times2^n$. **Тензорная модель** требует двух схем ($\lvert0\dots0\rangle$ и $\lvert1\dots1\rangle$) и обращения $2\times2$ на кубит. Сравнение на 6 кубитах (раздел 1 `примеры.py`; калибровка по $10^4$ запусков на схему, $10^5$ запусков основной схемы, 10 повторов; среднеквадратичная ошибка оценки):
+```{python}
+zt = 0.3
+z_raw = (A1 @ np.array([(1 + zt) / 2, (1 - zt) / 2])) @ np.array([1, -1])
+assert np.isclose(z_raw, (1 - E0 - E1) * zt + (E1 - E0)) and np.isclose((z_raw - (E1 - E0)) / (1 - E0 - E1), zt)
+assert np.allclose(kron(*[np.linalg.inv(A1)] * N_Q), np.linalg.inv(A_ro))      # (1.1): обратная — тензорное произведение
+p_true = np.real(np.diag(run(trotter_circuit(4), NOISE)))
+print(f"d = 4: <O> = {p_true @ diagO:.5f}, со считыванием {(A_ro @ p_true) @ diagO:.5f}, после обращения {np.linalg.solve(A_ro, A_ro @ p_true) @ diagO:.5f}")
+print(f"рост дисперсии: 1/(1 − e0 − e1)² = {1 / (1 - E0 - E1) ** 2:.4f} на кубит, для Z2Z3 — {1 / (1 - E0 - E1) ** 4:.4f}")
+```
+
+Калибровка — приготовить базисные состояния и измерить. **Полная матрица** требует $2^n$ калибровочных схем (при $n = 20$ — $1\,048\,576$) и обращения матрицы $2^n\times2^n$. **Тензорная модель** требует двух схем ($\lvert0\dots0\rangle$ и $\lvert1\dots1\rangle$) и обращения $2\times2$ на кубит. Сравнение на 6 кубитах (ячейка после таблицы; калибровка по $10^4$ запусков на схему, $10^5$ запусков основной схемы, 10 повторов; среднеквадратичная ошибка оценки):
 
 | | без обращения | полная матрица (64 схемы) | тензорная (2 схемы) |
 |---|---:|---:|---:|
 | независимые ошибки, $\langle Z_3Z_4\rangle$ | 0,0648 | 0,0059 | 0,0029 |
 | перекрёстная ошибка 5 %, $\langle Z_1Z_2\rangle$ | — | 0,0078 | **0,0963** |
+
+```{python}
+n6, shots_cal = 6, 10000
+e0s, e1s = rng.uniform(0.01, 0.03, n6), rng.uniform(0.03, 0.06, n6)
+A6 = kron(*[np.array([[1 - a, b], [a, 1 - b]]) for a, b in zip(e0s, e1s)]).real
+
+def A6_corr(c):
+    """Перекрёстная ошибка: если кубит 1 в |1>, кубит 2 дополнительно переворачивается с вероятностью c."""
+    M = A6.copy()
+    for col in range(64):
+        if (col >> 5) & 1:
+            M[:, col] = (1 - c) * A6[:, col] + c * A6[:, col ^ (1 << 4)]
+    return M
+
+p6 = 0.1 * np.ones(64) / 64; p6[0b100000] += 0.9                    # 0,9|100000> + 0,1·I/64
+zz = lambda a, b: np.array([(1 - 2 * ((i >> (5 - a)) & 1)) * (1 - 2 * ((i >> (5 - b)) & 1)) for i in range(64)])
+obs34, obs12 = zz(2, 3), zz(0, 1)
+rms = lambda e: np.sqrt(np.mean(np.square(e)))
+for corr in (0.0, 0.05):
+    Atrue = A6_corr(corr) if corr else A6
+    err = {k: [] for k in ("raw", "f34", "t34", "f12", "t12")}
+    for rep in range(10):
+        Afull = np.column_stack([rng.multinomial(shots_cal, Atrue[:, col]) / shots_cal for col in range(64)])   # 64 схемы
+        c0 = rng.multinomial(shots_cal, Atrue[:, 0]) / shots_cal                                               # |000000>
+        c1 = rng.multinomial(shots_cal, Atrue[:, 63]) / shots_cal                                              # |111111>
+        Ats = []
+        for q in range(n6):
+            bit = np.array([(i >> (n6 - 1 - q)) & 1 for i in range(64)])
+            a, b = c0[bit == 1].sum(), c1[bit == 0].sum()
+            Ats.append(np.array([[1 - a, b], [a, 1 - b]]))
+        Aten = kron(*Ats)
+        pm = rng.multinomial(100000, Atrue @ p6) / 100000
+        for tag, ob in (("34", obs34), ("12", obs12)):
+            err["f" + tag].append(np.linalg.solve(Afull, pm) @ ob - p6 @ ob)
+            err["t" + tag].append(np.linalg.solve(Aten, pm) @ ob - p6 @ ob)
+        err["raw"].append(pm @ obs34 - p6 @ obs34)
+    print(f"перекрёстная ошибка {corr:.0%}: <Z3Z4> без обращения {rms(err['raw']):.4f}, полная {rms(err['f34']):.4f}, тензорная {rms(err['t34']):.4f};"
+          f"  <Z1Z2> полная {rms(err['f12']):.4f}, тензорная {rms(err['t12']):.4f}")
+```
 
 Во второй строке, если кубит 1 в $\lvert1\rangle$, кубит 2 дополнительно переворачивается при считывании с вероятностью 5 %. Тензорная модель этого не видит и даёт большое смещение. Практические методы — промежуточные: модели с корреляциями между соседями, обращение только в подпространстве наблюдённых строк, твирлинг считывания (случайные $X$ перед измерением с классической компенсацией), который делает $A$ симметричной (ЛР12, задание 2).
 
@@ -107,18 +301,95 @@ $$
 Для $\lambda = 1, 3, 5$ (допуск к ЛР12): $\gamma = (\frac{15}8, -\frac54, \frac38)$, $\sum\gamma_i^2 = 5{,}2188$ — стандартное отклонение растёт в $2{,}28$ раза. Для $\lambda = 1, 2, 3$: $\gamma = (3, -3, 1)$, $\sum\gamma_i^2 = 19$. Ближе к нулю — меньше смещение, но больше дисперсия.
 - **Экспоненциальная:** $\langle O\rangle_\lambda = a\,e^{-c\lambda}$ (лог-линейная подгонка). Это **точная** модель для глобальной деполяризации: $\langle O\rangle_\lambda = f^\lambda\langle O\rangle_0$. В задаче 5 Ричардсон по точкам $0{,}6\cdot0{,}8^\lambda$ даёт $0{,}5897$ вместо $0{,}6$, экспоненциальная — ровно $0{,}6$.
 
+```{python}
+def richardson_coeffs(lams):
+    """(2.2)"""
+    lams = np.asarray(lams, float)
+    return np.array([np.prod([lj / (lj - li) for j, lj in enumerate(lams) if j != i]) for i, li in enumerate(lams)])
+
+def extrap(lams, vals, kind):
+    lams, vals = np.asarray(lams, float), np.asarray(vals, float)
+    if kind == "lin":
+        return np.polyfit(lams, vals, 1)[1]
+    if kind == "rich":
+        return richardson_coeffs(lams) @ vals
+    if np.any(vals * np.sign(vals[0]) <= 0):                       # "exp": лог-линейная подгонка a·e^{−cλ}
+        return np.nan
+    return np.sign(vals[0]) * np.exp(np.polyfit(lams, np.log(np.abs(vals)), 1)[1])
+
+g135, g123 = richardson_coeffs([1, 3, 5]), richardson_coeffs([1, 2, 3])
+assert np.allclose(g135, [15 / 8, -5 / 4, 3 / 8]) and np.allclose(g123, [3, -3, 1])
+print(f"λ = 1, 3, 5: γ = {g135.tolist()}, Σγ² = {np.sum(g135 ** 2):.4f}, рост ст. откл. {sqrt(np.sum(g135 ** 2)):.2f}; λ = 1, 2, 3: Σγ² = {np.sum(g123 ** 2):.0f}")
+vals5 = [0.6 * 0.8 ** l for l in (1, 3, 5)]
+print(f"0,6·0,8^λ: Ричардсон {extrap([1, 3, 5], vals5, 'rich'):.4f}, экспоненциальная {extrap([1, 3, 5], vals5, 'exp'):.4f}")
+assert abs(extrap([1, 3, 5], vals5, "exp") - 0.6) < 1e-12
+```
+
 ### 2.3. Численный эксперимент
 
-Раздел 2 `примеры.py` (ЛР12, задание 3). Глобальный фолдинг $\lambda = 1, 3, 5$, шум гейтов без ошибок считывания. Указано $\lvert\hat E - \langle O\rangle_0\rvert$ и стандартное отклонение (бутстрэп) при $10^4$ запусков на точку; в последнем столбце — идеализированное растяжение $\lambda = 1, 2, 3$ с Ричардсоном (только смещение).
+Проверка (ЛР12, задание 3; ячейка и рисунок после таблицы). Глобальный фолдинг $\lambda = 1, 3, 5$, шум гейтов без ошибок считывания. Указано $\lvert\hat E - \langle O\rangle_0\rvert$ и стандартное отклонение (бутстрэп) при $10^4$ запусков на точку; в последнем столбце — идеализированное растяжение $\lambda = 1, 2, 3$ с Ричардсоном (только смещение).
 
 | $d$ | без mitigation | линейная | Ричардсон | экспоненциальная | растяжение $1,2,3$ |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 0,0179 | $0{,}0064\pm0{,}012$ | $0{,}0022\pm0{,}022$ | $0{,}0024\pm0{,}014$ | 0,0002 |
+| 1 | 0,0178 | $0{,}0064\pm0{,}012$ | $0{,}0022\pm0{,}022$ | $0{,}0024\pm0{,}014$ | 0,0002 |
 | 2 | 0,0632 | $0{,}0291\pm0{,}011$ | $0{,}0055\pm0{,}021$ | $0{,}0083\pm0{,}016$ | 0,0018 |
 | 4 | 0,1126 | $0{,}0747\pm0{,}011$ | $0{,}0231\pm0{,}023$ | $0{,}0342\pm0{,}019$ | 0,0101 |
 | 6 | 0,1559 | $0{,}1224\pm0{,}012$ | $0{,}0521\pm0{,}022$ | $0{,}0748\pm0{,}023$ | 0,0269 |
 | 8 | 0,1922 | $0{,}1647\pm0{,}012$ | $0{,}0863\pm0{,}023$ | $0{,}1216\pm0{,}026$ | 0,0504 |
 | 10 | 0,2225 | $0{,}2004\pm0{,}012$ | $0{,}1213\pm0{,}024$ | $0{,}1668\pm0{,}026$ | 0,0783 |
+
+```{python}
+#| fig-cap: "ZNE при $d = 6$: значения $\\langle O\\rangle_\\lambda$ при глобальном фолдинге $\\lambda = 1, 3, 5$ и три экстраполяции к $\\lambda = 0$; пунктир — значение идеальной схемы"
+def fold_global(gates, k):
+    """U (U†U)^k: коэффициент растяжения 2k + 1."""
+    inv = [inverse_gate(g) for g in reversed(gates)]
+    return gates + (inv + gates) * k
+
+def fold_local(gates, k):
+    return [x for g in gates for x in [g] + [inverse_gate(g), g] * k]
+
+def zne_values(d, folding, scales, noise=NOISE, readout=None):
+    gs = trotter_circuit(d)
+    if folding == "stretch":                                       # идеализированное растяжение: шум × λ
+        return [expval(run(gs, noise.scaled(lam)), readout) for lam in scales]
+    fold = fold_global if folding == "global" else fold_local
+    return [expval(run(fold(gs, (lam - 1) // 2), noise), readout) for lam in scales]
+
+SH = 10000                                                         # запусков на точку
+ZNE = {}
+print(" d   без mitig.   линейная         Ричардсон        экспоненц.       растяжение 1,2,3")
+for d in (1, 2, 4, 6, 8, 10):
+    vals = zne_values(d, "global", [1, 3, 5])
+    vs = zne_values(d, "stretch", [1, 2, 3])
+    sig = [sqrt(max(1 - v ** 2, 0) / SH) for v in vals]
+    res = {}
+    for kind in ("lin", "rich", "exp"):
+        boots = [extrap([1, 3, 5], np.array(vals) + rng.normal(size=3) * sig, kind) for _ in range(400)]   # бутстрэп
+        res[kind] = (extrap([1, 3, 5], vals, kind), np.nanstd(boots))
+    est_s = extrap([1, 2, 3], vs, "rich")
+    ZNE[d] = (vals, res, est_s)
+    b = lambda kind: f"{abs(res[kind][0] - IDEAL[d]):.4f} ± {res[kind][1]:.3f}"
+    print(f"{d:2d}   {abs(vals[0] - IDEAL[d]):.4f}      {b('lin')}   {b('rich')}   {b('exp')}   {abs(est_s - IDEAL[d]):.4f}")
+for d in (4, 6, 8, 10):
+    vals, res, est_s = ZNE[d]
+    assert abs(res["rich"][0] - IDEAL[d]) < 0.6 * abs(vals[0] - IDEAL[d]) and abs(est_s - IDEAL[d]) < abs(res["rich"][0] - IDEAL[d])
+print(f"d = 6: <O>_5 = {ZNE[6][0][2]:.3f}; гейтов при λ = 5 и d = 10: {len(fold_global(trotter_circuit(10), 2))}")
+amp = {d: np.sum(g135 ** 2 * (1 - np.array(ZNE[d][0]) ** 2)) / (1 - ZNE[d][0][0] ** 2) for d in ZNE}   # Var(Ричардсон)/Var(λ = 1)
+print("оверхед Ричардсона по дисперсии:", ", ".join(f"{v:.2f}" for v in amp.values()), "— ст. откл. растёт в", ", ".join(f"{sqrt(v):.2f}" for v in amp.values()))
+
+vals, res, _ = ZNE[6]
+lf = np.linspace(0, 5.2, 200)
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.plot([1, 3, 5], vals, "ko", ms=7, label="$\\langle O\\rangle_\\lambda$ (фолдинг)")
+ax.plot(lf, np.polyval(np.polyfit([1, 3, 5], vals, 1), lf), "-", label="линейная")
+ax.plot(lf, np.polyval(np.polyfit([1, 3, 5], vals, 2), lf), "-", label="Ричардсон (парабола)")
+kexp, bexp = np.polyfit([1, 3, 5], np.log(vals), 1)
+ax.plot(lf, np.exp(bexp + kexp * lf), "-", label="экспоненциальная")
+ax.axhline(IDEAL[6], color="gray", ls="--", label="идеальная схема")
+ax.set_xlabel("коэффициент усиления шума $\\lambda$"); ax.set_ylabel("$\\langle Z_2Z_3\\rangle$")
+ax.set_xlim(-0.1, 5.3); ax.set_ylim(0.04, 0.6); ax.legend(loc="upper right", ncol=2, fontsize=9)
+plt.show()
+```
 
 Что видно:
 1. При малой глубине Ричардсон убирает смещение почти полностью, при $d = 10$ — лишь наполовину. Фолдинг до $\lambda = 5$ даёт схемы из 650 гейтов, где сигнал почти исчез ($\langle O\rangle_5 = 0{,}087$ при $d = 6$), и многочлен плохо экстраполирует.
@@ -128,12 +399,26 @@ $$
 
 Глобальный и локальный фолдинг при $d = 6$ дают близкие значения ($\langle O\rangle_{1,3,5} = 0{,}2796;\ 0{,}1387;\ 0{,}0866$ и $0{,}2796;\ 0{,}1368;\ 0{,}0890$; Ричардсон $0{,}3833$ и $0{,}3867$ при идеале $0{,}4355$). Для деполяризации после каждого гейта это ожидаемо. Различия появляются, когда шум зависит от контекста (перекрёстные помехи, неоднородные ошибки гейтов): локальный фолдинг усиливает шум каждого гейта пропорционально, глобальный — «в среднем» (контрольный вопрос 3 ЛР12).
 
+```{python}
+vg, vl = zne_values(6, "global", [1, 3, 5]), zne_values(6, "local", [1, 3, 5])
+print(f"d = 6: глобальный {np.round(vg, 4).tolist()}, локальный {np.round(vl, 4).tolist()}; "
+      f"Ричардсон {extrap([1, 3, 5], vg, 'rich'):.4f} / {extrap([1, 3, 5], vl, 'rich'):.4f} (идеал {IDEAL[6]:.4f})")
+```
+
 ### 2.4. Когда ZNE ломается
 
-- **Когерентные ошибки калибровки.** Если гейт реализован как $R_x(\theta(1 + \delta))$, а $G^\dagger$ — как $R_x(-\theta(1+\delta))$, то $GG^\dagger G = G$ **точно**: фолдинг не усиливает ошибку. При $\delta = 0{,}05$ и $d = 4$ все три значения равны $0{,}4047$, экстраполяция тоже, и смещение $0{,}0259$ остаётся (раздел 2 `примеры.py`; ЛР12, задание 7б). Лечение — твирлинг (II.2, §2): после него ошибка стохастическая и масштабируется.
+- **Когерентные ошибки калибровки.** Если гейт реализован как $R_x(\theta(1 + \delta))$, а $G^\dagger$ — как $R_x(-\theta(1+\delta))$, то $GG^\dagger G = G$ **точно**: фолдинг не усиливает ошибку. При $\delta = 0{,}05$ и $d = 4$ все три значения равны $0{,}4047$, экстраполяция тоже, и смещение $0{,}0259$ остаётся (ячейка в конце пункта; ЛР12, задание 7б). Лечение — твирлинг (II.2, §2): после него ошибка стохастическая и масштабируется.
 - **Ошибки считывания** фолдинг не масштабирует: Ричардсон при $d = 6$ с ошибками считывания даёт $0{,}3483$ вместо $0{,}3833$. Считывание подавляют отдельно (§1).
 - Немарковский или зависящий от времени шум: растяжение импульсов меняет не только величину, но и характер шума.
 - Глубокие схемы: при $\langle O\rangle_\lambda\approx0$ на больших $\lambda$ экстраполяция неустойчива.
+
+```{python}
+vc = zne_values(4, "global", [1, 3, 5], Noise(coh=0.05))           # только пере-поворот R_x на 5 %
+assert np.allclose(vc, vc[0])
+print(f"пере-поворот 5 %, d = 4: <O>_(1,3,5) = {np.round(vc, 4).tolist()}, смещение {abs(extrap([1, 3, 5], vc, 'rich') - IDEAL[4]):.4f}")
+v_ro = zne_values(6, "global", [1, 3, 5], readout=A_ro)
+print(f"d = 6 с ошибками считывания: Ричардсон {extrap([1, 3, 5], v_ro, 'rich'):.4f} вместо {extrap([1, 3, 5], ZNE[6][0], 'rich'):.4f}")
+```
 
 ---
 
@@ -161,9 +446,24 @@ $$
 $$
 Оверхед экспоненциален по **суммарной вероятности ошибки** в схеме.
 
+```{python}
+def dep_inverse_quasi(p):
+    """(3.3): квазивероятности (q_I, q_X, q_Y, q_Z) для Δ_p^{-1}."""
+    lam = 1 - p
+    return np.array([(1 + 3 / lam) / 4] + [(1 - 1 / lam) / 4] * 3)
+
+rho_t = np.array([[0.6, 0.3 - 0.2j], [0.3 + 0.2j, 0.4]])
+for p in (0.01, 0.002):
+    q = dep_inverse_quasi(p)
+    dp = lambda r: sum(k @ r @ dag(k) for k in dep1_kraus(p))
+    assert np.allclose(sum(qq * P @ dp(rho_t) @ P for qq, P in zip(q, PAULIS)), rho_t)
+    assert np.isclose(np.abs(q).sum(), (3 / (1 - p) - 1) / 2)
+    print(f"p = {p}: q_I = {q[0]:.6f}, q_P = {q[1]:.6f}, γ = {np.abs(q).sum():.6f} ≈ 1 + 3p/2 = {1 + 1.5 * p:.6f}")
+```
+
 ### 3.2. Численный эксперимент
 
-Раздел 3 `примеры.py` (ЛР12, задание 4); модель PEC — деполяризация после каждого гейта (как в `mitiq.pec` с локальным деполяризующим шумом).
+Проверка (ЛР12, задание 4; ячейка после обсуждения таблицы); модель PEC — деполяризация после каждого гейта (как в `mitiq.pec` с локальным деполяризующим шумом).
 
 | $d$ | $\gamma_{\text{tot}}$ | $C = \gamma^2$ | без mitigation | PEC, модель верна | модель занижена на 30 % | + неучтённое ампл. затухание |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -174,7 +474,86 @@ $$
 
 При $d = 10$ $\gamma_{\text{tot}} = 7{,}4981$ против оценки (3.4) $7{,}4633$. Если модель верна, среднее PEC совпадает с идеалом до $10^{-10}$. При заниженном на 30 % шуме остаётся смещение ($0{,}088$ при $d = 10$) — PEC несмещён **только при точной модели** (ЛР12, задание 7а; контрольный вопрос 2). Неучтённое амплитудное затухание тоже даёт смещение, хотя и меньшее.
 
-**Выборочная PEC** при $d = 4$: 3000 случайных схем по одному запуску дают $0{,}4850\pm0{,}0399$ при идеале $0{,}4306$. Стандартное отклонение одного значения $2{,}185\approx\gamma_{\text{tot}} = 2{,}239$. Для точности $0{,}01$ нужно $\gamma^2/0{,}01^2\approx5\cdot10^4$ запусков при $d = 4$ и $5{,}6\cdot10^5$ при $d = 10$.
+```{python}
+PEC_NOISE = Noise(p1=0.002, p2=0.01)                               # модель PEC — только деполяризация
+
+def noise_locations(gates):
+    locs = []
+    for i, g in enumerate(gates):
+        locs += [(i, g[1], PEC_NOISE.p2), (i, g[1] + 1, PEC_NOISE.p2)] if g[0] == "cx" else [(i, g[1], PEC_NOISE.p1)]
+    return locs
+
+def gamma_total(gates, scale=1.0):
+    return np.prod([np.abs(dep_inverse_quasi(p * scale)).sum() for (_, _, p) in noise_locations(gates)])
+
+def S_quasi(qv):
+    """Квазиканал Σ q_k P_k·P_k в виде тензора [i, j, i', j']."""
+    return sum(qk * np.kron(P, P.conj()) for qk, P in zip(qv, PAULIS)).reshape(2, 2, 2, 2)
+
+def pec_exact(gates, noise, p_model_scale=1.0):
+    """Точное среднее PEC: после шума каждого места — обратное отображение модели (без выборки)."""
+    rho = np.zeros((DIM, DIM), complex); rho[0, 0] = 1
+    for g in gates:
+        U = gate_unitary(g)
+        rho = U @ rho @ dag(U)
+        pp = noise.p2 if g[0] == "cx" else noise.p1
+        pm = (PEC_NOISE.p2 if g[0] == "cx" else PEC_NOISE.p1) * p_model_scale
+        for q in ((g[1], g[1] + 1) if g[0] == "cx" else (g[1],)):
+            if pp:
+                rho = apply_S(rho, S_dep(pp), q)
+            if noise.gad:
+                rho = apply_S(rho, S_ad(noise.gad), q)
+            rho = apply_S(rho, S_quasi(dep_inverse_quasi(pm)), q)
+    return expval(rho)
+
+print(" d   γ_tot    C = γ²   без mitig.   PEC (модель верна)   модель −30 %   + ампл. затухание")
+PEC = {}
+for d in (1, 2, 4, 6, 8, 10):
+    gs = trotter_circuit(d)
+    gt = gamma_total(gs)
+    e_ok, e_low, e_ad = pec_exact(gs, PEC_NOISE), pec_exact(gs, PEC_NOISE, 0.7), pec_exact(gs, NOISE)
+    PEC[d] = (gt, e_ok, e_low, e_ad)
+    print(f"{d:2d}   {gt:.4f}   {gt ** 2:6.2f}   {expval(run(gs, PEC_NOISE)):.4f}       {e_ok:.6f} (ид. {IDEAL[d]:.6f})   {e_low:.4f}         {e_ad:.4f}")
+    assert abs(e_ok - IDEAL[d]) < 1e-10
+eps_sum = sum(0.75 * p for (_, _, p) in noise_locations(trotter_circuit(10)))
+print(f"d = 10: γ_tot = {PEC[10][0]:.4f}, оценка (3.4) exp(2Σε) = {exp(2 * eps_sum):.4f}; смещение при модели −30 %: {IDEAL[10] - PEC[10][2]:.3f}")
+```
+
+**Выборочная PEC** при $d = 4$ (ячейка ниже): 3000 случайных схем по одному запуску дают $0{,}4850\pm0{,}0399$ при идеале $0{,}4306$. Стандартное отклонение одного значения $2{,}185\approx\gamma_{\text{tot}} = 2{,}239$. Для точности $0{,}01$ нужно $\gamma^2/0{,}01^2\approx5\cdot10^4$ запусков при $d = 4$ и $5{,}6\cdot10^5$ при $d = 10$.
+
+```{python}
+d, Nmc = 4, 3000
+gs = trotter_circuit(d)
+locs = noise_locations(gs)
+gt = gamma_total(gs)
+# Выборка: по одному равномерному числу на каждое место шума (как rng.choice с p) и одно — на исход запуска.
+# Все 3000 схем считаются пачкой матриц плотности (форма (3000, 16, 16)).
+u = rng.random((Nmc, len(locs) + 1))
+ks, sign = np.zeros((Nmc, len(locs)), int), np.ones(Nmc)
+for j, (_, _, p) in enumerate(locs):
+    qv = dep_inverse_quasi(p)
+    cdf = np.cumsum(np.abs(qv) / np.abs(qv).sum()); cdf /= cdf[-1]
+    ks[:, j] = np.searchsorted(cdf, u[:, j], side="right")
+    sign *= np.sign(qv[ks[:, j]])
+R = np.zeros((Nmc, DIM, DIM), complex); R[:, 0, 0] = 1
+j = 0
+for g in gs:
+    U = gate_unitary(g)
+    R = U @ R @ dag(U)
+    for q in ((g[1], g[1] + 1) if g[0] == "cx" else (g[1],)):
+        R = apply_S(R, S_dep(PEC_NOISE.p2 if g[0] == "cx" else PEC_NOISE.p1), q)
+        for k in (1, 2, 3):                                        # вставленные паули-операторы
+            m = ks[:, j] == k
+            R[m] = PF[k][q] @ R[m] @ PF[k][q]
+        j += 1
+vals = np.real(np.einsum("sii,i->s", R, diagO))
+shot = np.where(u[:, -1] < (1 + vals) / 2, 1, -1)                  # один запуск на схему
+ests = gt * sign * shot
+m, s = ests.mean(), ests.std() / sqrt(Nmc)
+print(f"выборочная PEC, d = {d}: {m:.4f} ± {s:.4f} (идеал {IDEAL[d]:.4f}); ст. откл. одного значения {ests.std():.3f}, γ_tot = {gt:.3f}")
+print(f"запусков для точности 0,01: {gt ** 2 / 0.01 ** 2:.1e} (d = 4), {PEC[10][0] ** 2 / 0.01 ** 2:.1e} (d = 10)")
+assert abs(m - IDEAL[d]) < 4 * s and abs(ests.std() - gt) < 0.1 * gt
+```
 
 ### 3.3. Как узнать модель: разреженная модель Паули–Линдблада
 
@@ -182,11 +561,25 @@ PEC требует модели шума **каждого слоя гейтов*
 $$
 \Lambda = \exp\Bigl[\sum_k\mu_k\,\mathcal L_k\Bigr],\qquad \mathcal L_k(\rho) = P_k\rho P_k - \rho,\quad \mu_k\ge0 , \tag{3.5}
 $$
-где $P_k$ пробегает лишь одно- и двухкубитные паули-операторы на соседних по связности кубитах — $O(n)$ параметров. Генераторы коммутируют, и каждый множитель — канал $e^{\mu\mathcal L}(\rho) = w\rho + (1-w)P\rho P$, $w = \frac12(1 + e^{-2\mu})$. Его обратное — квазиканал с $\gamma = e^{2\mu}$ (раздел 3 `примеры.py`), так что
+где $P_k$ пробегает лишь одно- и двухкубитные паули-операторы на соседних по связности кубитах — $O(n)$ параметров. Генераторы коммутируют, и каждый множитель — канал $e^{\mu\mathcal L}(\rho) = w\rho + (1-w)P\rho P$, $w = \frac12(1 + e^{-2\mu})$. Его обратное — квазиканал с $\gamma = e^{2\mu}$ (проверка — в конце пункта), так что
 $$
 \gamma_{\text{tot}} = \exp\Bigl(2\sum_k\mu_k\Bigr) . \tag{3.6}
 $$
 Параметры $\mu_k$ учат по затуханию паули-средних при повторении слоя (как в RB, II.3, §3), что нечувствительно к SPAM. Деполяризующий канал $\Delta_p$ — частный случай с $\mu_X = \mu_Y = \mu_Z = -\frac14\ln(1-p)$. При $p = 0{,}01$ формула (3.6) даёт $\gamma = e^{6\mu} = 1{,}015190$ против оптимального $1{,}015152$ из (3.3). Та же модель позволяет **усиливать** шум до $\Lambda^\lambda$ (умножением $\mu_k$ на $\lambda$) — это PEA для ZNE.
+
+```{python}
+mu = 0.004
+w = (1 + exp(-2 * mu)) / 2
+chan = lambda r: w * r + (1 - w) * X @ r @ X
+Lsup = mu * (np.kron(X, X.conj()) - np.eye(4))                     # генератор μ(XρX − ρ)
+assert np.allclose((expm(Lsup) @ rho_t.reshape(-1)).reshape(2, 2), chan(rho_t))
+winv = np.array([(1 + exp(2 * mu)) / 2, (1 - exp(2 * mu)) / 2])
+assert np.allclose(winv[0] * chan(rho_t) + winv[1] * X @ chan(rho_t) @ X, rho_t) and np.isclose(np.abs(winv).sum(), exp(2 * mu))
+mud = -log(1 - 0.01) / 4
+L3 = sum(mud * (np.kron(P, P.conj()) - np.eye(4)) for P in (X, Y, Z))
+assert np.allclose((expm(L3) @ rho_t.reshape(-1)).reshape(2, 2), sum(k @ rho_t @ dag(k) for k in dep1_kraus(0.01)))
+print(f"e^(μL) обращается с γ = e^(2μ); Δ_0,01: μ = {mud:.6f}, γ = e^(6μ) = {exp(6 * mud):.6f} против (3.3) {(3 / 0.99 - 1) / 2:.6f}")
+```
 
 ---
 
@@ -194,7 +587,7 @@ $$
 
 Клиффордовы схемы моделируются классически эффективно (I.9, §4). **CDR** (Чарник и др., 2021): построить много схем той же структуры, что целевая, но с большинством неклиффордовых поворотов, заменённых клиффордовыми (углы, кратные $\pi/2$). Для них известны и идеальное значение $y_i$ (классически), и зашумлённое $x_i$ (на устройстве). Подогнать модель $y = ax + b$ и применить к зашумлённому значению целевой схемы. Идея: для глобальной деполяризации $x = fy + \text{const}$ точно, и линейная модель восстанавливает $y$ при любом $f$, если шум почти не зависит от углов поворотов.
 
-Раздел 4 `примеры.py` (ЛР12, задание 5): 20 обучающих схем, в каждой 10 % неклиффордовых поворотов сохранено, остальные случайно округлены к соседнему кратному $\pi/2$.
+Проверка (ЛР12, задание 5; ячейка и рисунок после таблицы): 20 обучающих схем, в каждой 10 % неклиффордовых поворотов сохранено, остальные случайно округлены к соседнему кратному $\pi/2$.
 
 | $d$ | идеал | без mitigation | CDR | смещение | наклон $a$ |
 |---:|---:|---:|---:|---:|---:|
@@ -204,7 +597,53 @@ $$
 | 6 | 0,4355 | 0,2796 | 0,4657 | 0,0302 | 1,801 |
 | 10 | 0,4380 | 0,2155 | 0,5110 | 0,0730 | 2,624 |
 
-Наклон $a\approx1/f$ растёт с глубиной, как и ожидалось. Смещение CDR при $d\ge2$ в 3–45 раз меньше исходного. При $d = 1$ метод **отказал**: почти все обучающие схемы дали $\langle O\rangle = 0$ (клиффордова схема из $\lvert0000\rangle$ даёт стабилизаторное состояние, для которого $\langle Z_2Z_3\rangle\in\{0,\pm1\}$), регрессия вырождена. Обучающее множество должно покрывать диапазон значений целевой схемы. Зависимость от состава обучающего множества ($d = 6$, среднее по 5 повторам):
+```{python}
+#| fig-cap: "CDR при $d = 6$: 20 почти-клиффордовых обучающих схем (зашумлённое и идеальное значения), линейная регрессия и её применение к целевой схеме"
+def random_clifford_angle(t):
+    """Один из двух соседних кратных π/2 углов, с вероятностью, пропорциональной близости."""
+    lo = np.floor(t / (pi / 2)) * (pi / 2)
+    return lo + (pi / 2 if rng.random() < (t - lo) / (pi / 2) else 0.0)
+
+def cdr_training(gates, n_train, frac_keep):
+    idx_nc = [i for i, g in enumerate(gates) if g[0] in ("rz", "rx")]
+    keep = int(round(frac_keep * len(idx_nc)))
+    train = []
+    for _ in range(n_train):
+        kept = set(rng.choice(idx_nc, size=keep, replace=False)) if keep else set()
+        train.append([g if (i in kept or g[0] == "cx") else (g[0], g[1], random_clifford_angle(g[2])) for i, g in enumerate(gates)])
+    return train
+
+def cdr_estimate(d, n_train=20, frac_keep=0.1, noise=NOISE):
+    gs = trotter_circuit(d)
+    xs, ys = [], []
+    for g2 in cdr_training(gs, n_train, frac_keep):
+        xs.append(expval(run(g2, noise))); ys.append(expval(run(g2)))
+    a, b = np.polyfit(xs, ys, 1)
+    xt = expval(run(gs, noise))
+    return a * xt + b, (a, b), np.array(xs), np.array(ys), xt
+
+print(" d   идеал    без mitig.   CDR      смещение   наклон a")
+CDR = {}
+for d in (1, 2, 4, 6, 8, 10):
+    CDR[d] = cdr_estimate(d)
+    est, (a, b) = CDR[d][:2]
+    print(f"{d:2d}   {IDEAL[d]:.4f}   {NOISY[d]:.4f}     {est:+.4f}   {abs(est - IDEAL[d]):.4f}     {a:.3f}")
+assert all(abs(CDR[d][0] - IDEAL[d]) < abs(NOISY[d] - IDEAL[d]) for d in (4, 6, 8, 10))
+print(f"d = 1: идеальное <O> = 0 у {np.sum(np.abs(CDR[1][3]) < 1e-9)} из {len(CDR[1][3])} обучающих схем")
+
+est, (a, b), xs, ys, xt = CDR[6]
+xf = np.linspace(xs.min(), max(xs.max(), xt), 50)
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.plot(xs, ys, "o", label="обучающие схемы")
+ax.plot(xf, a * xf + b, "-", label=f"регрессия $y = {a:.2f}x {b:+.3f}$".replace(".", "{,}"))
+ax.plot([xt], [est], "r*", ms=14, label="целевая схема: оценка CDR")
+ax.plot([xt], [IDEAL[6]], "kx", ms=10, mew=2, label="целевая схема: идеал")
+ax.set_xlabel("зашумлённое значение $x$"); ax.set_ylabel("идеальное значение $y$")
+ax.legend()
+plt.show()
+```
+
+Наклон $a\approx1/f$ растёт с глубиной, как и ожидалось. Смещение CDR при $d\ge2$ в 3–45 раз меньше исходного. При $d = 1$ метод **отказал**: все 20 обучающих схем дали $\langle O\rangle = 0$ (клиффордова схема из $\lvert0000\rangle$ даёт стабилизаторное состояние, для которого $\langle Z_2Z_3\rangle\in\{0,\pm1\}$), регрессия вырождена. Обучающее множество должно покрывать диапазон значений целевой схемы. Зависимость от состава обучающего множества ($d = 6$, среднее по 5 повторам):
 
 | обучающих схем | 0 % неклиффордовых | 10 % | 30 % |
 |---:|---:|---:|---:|
@@ -213,17 +652,51 @@ $$
 
 Больше схем и больше неклиффордовых гейтов — лучше. Чисто клиффордовы обучающие схемы далеки от целевой и дают плохую модель (ЛР12, задание 7в). С когерентным пере-поворотом 5 % при $d = 4$ CDR даёт $0{,}4611$ при идеале $0{,}4306$: линейная связь «шумное → идеальное» нарушается, когда ошибка зависит от углов. CDR выгоднее ZNE, когда шум сложен и плохо масштабируется, но приблизительно «линеен» по наблюдаемой (контрольный вопрос 4 ЛР12). Варианты: обучение на нескольких уровнях шума одновременно (комбинация с ZNE), выбор обучающих схем ближе к целевой.
 
+```{python}
+print("d = 6, среднее |смещение| по 5 повторам:")
+for n_tr in (5, 20):
+    row = [np.mean([abs(cdr_estimate(6, n_tr, fk)[0] - IDEAL[6]) for _ in range(5)]) for fk in (0.0, 0.1, 0.3)]
+    print(f"  {n_tr:2d} схем: " + ", ".join(f"{fk:.0%} неклиффордовых — {e:.3f}" for fk, e in zip((0.0, 0.1, 0.3), row)))
+coh = Noise(p1=0.002, p2=0.01, gad=0.003, coh=0.05)
+print(f"d = 4 с пере-поворотом 5 %: шумное {expval(run(trotter_circuit(4), coh)):.4f}, CDR {cdr_estimate(4, 20, 0.1, coh)[0]:.4f}, идеал {IDEAL[4]:.4f}")
+```
+
 ---
 
 ## 5. Симметрии и виртуальная дистилляция (обзорно)
 
-**Проверка симметрий.** Если идеальное состояние — собственное для симметрии $S$ (чётность, число частиц в VQE), то исходы, нарушающие симметрию, заведомо ошибочны, и их можно отбросить (пост-селекция) или спроецировать оценку. Пример (раздел 5 `примеры.py`): зашумлённое GHZ$_4$, симметрия $Z^{\otimes4} = +1$. $\langle Z_1Z_2\rangle$ растёт с $0{,}8858$ до $0{,}9950$ при доле принятых исходов $0{,}9087$ (оверхед $1{,}10$). Ошибки, сохраняющие симметрию, остаются (ЛР12, дополнительное задание — чётность для H₂).
+**Проверка симметрий.** Если идеальное состояние — собственное для симметрии $S$ (чётность, число частиц в VQE), то исходы, нарушающие симметрию, заведомо ошибочны, и их можно отбросить (пост-селекция) или спроецировать оценку. Пример (проверка — ячейка в конце раздела): зашумлённое GHZ$_4$, симметрия $Z^{\otimes4} = +1$. $\langle Z_1Z_2\rangle$ растёт с $0{,}8858$ до $0{,}9950$ при доле принятых исходов $0{,}9087$ (оверхед $1{,}10$). Ошибки, сохраняющие симметрию, остаются (ЛР12, дополнительное задание — чётность для H₂).
 
 **Виртуальная дистилляция** (Хаггинс и др., 2021; Кочор, 2021): по $M$ копиям $\rho$ и схеме, похожей на SWAP-тест (I.12, §6), измеряют
 $$
 \langle O\rangle_{\text{VD}} = \frac{\operatorname{Tr}(\rho^MO)}{\operatorname{Tr}(\rho^M)} . \tag{5.1}
 $$
 $\rho^M/\operatorname{Tr}\rho^M$ экспоненциально по $M$ приближается к главному собственному вектору $\rho$. Для $\rho = (1-\varepsilon)\lvert\psi\rangle\langle\psi\rvert + \varepsilon\sigma$ ошибка падает с $O(\varepsilon)$ до $O(\varepsilon^M)$ (задача 10). На TFIM при $d = 6$: $0{,}2796\to0{,}4292$ ($M = 2$) $\to0{,}4461$ ($M = 3$) при идеале $0{,}4355$. Предел — значение на главном собственном векторе, $0{,}4479$: шум не только смешивает, но и **сдвигает** главный вектор (перекрытие с идеальным $0{,}9949$). Это «когерентный предел» VD. Цена — $M$ копий и контролируемые операции между ними.
+
+```{python}
+rho = np.zeros((DIM, DIM), complex); rho[0, 0] = 1                 # GHZ_4 с шумом
+U = embed1(H1, 0); rho = apply_S(U @ rho @ dag(U), S_dep(0.01), 0)
+for q in range(N_Q - 1):
+    U = embed2(CNOT2, q); rho = U @ rho @ dag(U)
+    for qq in (q, q + 1):
+        rho = apply_S(apply_S(rho, S_dep(0.03), qq), S_ad(0.01), qq)
+pz = np.real(np.diag(rho))
+par = np.array([(-1) ** bin(i).count("1") for i in range(DIM)])
+z12 = np.real(np.diag(PF[3][0] @ PF[3][1]))
+acc = pz[par == 1].sum()
+raw, post = pz @ z12, (pz * (par == 1)) @ z12 / acc
+assert post > raw
+print(f"GHZ_4: <Z1Z2> = {raw:.4f} → {post:.4f} после отбора по чётности; доля принятых {acc:.4f}, оверхед {1 / acc:.2f}")
+
+rn = run(trotter_circuit(6), NOISE)
+ev, V = np.linalg.eigh(rn)
+dom = V[:, -1]
+vd = {M: np.real(np.trace(np.linalg.matrix_power(rn, M) @ OBS) / np.trace(np.linalg.matrix_power(rn, M))) for M in (1, 2, 3)}
+psi6 = reduce(lambda A, B: B @ A, [gate_unitary(g) for g in trotter_circuit(6)], np.eye(DIM))[:, 0]
+print(f"VD, d = 6: M = 1: {vd[1]:.4f}, M = 2: {vd[2]:.4f}, M = 3: {vd[3]:.4f}; главный вектор {np.real(dom.conj() @ OBS @ dom):.4f}, "
+      f"перекрытие с идеальным {abs(dom.conj() @ psi6) ** 2:.4f}; идеал {IDEAL[6]:.4f}")
+assert abs(vd[2] - IDEAL[6]) < abs(vd[1] - IDEAL[6])
+```
 
 ---
 
@@ -233,15 +706,24 @@ $\rho^M/\operatorname{Tr}\rho^M$ экспоненциально по $M$ при�
 
 Простое рассуждение. Пусть каждый слой схемы сжимает различимость состояний (II.1, теорема 6.1) не меньше чем в $f<1$ раз, например при глобальной деполяризации $\langle O\rangle_{\text{шум}} = f^L\langle O\rangle_0$. Любая процедура, использующая лишь выходы зашумлённой схемы, должна различать $\langle O\rangle_0$ и $\langle O\rangle_0 + \delta$ по сигналам, отличающимся на $f^L\delta$. Это требует $\sim1/(f^{2L}\delta^2)$ запусков: **оверхед $\ge f^{-2L}$, экспоненциальный по глубине**. Такаги, Эндо, Минагава, Гу (2022) превратили это в строгие нижние оценки для широкого класса методов. Квек и др. (2024) показали, что для некоторых семейств схем при локальном деполяризующем шуме оверхед растёт экспоненциально уже по произведению числа кубитов на глубину, так что mitigation становится непрактичной уже при глубине, логарифмической по $n$ (точные формулировки — в оригинале).
 
-Наши числа (раздел 6 `примеры.py`; ЛР12, задание 6):
+Наши числа (ЛР12, задание 6; ячейка ниже):
 
 | $d$ | CNOT | $\langle O\rangle_1/\langle O\rangle_0$ | PEC: $\gamma^2$ | запусков для ошибки $0{,}01$ (PEC) |
 |---:|---:|---:|---:|---:|
 | 1 | 6 | 0,897 | 1,50 | $1{,}5\cdot10^4$ |
-| 4 | 24 | 0,739 | 5,01 | $5{,}0\cdot10^4$ |
+| 4 | 24 | 0,738 | 5,01 | $5{,}0\cdot10^4$ |
 | 10 | 60 | 0,492 | 56,2 | $5{,}6\cdot10^5$ |
 
 Экстраполируем по (3.4): 100 CNOT с деполяризацией $p = 0{,}01$ на обоих кубитах — $C\approx4{,}1\cdot10^2$; 1000 CNOT — $1{,}3\cdot10^{26}$ (невозможно); 1000 CNOT при $p = 10^{-3}$ — $4\cdot10^2$; 5000 CNOT при $p = 10^{-3}$ — $1{,}1\cdot10^{13}$. Область применимости mitigation — схемы с **суммарной вероятностью ошибки порядка единицы**: $\sum_g\varepsilon_g\lesssim1$–$3$. Улучшение гейтов в 10 раз расширяет её в 10 раз по объёму схемы, но не делает экспоненту полиномом. Для больших схем нужна коррекция ошибок (II.5–II.8) — контрольный вопрос 1 ЛР12.
+
+```{python}
+print(" d   CNOT   <O>_1/<O>_0   γ²      запусков (PEC, 0,01)")
+for d in (1, 4, 10):
+    g2 = gamma_total(trotter_circuit(d)) ** 2
+    print(f"{d:2d}   {NG[d][1]:3d}    {NOISY[d] / IDEAL[d]:.3f}       {g2:5.2f}   {g2 / 0.01 ** 2:.1e}")
+for ncx, p in ((100, 0.01), (1000, 0.01), (1000, 0.001), (5000, 0.001)):
+    print(f"{ncx} CNOT, p = {p} на обоих кубитах: C = γ^(4·{ncx}) = {((3 / (1 - p) - 1) / 2) ** (4 * ncx):.2g}")
+```
 
 Аналогичный рост у ZNE прячется в дисперсии и в смещении: при больших глубинах сигнал на $\lambda = 3, 5$ исчезает, и либо смещение, либо дисперсия становятся неприемлемыми (§2.3).
 
@@ -306,10 +788,54 @@ $\rho^M/\operatorname{Tr}\rho^M$ экспоненциально по $M$ при�
 6. (••) Покажите, что при систематическом пере-повороте ($G = R_x(\theta(1+\delta))$, $G^\dagger = R_x(-\theta(1+\delta))$) унитарный фолдинг не меняет значение наблюдаемой. Какой вид шума фолдинг усиливает правильно?
 7. (••) Покажите, что $e^{\mu\mathcal L}$ при $\mathcal L(\rho) = P\rho P - \rho$ — канал $w\rho + (1-w)P\rho P$ с $w = \frac12(1 + e^{-2\mu})$, и найдите квазивероятностное разложение обратного и $\gamma$. Сравните $\gamma$ для $\Delta_{0{,}01}$ в модели Паули–Линдблада и по (3.3).
 8. (•••) Пусть каждый слой схемы — идеальный слой, за которым следует $\Delta_p$ на всех $n$ кубитах. Покажите, что для бесследовой паули-наблюдаемой веса $k$, которую идеальная клиффордова схема переводит в паули-строку веса $k_L$ на выходе, сигнал умножается на $(1-p)^{\sum_lk_l}$. Выведите отсюда нижнюю оценку числа запусков для несмещённой оценки с точностью $\delta$.
-9. (••) Для зашумлённого GHZ$_4$ (раздел 5 `примеры.py`) объясните, какие ошибки отбор по чётности $Z^{\otimes4}$ обнаруживает, а какие нет. Почему $\langle Z_1Z_2\rangle$ после отбора не равно 1?
+9. (••) Для зашумлённого GHZ$_4$ (§5) объясните, какие ошибки отбор по чётности $Z^{\otimes4}$ обнаруживает, а какие нет. Почему $\langle Z_1Z_2\rangle$ после отбора не равно 1?
 10. (•••) Для $\rho = (1-\varepsilon)\lvert0\rangle\langle0\rvert + \varepsilon\lvert1\rangle\langle1\rvert$ и $O = Z + \frac12X$ найдите $\langle O\rangle$ и $\langle O\rangle_{\text{VD}}$ при $M = 2$. Покажите, что ошибка падает с $2\varepsilon$ до $2\varepsilon^2/((1-\varepsilon)^2 + \varepsilon^2)$; вычислите при $\varepsilon = 0{,}1$.
 
-### Ответы и указания
+Численная проверка ответов к задачам 1, 3, 4, 5, 7, 8, 9, 10:
+
+```{python}
+print(f"1: γ = (15/8, −5/4, 3/8), √Σγ² = {sqrt(np.sum(g135 ** 2)):.3f}")
+print(f"3: <Z> = (<Z>_изм − 0,03)/0,93; дисперсия × {1 / 0.93 ** 2:.4f}")
+g4 = (3 / 0.99 - 1) / 2
+print(f"4: γ = {g4:.6f}, γ^100 = {g4 ** 100:.4f}, оверхед {g4 ** 200:.2f}")
+print(f"5: Ричардсон {g135 @ vals5:.4f} (смещение {g135 @ vals5 - 0.6:+.4f})")
+print(f"7: γ = e^(6μ) = {exp(6 * mud):.6f} против {g4:.6f}")
+# задача 8: 5 случайных клиффордовых слоёв, после каждого Δ_p на всех кубитах
+Sg = np.diag([1, 1j])
+layers = []
+for l in range(5):
+    U = np.eye(DIM, dtype=complex)
+    for q in range(N_Q):
+        U = embed1([H1, Sg, I2][rng.integers(3)], q) @ U
+    for q in range(l % 2, N_Q - 1, 2):
+        U = embed2(CNOT2, q) @ U
+    layers.append(U)
+p8 = 0.02
+Cfull = reduce(lambda A, B: B @ A, layers, np.eye(DIM))
+O8 = Cfull @ PF[3][0] @ dag(Cfull)                                 # идеальное значение на |0000> равно 1
+rho = np.zeros((DIM, DIM), complex); rho[0, 0] = 1
+for U in layers:
+    rho = U @ rho @ dag(U)
+    for q in range(N_Q):
+        rho = apply_S(rho, S_dep(p8), q)
+sig8 = np.real(np.trace(rho @ O8))
+weight = lambda P: sum(not (np.allclose(PF[1][q] @ P, P @ PF[1][q]) and np.allclose(PF[3][q] @ P, P @ PF[3][q])) for q in range(N_Q))
+wsum, Ph = 0, O8.copy()
+for U in reversed(layers):                                         # гейзенбергова картина: вес наблюдаемой после каждого слоя
+    wsum += weight(Ph); Ph = dag(U) @ Ph @ U
+assert np.isclose(sig8, (1 - p8) ** wsum)
+print(f"8: сигнал {sig8:.6f} = (1 − p)^{wsum}")
+print(f"9: <Z1Z2> {raw:.4f} → {post:.4f}, принято {acc:.4f}")
+e10 = 0.1
+rho10 = np.diag([1 - e10, e10]).astype(complex)
+O10 = Z + 0.5 * X
+vd10 = np.real(np.trace(rho10 @ rho10 @ O10) / np.trace(rho10 @ rho10))
+assert np.isclose(1 - vd10, 2 * e10 ** 2 / ((1 - e10) ** 2 + e10 ** 2))
+print(f"10: <O> = {np.real(np.trace(rho10 @ O10)):.4f}, VD (M = 2): {vd10:.4f}, ошибка {1 - vd10:.4f}")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** По (2.2): $\gamma_1 = \frac32\cdot\frac54 = \frac{15}8$, $\gamma_3 = \frac1{-2}\cdot\frac52 = -\frac54$, $\gamma_5 = \frac1{-4}\cdot\frac3{-2} = \frac38$. $\sqrt{\sum\gamma_i^2} = \sqrt{334/64} = 2{,}284$.
 - **2.** Оценка — $\gamma_{\text{tot}}\cdot s\cdot o$, $s = \pm1$, $o = \pm1$: $\mathbb E\hat E^2 = \gamma_{\text{tot}}^2$, $\operatorname{Var} = \gamma_{\text{tot}}^2 - \langle O\rangle_0^2$.
 - **3.** $\langle Z\rangle = (\langle Z\rangle_{\text{изм}} - 0{,}03)/0{,}93$; дисперсия растёт в $1/0{,}93^2 = 1{,}1562$ раза.
@@ -320,12 +846,13 @@ $\rho^M/\operatorname{Tr}\rho^M$ экспоненциально по $M$ при�
 - **8.** Деполяризация умножает паули-строку веса $w$ на $(1-p)^w$; клиффордов слой переводит паули-строку в паули-строку. Сигнал — $(1-p)^{\sum_lk_l}\langle O\rangle_0$, и для оценки с точностью $\delta$ нужно $\gtrsim(1-p)^{-2\sum_lk_l}/\delta^2$ запусков — экспоненциально по глубине (если веса не убывают).
 - **9.** Обнаруживаются события нечётного веса в $Z$-базисе: одиночный переворот ($X$, $Y$), одиночное затухание $\lvert1\rangle\to\lvert0\rangle$, а также ошибка, которую следующие CNOT размножили до нечётного веса ($X_2\to X_2X_3X_4$). Не обнаруживаются события чётного веса ($X_3$ после CNOT$_{2\to3}$ становится $X_3X_4$) и $Z$-ошибки. Последние два типа не меняют $Z_1Z_2$. Чтобы перевернуть ровно один из кубитов 1, 2 при чётном общем весе, нужны по меньшей мере два независимых события (вероятность $O(p^2)$) — отсюда остаток $1 - 0{,}9950$. Доля принятых $0{,}9087$.
 - **10.** $\langle O\rangle = 1 - 2\varepsilon = 0{,}8$. $\rho^2 = (1-\varepsilon)^2\lvert0\rangle\langle0\rvert + \varepsilon^2\lvert1\rangle\langle1\rvert$, $\langle O\rangle_{\text{VD}} = \frac{(1-\varepsilon)^2 - \varepsilon^2}{(1-\varepsilon)^2 + \varepsilon^2} = 0{,}9756$; ошибка $0{,}0244$.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 1,5 мин; дольше всего ZNE с фолдингом до $\lambda = 5$ и CDR) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, все числа совпадают с `примеры.py`. Две самые долгие части переписаны быстрее при тех же вызовах генератора: выборочная PEC считает все 3000 случайных схем одной пачкой матриц плотности (равномерные числа для выбора паули-вставок берутся тем же потоком, что и в `rng.choice`), а супероператоры шума кэшируются. Полный файл `примеры.py` (около 1,5 мин; дольше всего выборочная PEC и CDR) проверяет:
 0. схему шага Троттера; значения $\langle Z_2Z_3\rangle$ идеальной и зашумлённой схем при $d = 1..10$;
 1. обращение матрицы считывания (1.1); формулу для одного кубита и рост дисперсии; полную и тензорную калибровку на 6 кубитах с независимыми и коррелированными ошибками;
 2. коэффициенты Ричардсона (2.2); ZNE с глобальным фолдингом и тремя экстраполяциями, бутстрэп-оценку дисперсии, растяжение шума; локальный фолдинг; нечувствительность фолдинга к когерентной ошибке; влияние ошибок считывания;

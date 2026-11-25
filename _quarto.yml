@@ -77,7 +77,7 @@ website:
           - text: "II.3. Характеризация квантовых устройств"
             href: Лекции/Часть_II/II.03_Характеризация/лекция.qmd
           - text: "II.4. Error mitigation"
-            href: Лекции/Часть_II/II.04_Error_mitigation/лекция.md
+            href: Лекции/Часть_II/II.04_Error_mitigation/лекция.qmd
           - text: "II.5. Основы квантовой коррекции ошибок"
             href: Лекции/Часть_II/II.05_Основы_QEC/лекция.md
           - text: "II.6. Стабилизаторные коды"
