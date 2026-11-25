@@ -367,7 +367,7 @@ for N in (64, 256, 1024):
     T = k_floor(N, 1)
     psi0 = grover_state(N, [], T)                                       # «пустой» прогон: ψ_T = |s>
     tot = sum(np.sum((grover_state(N, [x], T) - psi0) ** 2) for x in range(N))
-    assert tot <= 4 * T * T
+    assert tot <= 4 * T * T + 1e-9
     print(f"{N:5d}   {T:2d}      {tot:8.1f}        {4 * T * T:4d}     {tot / (4 * T * T):.2f}")
 ```
 

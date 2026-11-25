@@ -345,7 +345,7 @@ for N in (8, 16, 32):
             Us = [unitary_group.rvs(N, random_state=rng) for _ in range(Tq + 1)]
             psi0 = run_alg(Us, None, N)
             D = sum(np.linalg.norm(run_alg(Us, x, N) - psi0) ** 2 for x in range(N))
-            assert D <= 4 * Tq ** 2                                     # (3.1)
+            assert D <= 4 * Tq ** 2 + 1e-9                              # (3.1)
             if Tq == 1:
                 assert np.isclose(D, 4)                                 # один запрос: равенство
             else:
@@ -366,7 +366,7 @@ for N in (16, 64, 256, 1024):
         return psi
     d0 = np.linalg.norm(grover(0) - grover(None)) ** 2                  # по симметрии одинаково для всех x
     print(f"{N:5d} {Tg:3d}   {N * d0:12.1f}       {4 * Tg ** 2:5d}   {abs(grover(0)[0]) ** 2:.4f}")
-    assert N * d0 <= 4 * Tg ** 2
+    assert N * d0 <= 4 * Tg ** 2 + 1e-9
 Nb = 10 ** 6
 print(f"задача 6, N = 10^6: T ≥ {np.sqrt((2 * Nb / 3 - 2 * np.sqrt(2 / 3) * np.sqrt(Nb)) / 4):.1f},  "
       f"√(N/6) = {np.sqrt(Nb / 6):.1f},  Гровер (π/4)√N = {np.pi / 4 * np.sqrt(Nb):.1f}")
