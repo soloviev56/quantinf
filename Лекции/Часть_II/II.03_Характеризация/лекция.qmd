@@ -1,10 +1,13 @@
-# Лекция II.3. Характеризация квантовых устройств
+---
+title: "Лекция II.3. Характеризация квантовых устройств"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.A «Открытые системы, характеризация, error mitigation».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (базис Паули, §8); лекция I.2 (измерение в базисах $X$, $Y$ и стоимость сэмплирования, §4); лекция I.9 (группа Клиффорда, §2); лекция I.10 (распределение Портера–Томаса и линейный XEB, §6.2); лекция II.1 (матрица Чоя, §3; верность процесса и средняя верность, §7.1); лекция II.2 (паули- и клиффордов твирлинг, §2).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (базис Паули, §8); [лекция I.2](../../Часть_I/I.02_Постулаты_и_кубит/лекция.qmd) (измерение в базисах $X$, $Y$ и стоимость сэмплирования, §4); [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (группа Клиффорда, §2); [лекция I.10](../../Часть_I/I.10_Квантовая_сложность/лекция.qmd) (распределение Портера–Томаса и линейный XEB, §6.2); [лекция II.1](../II.01_Квантовые_каналы/лекция.qmd) (матрица Чоя, §3; верность процесса и средняя верность, §7.1); [лекция II.2](../II.02_Уравнение_Линдблада/лекция.qmd) (паули- и клиффордов твирлинг, §2).
 **Литература:** Eisert J. et al. Quantum certification and benchmarking // Nat. Rev. Phys. 2, 382 (2020); N&C, § 8.4.2; Magesan E., Gambetta J. M., Emerson J. // PRL 106, 180504 (2011); Huang H.-Y., Kueng R., Preskill J. // Nat. Phys. 16, 1050 (2020); Cross A. W. et al. Validating quantum computers using randomized model circuits // PRA 100, 032328 (2019).
-**Материалы:** `примеры.py` — численная проверка всех утверждений: томография состояний (линейная инверсия, проекция Смолина–Гамбетты–Смита, максимальное правдоподобие), томография процесса и смещение из-за SPAM, калибровочная свобода, randomized benchmarking (точная проверка модели, нечувствительность к SPAM, interleaved RB), линейный XEB и тест квантового объёма, классические тени; задачи к семинару С3 и к ЛР11 — в § 7.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: томография состояний (линейная инверсия, проекция Смолина–Гамбетты–Смита, максимальное правдоподобие), томография процесса и смещение из-за SPAM, калибровочная свобода, randomized benchmarking (точная проверка модели, нечувствительность к SPAM, interleaved RB), линейный XEB и тест квантового объёма, классические тени; задачи к семинару С3 и к ЛР11 — в § 7. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §5, §12, §15–§16).
 - $n$ — число кубитов, $d = 2^n$; $N$ — число запусков (измерений); $\varepsilon$ — точность.
@@ -12,6 +15,60 @@
 - RB: длина последовательности $m$, вероятность «выживания» $P(m) = Ap^m + B$, ошибка на клиффорд $r = (1 - p)(d-1)/d$. Здесь $p$ — **параметр затухания RB** (как в ЛР11). Не путать с параметром $\Delta_p$: клиффордов твирлинг шума — это $\Delta_{1-p}$ (II.2, (2.4)).
 - PTM (Pauli transfer matrix) — матрица канала в нормированном базисе Паули, $R_{ij} = \frac1d\operatorname{Tr}(P_i\,\Phi(P_j))$; для кубита это $\begin{pmatrix}1&0\\\mathbf c&M\end{pmatrix}$ (II.1, (5.1)).
 - Классические тени: снимок $\hat\rho$; теневая норма $\|O\|_{\text{sh}}^2$ — максимальная дисперсия оценки $O$ по одному снимку.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+import itertools
+from functools import reduce
+from math import log, pi, sqrt
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import expm
+from scipy.optimize import curve_fit
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULIS = [I2, X, Y, Z]
+H1 = np.array([[1, 1], [1, -1]], dtype=complex) / sqrt(2)
+S1 = np.diag([1, 1j])
+BASIS_ROT = {1: H1, 2: H1 @ S1.conj().T, 3: I2}     # после U измерение в Z = измерение X / Y / Z
+
+def dag(A):
+    return A.conj().T
+
+def kron(*ops):
+    return reduce(np.kron, ops)
+
+def ket(i, d):
+    v = np.zeros(d, complex); v[i] = 1
+    return v
+
+def apply_kraus(K, rho):
+    return sum(k @ rho @ dag(k) for k in K)
+
+def haar_unitary(d):
+    G = (rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))) / sqrt(2)
+    Q, R = np.linalg.qr(G)
+    return Q * (np.diag(R) / np.abs(np.diag(R)))
+
+def pauli_string(idx):
+    return kron(*[PAULIS[i] for i in idx])
+
+def ptm(K):
+    """Pauli transfer matrix канала кубита (нормированный базис Паули)."""
+    return np.array([[0.5 * np.real(np.trace(Pi @ apply_kraus(K, Pj))) for Pj in PAULIS] for Pi in PAULIS])
+
+def vec_state(rho):
+    return np.array([np.real(np.trace(P @ rho)) for P in PAULIS]) / sqrt(2)
+
+vec_effect = vec_state          # эффект измерения в том же базисе
+```
 
 ---
 
@@ -57,16 +114,50 @@
 $$
 \rho = \frac1{2^n}\sum_{P\in\{I,X,Y,Z\}^{\otimes n}}\langle P\rangle\,P,\qquad \langle P\rangle = \operatorname{Tr}(\rho P) . \tag{1.1}
 $$
-Каждое среднее $\langle P\rangle$ оценивается по частотам исходов в настройке, где на кубитах с $P_j\ne I$ измеряется $P_j$ (поворот базиса — I.2, §4). Одна настройка даёт сразу $2^w$ паули-средних ($w$ — число кубитов с $P_j\ne I$), поэтому хватает $3^n$ настроек. Подстановка оценок $\widehat{\langle P\rangle}$ в (1.1) — **линейная инверсия**. Без статистического шума она точна (раздел 1 `примеры.py`, $n = 1, 2, 3$).
+Каждое среднее $\langle P\rangle$ оценивается по частотам исходов в настройке, где на кубитах с $P_j\ne I$ измеряется $P_j$ (поворот базиса — I.2, §4). Одна настройка даёт сразу $2^w$ паули-средних ($w$ — число кубитов с $P_j\ne I$), поэтому хватает $3^n$ настроек. Подстановка оценок $\widehat{\langle P\rangle}$ в (1.1) — **линейная инверсия**. Без статистического шума она точна (проверка — в ячейке ниже, $n = 1, 2, 3$).
 
-Оценка **несмещённая**: $\mathbb E\hat\rho = \rho$. Но $\hat\rho$ не обязана быть положительной. Например, для кубита при $\widehat{\langle X\rangle} = 0{,}6$, $\widehat{\langle Y\rangle} = 0$, $\widehat{\langle Z\rangle} = 0{,}9$ длина вектора Блоха $1{,}0817>1$, и собственные значения $\hat\rho$ равны $1{,}0408$ и $-0{,}0408$. Для почти чистых состояний это происходит постоянно. В численном эксперименте (20 повторов) доля оценок с отрицательным собственным значением для случайного чистого состояния составила 0,3–0,5 при $n = 1$ и **1,00** при $n = 2, 3$ при любом числе запусков от 100 до $10^4$ на настройку.
+Оценка **несмещённая**: $\mathbb E\hat\rho = \rho$. Но $\hat\rho$ не обязана быть положительной. Например, для кубита при $\widehat{\langle X\rangle} = 0{,}6$, $\widehat{\langle Y\rangle} = 0$, $\widehat{\langle Z\rangle} = 0{,}9$ длина вектора Блоха $1{,}0817>1$, и собственные значения $\hat\rho$ равны $1{,}0408$ и $-0{,}0408$. Для почти чистых состояний это происходит постоянно. В численном эксперименте (20 повторов; последний столбец таблицы в §1.2) доля оценок с отрицательным собственным значением для случайного чистого состояния составила 0,3–0,5 при $n = 1$ и **1,00** при $n = 2, 3$ при любом числе запусков от 100 до $10^4$ на настройку.
+
+```{python}
+def settings(n):
+    return list(itertools.product((1, 2, 3), repeat=n))
+
+def measure_counts(rho, n, shots):
+    """Для каждой из 3^n настроек — частоты исходов (shots = 0: точные вероятности)."""
+    data = {}
+    for s in settings(n):
+        U = kron(*[BASIS_ROT[b] for b in s])
+        p = np.clip(np.real(np.diag(U @ rho @ dag(U))), 0, None)
+        p = p / p.sum()
+        data[s] = rng.multinomial(shots, p) / shots if shots else p
+    return data
+
+def linear_inversion(data, n):
+    """(1.1): каждое <P> — среднее по всем совместимым настройкам."""
+    sg = 1 - 2 * np.array(list(itertools.product((0, 1), repeat=n)))
+    rho = np.zeros((2 ** n, 2 ** n), complex)
+    for idx in itertools.product(range(4), repeat=n):
+        mask = np.array([i != 0 for i in idx])
+        signs = np.prod(sg[:, mask], axis=1)
+        vals = [f @ signs for s, f in data.items() if all(i == 0 or i == b for i, b in zip(idx, s))]
+        rho += np.mean(vals) * pauli_string(idx)
+    return rho / 2 ** n
+
+for n in (1, 2, 3):
+    psi = rng.normal(size=2 ** n) + 1j * rng.normal(size=2 ** n); psi /= np.linalg.norm(psi)
+    rho_t = np.outer(psi, psi.conj())
+    assert np.allclose(linear_inversion(measure_counts(rho_t, n, 0), n), rho_t)
+print("без статистического шума линейная инверсия по 3^n настройкам точна (n = 1, 2, 3)")
+r_ex = 0.5 * (I2 + 0.6 * X + 0.9 * Z)
+print(f"<X> = 0,6, <Y> = 0, <Z> = 0,9: |r| = {np.hypot(0.6, 0.9):.4f}, спектр ρ̂ = {np.linalg.eigvalsh(r_ex).round(4).tolist()}")
+```
 
 ### 1.2. Физические оценки
 
 - **Проекция Смолина–Гамбетты–Смита** (2012): ближайшая к $\hat\rho$ в норме Фробениуса матрица плотности. В собственном базисе $\hat\rho$ это евклидова проекция спектра на симплекс вероятностей: отрицательные собственные значения обнуляются, а их сумма вычитается поровну из остальных. Алгоритм занимает несколько строк, сложность — одна диагонализация.
 - **Метод максимального правдоподобия (МП):** $\hat\rho_{\text{МП}} = \arg\max_{\rho\succeq0,\operatorname{Tr}\rho = 1}\sum_kf_k\log\operatorname{Tr}(\Pi_k\rho)$ по всем исходам $\Pi_k$ всех настроек ($f_k$ — частоты). Простейший алгоритм — итерации $\rho\to R\rho R/\operatorname{Tr}(R\rho R)$, $R = \sum_k\frac{f_k}{\operatorname{Tr}(\Pi_k\rho)}\Pi_k$ (Храдил, Ржегачек и др.).
 
-Обе оценки физичны, но **смещены**. Средняя верность $\langle\psi\rvert\hat\rho\lvert\psi\rangle$ со случайным чистым состоянием (раздел 1 `примеры.py`, 20 повторов):
+Обе оценки физичны, но **смещены**. Средняя верность $\langle\psi\rvert\hat\rho\lvert\psi\rangle$ со случайным чистым состоянием (20 повторов; ячейка после таблицы печатает все девять строк):
 
 | $n$ | запусков на настройку | лин. инверсия | $1 - F$ (SGS) | $1 - F$ (МП) |
 |---:|---:|---:|---:|---:|
@@ -78,6 +169,63 @@ $$
 | 3 | $10^3$ | 0,99868 | $1{,}81\cdot10^{-2}$ | $6{,}28\cdot10^{-3}$ |
 | 3 | $10^4$ | 0,99962 | $5{,}65\cdot10^{-3}$ | $1{,}94\cdot10^{-3}$ |
 
+```{python}
+def sgs_project(mu):
+    """Смолин–Гамбетта–Смит: проекция спектра на симплекс вероятностей."""
+    w, V = np.linalg.eigh(mu)
+    w = w[::-1]; V = V[:, ::-1]
+    lam, a, i = w.copy(), 0.0, len(w)
+    while i > 0 and lam[i - 1] + a / i < 0:
+        a += lam[i - 1]; lam[i - 1] = 0; i -= 1
+    lam[:i] += a / i
+    return (V * lam) @ dag(V)
+
+def mle(data, n, iters=1000):
+    """Итерации ρ → RρR / Tr(RρR) по всем 2^n·3^n проекторам (столбцы V)."""
+    V = np.hstack([dag(kron(*[BASIS_ROT[b] for b in s])) for s in data])
+    f = np.concatenate(list(data.values()))
+    rho = np.eye(2 ** n, dtype=complex) / 2 ** n
+    for _ in range(iters):
+        p = np.real(np.sum(V.conj() * (rho @ V), axis=0))
+        R = (V * np.where(p > 1e-15, f / np.maximum(p, 1e-15), 0)) @ dag(V)
+        rho = R @ rho @ R
+        rho = (rho + dag(rho)) / 2
+        rho /= np.trace(rho).real
+    return rho
+
+def rand_dm(d):
+    G = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    return G @ dag(G) / np.trace(G @ dag(G))
+
+A = rng.normal(size=(4, 4)) + 1j * rng.normal(size=(4, 4)); A = (A + dag(A)) / 2
+A = A - (np.trace(A) - 1) * np.eye(4) / 4                      # эрмитова, след 1, не PSD
+P = sgs_project(A)
+assert np.linalg.eigvalsh(P).min() > -1e-12 and np.isclose(np.trace(P), 1)
+best_other = min(np.linalg.norm(A - ((1 - t) * P + t * rand_dm(4))) for t in (0.01, 0.05, 0.2) for _ in range(300))
+assert np.linalg.norm(A - P) <= best_other + 1e-12               # 900 соседних матриц плотности дальше от A
+
+targets = {1: np.array([np.cos(0.6), np.exp(0.7j) * np.sin(0.6)]), 2: haar_unitary(4)[:, 0], 3: haar_unitary(8)[:, 0]}
+TOMO = {}
+print(" n  запусков  лин. инв.   1−F (SGS)   1−F (МП)   доля ρ̂ с λ<0")
+for n in (1, 2, 3):
+    psi = targets[n]; rho_t = np.outer(psi, psi.conj())
+    for shots in (100, 1000, 10000):
+        fl, fs, fm, neg = [], [], [], 0
+        for _ in range(20):
+            data = measure_counts(rho_t, n, shots)
+            rl = linear_inversion(data, n)
+            neg += np.linalg.eigvalsh(rl).min() < -1e-12
+            fl.append(np.real(psi.conj() @ rl @ psi))
+            fs.append(np.real(psi.conj() @ sgs_project(rl) @ psi))
+            fm.append(np.real(psi.conj() @ mle(data, n) @ psi))
+        TOMO[(n, shots)] = (np.mean(fl), np.mean(fs), np.mean(fm), neg / 20)
+        print(f" {n}  {shots:7d}   {np.mean(fl):.5f}    {1 - np.mean(fs):.2e}    {1 - np.mean(fm):.2e}     {neg / 20:.2f}")
+slopes = [np.polyfit(np.log([100, 1000, 10000]), np.log([1 - TOMO[(n, s)][k] for s in (100, 1000, 10000)]), 1)[0]
+          for n in (1, 2, 3) for k in (1, 2)]
+print("наклоны log(1 − F) по log N (SGS, МП для n = 1, 2, 3):", ", ".join(f"{v:.2f}" for v in slopes))
+assert all(-0.8 < v < -0.3 for v in slopes) and all(TOMO[(n, s)][3] == 1 for n in (2, 3) for s in (100, 1000, 10000))
+```
+
 Выводы. (1) «Верность» линейной оценки колеблется около 1 и бывает больше 1 — это несмещённая, но нефизичная величина. (2) МП заметно точнее SGS при $n\ge2$. (3) Для чистых состояний инфиделити неадаптивной томографии убывает как $N^{-1/2}$, а не $N^{-1}$: наклоны $\log(1-F)$ по $\log N$ от $-0{,}42$ до $-0{,}52$. Причина в том, что для почти чистого состояния оценка часто попадает «внутрь» и становится смешанной. Адаптивный выбор базисов возвращает скорость $1/N$ (Махлер и др., 2013).
 
 ### 1.3. Экспоненциальная стоимость
@@ -88,6 +236,11 @@ $$
 |---|---:|---:|---:|---:|---:|---:|
 | настроек $3^n$ | 3 | 9 | 27 | 243 | 59 049 | $3{,}5\cdot10^9$ |
 | параметров $4^n - 1$ | 3 | 15 | 63 | 1023 | $1{,}05\cdot10^6$ | $1{,}1\cdot10^{12}$ |
+
+```{python}
+for n in (1, 2, 3, 5, 10, 20):
+    print(f"n = {n:2d}: настроек 3^n = {3 ** n}, параметров 4^n − 1 = {4 ** n - 1}")
+```
 
 Это не недостаток метода, а информационный предел: даже при оптимальных коллективных измерениях над многими копиями число копий растёт пропорционально $d\cdot\operatorname{rank}\rho/\varepsilon^2$ с точностью до логарифмов (Хаах и др., 2017; О'Доннелл, Райт, 2016; контрольный вопрос 1 ЛР11). Поэтому полную томографию делают для 1–3 кубитов, а для больших систем — специализированные методы: свидетели запутанности (I.7, §3), прямая оценка верности, томография MPS-состояний, классические тени (§5).
 
@@ -107,7 +260,7 @@ $$
 
 Томография предполагает **идеальные** приготовление входов и измерение выходов. Но их делают теми же гейтами того же устройства, с ошибками того же порядка, что и у изучаемого гейта. Ошибки приготовления и измерения (state preparation and measurement, SPAM) неотличимы от ошибки самого гейта.
 
-Пример (раздел 2 `примеры.py`): гейт $R_x(\pi/2)$ с амплитудным затуханием $\gamma = 0{,}02$ и деполяризацией $p = 0{,}01$, истинная $F_{\text{pro}} = 0{,}98257$.
+Пример (проверка — ячейка в конце пункта): гейт $R_x(\pi/2)$ с амплитудным затуханием $\gamma = 0{,}02$ и деполяризацией $p = 0{,}01$, истинная $F_{\text{pro}} = 0{,}98257$.
 
 | ошибка считывания | ошибка приготовления | $F_{\text{pro}}$ по томографии |
 |---:|---:|---:|
@@ -119,6 +272,48 @@ $$
 
 Для идеального тождественного гейта симметричная ошибка считывания $e$ сжимает все компоненты Блоха в $(1-2e)$ раз, и томография даёт $F_{\text{pro}} = \frac14(1 + 3(1-2e)) = 1 - \frac{3e}2$ (при $e = 0{,}05$ — $0{,}925$). Смещение $\frac32e$ обычно **больше** самой ошибки современного гейта. Томография процесса не годится для точного измерения ошибок порядка $10^{-3}$ (ЛР11, задание 3).
 
+```{python}
+def choi_from_outputs(outs):
+    """(2.1): выходы на |0>, |1>, |+>, |+i> → матрица Чоя (вход первый)."""
+    r00, r11, rp, rpi = outs
+    r01 = rp + 1j * rpi - (1 + 1j) / 2 * (r00 + r11)
+    blocks = [[r00, r01], [dag(r01), r11]]
+    return sum(np.kron(np.outer(ket(i, 2), ket(j, 2)), blocks[i][j]) for i in range(2) for j in range(2))
+
+def F_pro_choi(J, U=I2):
+    v = np.kron(I2, U) @ np.eye(2).reshape(-1) / sqrt(2)
+    return np.real(v.conj() @ J @ v) / 2
+
+def readout_noisy_tomo(rho, e):
+    """Томография кубита при симметричной ошибке считывания e."""
+    r = []
+    for b in (1, 2, 3):
+        p = np.real(np.diag(BASIS_ROT[b] @ rho @ dag(BASIS_ROT[b])))
+        p = (1 - e) * p + e * p[::-1]
+        r.append(p[0] - p[1])
+    return 0.5 * (I2 + r[0] * X + r[1] * Y + r[2] * Z)
+
+IN_STATES = [ket(0, 2), ket(1, 2), (ket(0, 2) + ket(1, 2)) / sqrt(2), (ket(0, 2) + 1j * ket(1, 2)) / sqrt(2)]
+Ux = expm(-1j * pi / 4 * X)                                         # R_x(π/2)
+Kad = [np.array([[1, 0], [0, sqrt(1 - 0.02)]], complex), np.array([[0, sqrt(0.02)], [0, 0]], complex)]
+Kg = [k @ Ux for k in Kad]
+Kg = [sqrt(1 - 3 * 0.01 / 4) * k for k in Kg] + [sqrt(0.01 / 4) * P @ k for P in (X, Y, Z) for k in Kg]
+J_true = sum(np.kron(np.outer(ket(i, 2), ket(j, 2)), apply_kraus(Kg, np.outer(ket(i, 2), ket(j, 2)))) for i in range(2) for j in range(2))
+F_true = F_pro_choi(J_true, Ux)
+assert np.allclose(choi_from_outputs([apply_kraus(Kg, np.outer(v, v.conj())) for v in IN_STATES]), J_true)
+print(f"четыре входа восстанавливают J; истинная F_pro = {F_true:.5f}")
+for e, e_prep in ((0, 0), (0.02, 0), (0, 0.02), (0.02, 0.02), (0.05, 0)):
+    outs = []
+    for v in IN_STATES:
+        rv = np.outer(v, v.conj())
+        rv = (1 - e_prep) * rv + e_prep * (I2 - rv)                  # вход заменён ортогональным с вероятностью e_prep
+        outs.append(readout_noisy_tomo(apply_kraus(Kg, rv), e))
+    print(f"считывание {e:.0%}, приготовление {e_prep:.0%}: F_pro по томографии = {F_pro_choi(choi_from_outputs(outs), Ux):.5f}")
+f_id = F_pro_choi(choi_from_outputs([readout_noisy_tomo(np.outer(v, v.conj()), 0.05) for v in IN_STATES]))
+assert np.isclose(f_id, 1 - 1.5 * 0.05)
+print(f"идеальный тождественный гейт, e = 0,05: F_pro = {f_id:.4f} = 1 − 3e/2")
+```
+
 ### 2.3. Томография набора гейтов (GST)
 
 Идея GST (Блюм-Кохоут и др., 2013–2017): не считать ничего идеальным. Неизвестные — всё сразу: начальное состояние $\lvert\rho\rangle\rangle$, измерение $\langle\langle E\rvert$ и PTM гейтов $G_1,\dots,G_K$. Данные — вероятности $p = \langle\langle E\rvert G_{i_L}\cdots G_{i_1}\lvert\rho\rangle\rangle$ для множества последовательностей, включая длинные повторения коротких «зародышей» (germs). Повторение $G^L$ усиливает ошибку в $L$ раз, и точность растёт как $1/L$ вместо $1/\sqrt N$. Модель подгоняется самосогласованно (методом МП).
@@ -127,7 +322,30 @@ $$
 $$
 \lvert\rho\rangle\rangle\to B\lvert\rho\rangle\rangle,\qquad G_k\to BG_kB^{-1},\qquad \langle\langle E\rvert\to\langle\langle E\rvert B^{-1} \tag{2.2}
 $$
-не меняет ни одной вероятности: в произведении $B^{-1}B$ сокращаются. Значит, данные определяют набор гейтов лишь с точностью до (2.2). Величины вроде $F_{\text{pro}}$ отдельного гейта **не калибровочно-инвариантны**. В `примеры.py` (раздел 2) $B$ — поворот на угол $0{,}14$ рад: 50 случайных последовательностей дают одинаковые вероятности (разница $5\cdot10^{-16}$), а $F_{\text{pro}}$ гейта $R_x(\pi/2)$ меняется с $0{,}98257$ на $0{,}97646$. В GST калибровку фиксируют, подгоняя модель как можно ближе к идеальной («калибровочная оптимизация»). Сообщаемые верности гейтов — условность, а инвариантны лишь вероятности и спектры $G_k$. Стоимость GST велика: практически это 1–2 кубита.
+не меняет ни одной вероятности: в произведении $B^{-1}B$ сокращаются. Значит, данные определяют набор гейтов лишь с точностью до (2.2). Величины вроде $F_{\text{pro}}$ отдельного гейта **не калибровочно-инвариантны**. В ячейке ниже $B$ — поворот на угол $0{,}14$ рад: 50 случайных последовательностей дают одинаковые вероятности (разница $5\cdot10^{-16}$), а $F_{\text{pro}}$ гейта $R_x(\pi/2)$ меняется с $0{,}98257$ на $0{,}97646$. В GST калибровку фиксируют, подгоняя модель как можно ближе к идеальной («калибровочная оптимизация»). Сообщаемые верности гейтов — условность, а инвариантны лишь вероятности и спектры $G_k$. Стоимость GST велика: практически это 1–2 кубита.
+
+```{python}
+G1, G2 = ptm(Kg), ptm([expm(-1j * pi / 4 * Y)])                     # шумный R_x(π/2) и идеальный R_y(π/2)
+rho0 = vec_state(np.diag([0.98, 0.02]).astype(complex))
+E0 = vec_effect(np.diag([0.97, 0.04]).astype(complex))
+B = ptm([expm(-1j * 0.07 * (0.6 * X + 0.8 * Z))])                   # калибровка — поворот на 0,14 рад
+Bi = np.linalg.inv(B)
+seqs = [rng.integers(0, 2, size=rng.integers(1, 12)) for _ in range(50)]
+
+def prob(seq, G, rho, E):
+    v = rho
+    for k in seq:
+        v = G[k] @ v
+    return E @ v
+
+pa = np.array([prob(s, [G1, G2], rho0, E0) for s in seqs])
+pb = np.array([prob(s, [B @ G1 @ Bi, B @ G2 @ Bi], B @ rho0, E0 @ Bi) for s in seqs])
+Fp = lambda R: np.trace(ptm([Ux]).T @ R) / 4
+print(f"{len(seqs)} последовательностей: max разница вероятностей {np.abs(pa - pb).max():.1e}")
+assert np.allclose(pa, pb) and abs(Fp(G1) - F_true) < 1e-12
+assert np.allclose(np.poly(G1), np.poly(B @ G1 @ Bi))                # спектр G калибровочно-инвариантен
+print(f"F_pro(R_x(π/2)): {Fp(G1):.5f} → {Fp(B @ G1 @ Bi):.5f}, а спектр гейта тот же")
+```
 
 ---
 
@@ -157,9 +375,53 @@ r\equiv1 - F_{\text{avg}}(\Lambda) = \frac{(d-1)(1-p)}d . \tag{3.3}
 $$
 Величину $r$ называют ошибкой на клиффорд (EPC). Для кубита $r = (1-p)/2$, для двух кубитов $r = 3(1-p)/4$.
 
-**Проверка модели** (раздел 3 `примеры.py`). Шум $\Lambda$ — амплитудное затухание $\gamma = 0{,}004$, дефазировка $0{,}002$ и когерентный пере-поворот $R_x(0{,}02)$; $F_{\text{pro}}(\Lambda) = 0{,}995904$, $p = 0{,}994538$, $r = 2{,}731\cdot10^{-3}$. Точное усреднение по **всем** $24^m$ последовательностям при $m = 1, 2, 3$ даёт $P(1) = 0{,}99718087$, $P(2) = 0{,}99447620$, $P(3) = 0{,}99178630$. Это в точности $Ap^m + B$ с $A = 0{,}4979$, $B = 0{,}5020$ (совпадение до $10^{-10}$).
+**Проверка модели** (ячейка ниже). Шум $\Lambda$ — амплитудное затухание $\gamma = 0{,}004$, дефазировка $0{,}002$ и когерентный пере-поворот $R_x(0{,}02)$; $F_{\text{pro}}(\Lambda) = 0{,}995904$, $p = 0{,}994538$, $r = 2{,}731\cdot10^{-3}$. Точное усреднение по **всем** $24^m$ последовательностям при $m = 1, 2, 3$ даёт $P(1) = 0{,}99718087$, $P(2) = 0{,}99447620$, $P(3) = 0{,}99178630$. Это в точности $Ap^m + B$ с $A = 0{,}4979$, $B = 0{,}5020$ (совпадение до $10^{-10}$).
 
-**Стандартный протокол** (ЛР11, задание 4): $m$ от 1 до 500, по 30 случайных последовательностей длины, по 1000 запусков каждая:
+```{python}
+def canon(U):
+    u = U.reshape(-1); k = np.argmax(np.abs(u) > 1e-9)
+    return U / (u[k] / abs(u[k]))
+
+C1, frontier = [I2], [I2]                                           # группа Клиффорда кубита обходом в ширину
+while frontier:
+    new = []
+    for U in frontier:
+        for G in (H1, S1):
+            V = canon(G @ U)
+            if not any(np.allclose(V, W) for W in C1):
+                C1.append(V); new.append(V)
+    frontier = new
+assert len(C1) == 24
+C_ptm = np.array([ptm([C]) for C in C1])
+
+def rb_seq_survival(m, noise, rho_v, E_v, interleave=None, idx=None):
+    """Одна последовательность RB в PTM-представлении: m клиффордов + обращающий, шум после каждого."""
+    if idx is None:
+        idx = rng.integers(0, 24, size=m)
+    v, tot = rho_v.copy(), np.eye(4)
+    for k in idx:
+        v = noise @ (C_ptm[k] @ v); tot = C_ptm[k] @ tot
+        if interleave is not None:
+            v = interleave[1] @ (interleave[0] @ v); tot = interleave[0] @ tot
+    return E_v @ (noise @ (np.linalg.inv(tot) @ v))
+
+Kn = [np.array([[1, 0], [0, sqrt(1 - 0.004)]], complex), np.array([[0, sqrt(0.004)], [0, 0]], complex)]
+Kn = [sqrt(1 - 0.002) * k for k in Kn] + [sqrt(0.002) * Z @ k for k in Kn]
+Kn = [k @ expm(-1j * 0.02 / 2 * X) for k in Kn]                     # затухание, дефазировка, пере-поворот R_x(0,02)
+N_ptm = ptm(Kn)
+Fpro_n = np.trace(N_ptm) / 4
+p_true, r_true = (4 * Fpro_n - 1) / 3, 1 - (2 * Fpro_n + 1) / 3
+print(f"F_pro(Λ) = {Fpro_n:.6f}, p = {p_true:.6f}, r = {r_true:.3e}")
+rho_v, E_v = vec_state(np.diag([1, 0]).astype(complex)), vec_effect(np.diag([1, 0]).astype(complex))
+exact = {m: np.mean([rb_seq_survival(m, N_ptm, rho_v, E_v, idx=idx) for idx in itertools.product(range(24), repeat=m)])
+         for m in (1, 2, 3)}
+Ae = (exact[1] - exact[2]) / (p_true - p_true ** 2); Be = exact[1] - Ae * p_true
+print("все 24^m последовательностей: " + ", ".join(f"P({m}) = {exact[m]:.8f}" for m in (1, 2, 3)))
+print(f"A = {Ae:.4f}, B = {Be:.4f} (из P(1), P(2)); |A p³ + B − P(3)| = {abs(Ae * p_true ** 3 + Be - exact[3]):.1e}")
+assert abs(Ae * p_true ** 3 + Be - exact[3]) < 1e-10
+```
+
+**Стандартный протокол** (ЛР11, задание 4; ячейка и рисунок после таблицы): $m$ от 1 до 500, по 30 случайных последовательностей длины, по 1000 запусков каждая:
 
 | | $A$ | $p$ | $B$ | $r = (1-p)/2$ |
 |---|---:|---:|---:|---:|
@@ -168,13 +430,62 @@ $$
 
 Истинное $r = 2{,}731\cdot10^{-3}$. Без дробового шума (точные средние по тем же 30 последовательностям) $p = 0{,}994515$ без SPAM и $0{,}994551$ со SPAM, а $A$ меняется с $0{,}4976$ до $0{,}4396$. SPAM сдвигает амплитуду, но не скорость затухания (ЛР11, задание 4).
 
+```{python}
+#| fig-cap: "Randomized benchmarking: средняя вероятность выживания по 30 последовательностям (точки) и подгонка $Ap^m + B$; ошибки SPAM сдвигают амплитуду, но не скорость затухания"
+lengths = np.array([1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500])
+model = lambda m, A, p, B: A * p ** m + B
+
+def run_rb(rho_v, E_v, shots=1000, nseq=30, interleave=None):
+    means = []
+    for m in lengths:
+        vals = []
+        for _ in range(nseq):
+            s = rb_seq_survival(int(m), N_ptm, rho_v, E_v, interleave)
+            vals.append(rng.binomial(shots, min(max(s, 0), 1)) / shots if shots else s)
+        means.append(np.mean(vals))
+    popt, pcov = curve_fit(model, lengths, means, p0=[0.5, 0.99, 0.5], maxfev=20000)
+    return popt, np.sqrt(np.diag(pcov)), np.array(means)
+
+rho_spam = vec_state(np.diag([0.98, 0.02]).astype(complex))       # приготовление 2 %
+E_spam = vec_effect(np.diag([0.96, 0.04]).astype(complex))         # считывание 4 %
+popt, perr, means = run_rb(rho_v, E_v)
+popt_s, perr_s, means_s = run_rb(rho_spam, E_spam)
+for name, (A_, p_, B_), dp in (("без SPAM", popt, perr[1]), ("со SPAM ", popt_s, perr_s[1])):
+    print(f"{name}: A = {A_:.4f}, p = {p_:.6f} ± {dp:.6f}, B = {B_:.4f}, r = {(1 - p_) / 2:.3e}")
+popt_s0, _, _ = run_rb(rho_spam, E_spam, shots=0)
+popt_c0, _, _ = run_rb(rho_v, E_v, shots=0)
+print(f"без дробового шума: p = {popt_c0[1]:.6f} (без SPAM), {popt_s0[1]:.6f} (со SPAM); A: {popt_c0[0]:.4f} → {popt_s0[0]:.4f}")
+assert abs(popt_s0[1] - popt_c0[1]) < 2e-4 and abs(popt_s0[0] - popt_c0[0]) > 0.01 and abs((1 - popt[1]) / 2 - r_true) < 0.1 * r_true
+
+mf = np.linspace(1, 500, 300)
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.plot(lengths, means, "o", label="без SPAM")
+ax.plot(mf, model(mf, *popt), "C0-")
+ax.plot(lengths, means_s, "s", label="приготовление 2 %, считывание 4 %")
+ax.plot(mf, model(mf, *popt_s), "C1-")
+ax.set_xlabel("длина последовательности $m$"); ax.set_ylabel("вероятность выживания $P(m)$")
+ax.legend()
+plt.show()
+```
+
 ### 3.3. Interleaved RB
 
 Чтобы измерить ошибку конкретного клиффорда $G$, его вставляют после каждого случайного клиффорда: $G\,C_m\cdots G\,C_1$ (Магесан и др., 2012). Затухание даёт $p_{\text{int}}$. Если шум $G$ равен $\Lambda_G\circ\Lambda$, то в приближении деполяризующих шумов $p_{\text{int}}\approx p\cdot p_G$ и
 $$
 r_G\approx\frac{(d-1)(1 - p_{\text{int}}/p)}d . \tag{3.4}
 $$
-Пример (раздел 3 `примеры.py`): $X$ с собственной деполяризацией $0{,}006$ поверх общего шума. $p_{\text{int}} = 0{,}982742$, оценка $r_X = 5{,}99\cdot10^{-3}$, истинная $1 - F_{\text{avg}} = 5{,}72\cdot10^{-3}$. Расхождение около 5 % — систематическая погрешность приближения $p_{\text{int}}\approx pp_G$: для недеполяризующих шумов (3.4) верно лишь в пределах границ, которые растут с $r$ (Магесан и др., 2012). Interleaved RB — стандартный способ сообщать ошибку двухкубитного гейта.
+Пример (ячейка ниже): $X$ с собственной деполяризацией $0{,}006$ поверх общего шума. $p_{\text{int}} = 0{,}982742$, оценка $r_X = 5{,}99\cdot10^{-3}$, истинная $1 - F_{\text{avg}} = 5{,}72\cdot10^{-3}$. Расхождение около 5 % — систематическая погрешность приближения $p_{\text{int}}\approx pp_G$: для недеполяризующих шумов (3.4) верно лишь в пределах границ, которые растут с $r$ (Магесан и др., 2012). Interleaved RB — стандартный способ сообщать ошибку двухкубитного гейта.
+
+```{python}
+Kx_err = [sqrt(1 - 3 * 0.006 / 4) * I2] + [sqrt(0.006 / 4) * P for P in (X, Y, Z)]
+Xerr_ptm = ptm(Kx_err) @ N_ptm                                      # шум гейта X: собственный + общий
+popt_i, _, _ = run_rb(rho_v, E_v, interleave=(ptm([X]), Xerr_ptm))
+rX_est = (1 - popt_i[1] / popt[1]) / 2                              # (3.4)
+rX_true = 1 - (2 * np.trace(Xerr_ptm) / 4 + 1) / 3
+print(f"p_int = {popt_i[1]:.6f}; оценка r_X = {rX_est:.3e}, истинная 1 − F_avg = {rX_true:.3e} (расхождение {rX_est / rX_true - 1:.1%})")
+print(f"когерентный пере-поворот 0,02 рад: вклад в r = (2/3) sin²(0,01) = {2 / 3 * np.sin(0.01) ** 2:.2e}, ||·||_◇ = 2 sin(0,01) = {2 * np.sin(0.01):.2e}")
+assert abs(rX_est - rX_true) / rX_true < 0.2
+```
 
 ### 3.4. Что RB не видит
 
@@ -196,7 +507,7 @@ $$
 $$
 $q$ — распределение устройства. Для случайных схем и некоррелированного шума верность схемы приближённо равна произведению верностей гейтов: $F\approx\prod_iF_{\text{pro},i}$ (I.10, §6.2).
 
-Проверка (раздел 4 `примеры.py`; $n = 5$, случайные однокубитные гейты и CZ кирпичной схемой, деполяризация с $F_{\text{pro}} = 0{,}9985$ на однокубитных и $0{,}98594$ на двухкубитных гейтах; 20 схем на точку):
+Проверка (ячейка и рисунок после таблицы; $n = 5$, случайные однокубитные гейты и CZ кирпичной схемой, деполяризация с $F_{\text{pro}} = 0{,}9985$ на однокубитных и $0{,}98594$ на двухкубитных гейтах; 20 схем на точку):
 
 | глубина | $2^n\sum p^2 - 1$ | $\tilde F_{\mathrm{XEB}}$ | $\prod F_{\text{pro}}$ | отношение | $\langle\psi\rvert\rho\lvert\psi\rangle$ |
 |---:|---:|---:|---:|---:|---:|
@@ -205,6 +516,74 @@ $q$ — распределение устройства. Для случайны
 | 12 | 0,94 | 0,6799 | 0,6505 | 1,045 | 0,6749 |
 | 16 | 0,93 | 0,5996 | 0,5637 | 1,064 | 0,5908 |
 | 20 | 0,86 | 0,5171 | 0,4884 | 1,059 | 0,5141 |
+
+```{python}
+#| fig-cap: "Линейный XEB на 5 кубитах: нормированный $\\tilde F_{\\mathrm{XEB}}$ следует за истинной верностью $\\langle\\psi\\vert\\rho\\vert\\psi\\rangle$ и на несколько процентов выше произведения верностей гейтов (среднее по 20 схемам)"
+def apply_u(R, U, qs, n):
+    """U на кубитах qs (первый — старший множитель U) для матрицы плотности R формы (2,)*2n."""
+    k = len(qs)
+    Ut = U.reshape((2,) * 2 * k)
+    R = np.moveaxis(np.tensordot(Ut, R, axes=(list(range(k, 2 * k)), list(qs))), list(range(k)), list(qs))
+    bra = [n + q for q in qs]
+    return np.moveaxis(np.tensordot(R, Ut.conj(), axes=(bra, list(range(k, 2 * k)))), list(range(2 * n - k, 2 * n)), bra)
+
+def depolarize(R, lam, qs, n):
+    """λρ + (1 − λ)(I/2^k ⊗ Tr_qs ρ) — то же, что усреднение по всем 4^k паули на кубитах qs."""
+    T = R
+    for q in sorted(qs, reverse=True):
+        T = np.trace(T, axis1=q, axis2=q + T.ndim // 2)
+    for q in sorted(qs):
+        T = np.moveaxis(np.multiply.outer(T, I2 / 2), [T.ndim, T.ndim + 1], [q, q + T.ndim // 2 + 1])
+    return lam * R + (1 - lam) * T
+
+def random_circuit(n, depth):
+    return [([haar_unitary(2) for _ in range(n)], list(range(d % 2, n - 1, 2))) for d in range(depth)]
+
+CZ = np.diag([1, 1, 1, -1]).astype(complex)
+
+def run_circuit(layers, n, p1=0.0, lam2=1.0):
+    R = np.zeros((2,) * 2 * n, complex); R[(0,) * 2 * n] = 1
+    n1 = n2 = 0
+    for ones, pairs in layers:
+        for q, U in enumerate(ones):
+            R = apply_u(R, U, [q], n); n1 += 1
+            if p1:
+                R = depolarize(R, 1 - p1, [q], n)
+        for q in pairs:
+            R = apply_u(R, CZ, [q, q + 1], n); n2 += 1
+            if lam2 < 1:
+                R = depolarize(R, lam2, [q, q + 1], n)
+    return R.reshape(2 ** n, 2 ** n), n1, n2
+
+n5, p1, lam2 = 5, 0.002, 0.985
+F1, F2 = 1 - 3 * p1 / 4, lam2 + (1 - lam2) / 16
+print(f"F_pro: {F1:.4f} (однокубитные), {F2:.5f} (CZ)")
+print("глубина  2^n Σp² − 1   норм. XEB   Π F_pro   отношение   <ψ|ρ|ψ>")
+XEB = []
+for depth in (4, 8, 12, 16, 20):
+    rows = []
+    for _ in range(20):
+        lay = random_circuit(n5, depth)
+        rho_i, n1, n2 = run_circuit(lay, n5)
+        rho_n, _, _ = run_circuit(lay, n5, p1, lam2)
+        p, q = np.real(np.diag(rho_i)), np.real(np.diag(rho_n))
+        N = 2 ** n5
+        rows.append((N * (p ** 2).sum() - 1, (N * (p * q).sum() - 1) / (N * (p ** 2).sum() - 1),
+                     F1 ** n1 * F2 ** n2, np.real(np.trace(rho_i @ rho_n))))
+    pt, fn, fp, fid = np.mean(rows, axis=0)
+    XEB.append((depth, fn, fp, fid))
+    print(f"{depth:5d}     {pt:8.2f}      {fn:.4f}    {fp:.4f}     {fn / fp:.3f}     {fid:.4f}")
+assert all(abs(fn / fp - 1) < 0.1 for _, fn, fp, _ in XEB)
+
+XEB = np.array(XEB)
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+ax.plot(XEB[:, 0], XEB[:, 1], "o-", label="нормированный XEB (4.1)")
+ax.plot(XEB[:, 0], XEB[:, 3], "s--", label="верность $\\langle\\psi\\vert\\rho\\vert\\psi\\rangle$")
+ax.plot(XEB[:, 0], XEB[:, 2], "^:", label="$\\prod F_{\\mathrm{pro}}$")
+ax.set_xlabel("глубина схемы"); ax.set_ylabel("оценка верности")
+ax.legend()
+plt.show()
+```
 
 Нормированный XEB следует за верностью и на несколько процентов превышает произведение $F_{\text{pro}}$: деполяризация частично «попадает» в идеальное состояние. Для 5 кубитов $2^n\sum p^2 - 1$ сильно флуктуирует от схемы к схеме, поэтому ненормированный XEB шумный. Так оценивают верность больших схем, где томография невозможна. Метод требует классического моделирования $p(y)$ и потому не масштабируется за пределы того, что можно моделировать (I.10, §6.3). Дополнительное задание ЛР11 — этот эксперимент.
 
@@ -216,7 +595,7 @@ $q$ — распределение устройства. Для случайны
 $$
 \mathrm{HOP}_{\text{идеал}}\to\int_{\ln2}^\infty xe^{-x}\,dx = \frac{1 + \ln2}2\approx0{,}8466 , \tag{4.2}
 $$
-а для равномерного шума $\mathrm{HOP} = \frac12$. Порог $\frac23$ лежит между ними. В `примеры.py` (раздел 4; 10–15 схем на точку):
+а для равномерного шума $\mathrm{HOP} = \frac12$. Порог $\frac23$ лежит между ними. Проверка (ячейка ниже; 15 идеальных и 10 зашумлённых схем на точку):
 
 | $n$ | идеал | деполяризация 1 % на гейт | 3 % | 6 % |
 |---:|---:|---:|---:|---:|
@@ -224,6 +603,45 @@ $$
 | 6 | $0{,}857\pm0{,}006$ | $0{,}795\pm0{,}004$ | $0{,}730\pm0{,}012$ | $0{,}660\pm0{,}004$ (не проходит) |
 
 При конечном $n$ идеальная HOP чуть выше предела (4.2).
+
+```{python}
+def apply_u_vec(psi, U, qs, n):
+    k = len(qs)
+    return np.moveaxis(np.tensordot(U.reshape((2,) * 2 * k), psi, axes=(list(range(k, 2 * k)), list(qs))), list(range(k)), list(qs))
+
+def qv_hop(n, lam, ncirc):
+    """Доля тяжёлых исходов для схем квантового объёма n×n; шум — деполяризация пары после каждого SU(4)."""
+    hops = []
+    for _ in range(ncirc):
+        layers = []
+        for _ in range(n):
+            perm = rng.permutation(n)
+            layers.append((perm, [haar_unitary(4) for _ in range(n // 2)]))
+        psi = np.zeros((2,) * n, complex); psi[(0,) * n] = 1
+        R = np.zeros((2,) * 2 * n, complex); R[(0,) * 2 * n] = 1
+        for perm, Us in layers:
+            for k, U in enumerate(Us):
+                a, b = perm[2 * k], perm[2 * k + 1]
+                psi = apply_u_vec(psi, U, [a, b], n)
+                if lam < 1:
+                    R = depolarize(apply_u(R, U, [a, b], n), lam, [a, b], n)
+        p = np.abs(psi.reshape(-1)) ** 2
+        q = p if lam == 1 else np.real(np.diag(R.reshape(2 ** n, 2 ** n)))
+        hops.append(q[p > np.median(p)].sum())
+    return np.mean(hops), np.std(hops) / sqrt(ncirc)
+
+print(f"(4.2): (1 + ln 2)/2 = {(1 + log(2)) / 2:.4f}")
+QV = {}
+for n in (4, 6):
+    QV[(n, 1.0)] = qv_hop(n, 1.0, 15)
+for n in (4, 6):
+    for lam in (0.99, 0.97, 0.94):
+        QV[(n, lam)] = qv_hop(n, lam, 10)
+for n in (4, 6):
+    print(f"n = {n}: " + ";  ".join(f"{'идеал' if lam == 1 else f'{1 - lam:.0%}'} {QV[(n, lam)][0]:.3f} ± {QV[(n, lam)][1]:.3f}"
+                                    for lam in (1.0, 0.99, 0.97, 0.94)))
+assert QV[(4, 0.99)][0] > 2 / 3 and QV[(6, 0.94)][0] < 2 / 3
+```
 
 **Критика составных метрик.** $V_Q$ экспоненциален по определению ($2^n$) и создаёт впечатление «экспоненциального прогресса» при росте $n^*$ на единицу. Он зависит от компилятора и связности, так что сравниваются стеки, а не кубиты. Квадратные схемы $n\times n$ не похожи на реальные приложения. Проверка требует классического моделирования, поэтому метрика упирается в $n\sim50$. Одно число не говорит, какие ошибки преобладают. Разумная практика — сообщать набор метрик: RB-ошибки одно- и двухкубитных гейтов, ошибки считывания, $T_1$, $T_2$, перекрёстные помехи — и проверять устройство на задачах-бенчмарках из приложений (как в ЛР12).
 
@@ -240,8 +658,16 @@ $$
 где $\mathcal M(\rho) = \mathbb E_{U,b}\,U^\dagger\lvert b\rangle\langle b\rvert U$ — канал «измерь в случайном базисе». По построению $\mathbb E\hat\rho = \rho$. Снимок — не матрица плотности (у него есть отрицательные собственные значения), но несмещённая оценка $\rho$, и любая $\operatorname{Tr}(O\hat\rho)$ — несмещённая оценка $\langle O\rangle$. Один набор данных годится для любых наблюдаемых, даже выбранных после эксперимента.
 
 Два ансамбля:
-- **Случайные паули-измерения** (по кубиту независимо $X$, $Y$ или $Z$): $\hat\rho = \bigotimes_j\bigl(3U_j^\dagger\lvert b_j\rangle\langle b_j\rvert U_j - I\bigr)$. Обращение однокубитного канала проверено в разделе 5 `примеры.py`.
+- **Случайные паули-измерения** (по кубиту независимо $X$, $Y$ или $Z$): $\hat\rho = \bigotimes_j\bigl(3U_j^\dagger\lvert b_j\rangle\langle b_j\rvert U_j - I\bigr)$. Обращение однокубитного канала проверено в ячейке после списка.
 - **Случайные клиффорды на всех $n$ кубитах:** $\hat\rho = (2^n + 1)\,U^\dagger\lvert b\rangle\langle b\rvert U - I$.
+
+```{python}
+eig = {b: [dag(BASIS_ROT[b])[:, k] for k in range(2)] for b in (1, 2, 3)}   # собственные векторы X, Y, Z
+rho_r = np.array([[0.7, 0.2 - 0.1j], [0.2 + 0.1j, 0.3]])
+avg = sum(np.real(v.conj() @ rho_r @ v) * (3 * np.outer(v, v.conj()) - I2) / 3 for b in (1, 2, 3) for v in eig[b])
+assert np.allclose(avg, rho_r)
+print("E[3 U†|s><s|U − I] по базисам X, Y, Z и исходам = ρ: однокубитный канал измерения обращён")
+```
 
 ### 5.2. Сколько снимков нужно
 
@@ -253,7 +679,7 @@ $$
 
 Главное: **логарифм по $M$** и **независимость от $n$** для локальных наблюдаемых (паули) или для наблюдаемых с малой нормой Фробениуса (клиффорды).
 
-**Пример: GHZ-состояние** (ЛР11, задание 6; раздел 5 `примеры.py`). Точная дисперсия одного паули-снимка, полученная перебором всех $3^n$ базисов и $2^n$ исходов:
+**Пример: GHZ-состояние** (ЛР11, задание 6). Точная дисперсия одного паули-снимка (в `примеры.py` — перебором всех $3^n$ базисов и $2^n$ исходов; в ячейке после таблицы — разложением в сумму 64 произведений по кубитам, со сверкой с перебором при $n\le4$):
 
 | $n$ | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -261,9 +687,120 @@ $$
 | снимков для $\varepsilon = 0{,}05$ ($\approx\mathrm{Var}/\varepsilon^2$) | 450 | 650 | 1162 | 1887 | 3028 | 4728 | 7291 |
 | полная томография, $3^n\times1000$ | 9000 | 27 000 | 81 000 | 243 000 | 729 000 | $2{,}2\cdot10^6$ | $6{,}6\cdot10^6$ |
 
+```{python}
+# Для GHZ_n и снимка ⊗(3|s_i><s_i| − I): вероятность исхода и оценка верности — суммы произведений по кубитам,
+# поэтому E[оценка²] = Σ по 2·2·4·4 = 64 слагаемым (1/8)·g^n, где g — среднее однокубитного множителя.
+single = [(b, s, eig[b][s]) for b in (1, 2, 3) for s in (0, 1)]
+amp = lambda v, j: v[j].conj()                                         # <s|j>
+Aop = lambda v: 3 * np.outer(v, v.conj()) - I2
+EL = [(0, 0), (1, 1), (0, 1), (1, 0)]                                  # 4 слагаемых <GHZ|⊗A_i|GHZ>
+
+def ghz_moment(n, power):
+    """E[оценка^power] при power = 1, 2 через факторизацию по кубитам."""
+    total = 0
+    for j1, j2 in itertools.product((0, 1), repeat=2):                 # p = |Π<s|0> + Π<s|1>|²/2
+        for terms in itertools.product(EL, repeat=power):
+            g = np.mean([amp(v, j1) * np.conj(amp(v, j2)) * np.prod([Aop(v)[t] for t in terms]) for _, _, v in single]) * 2
+            total += g ** n
+    return np.real(total) / 2 / 2 ** power
+
+def ghz_brute(n):
+    """Перебор всех 3^n базисов и 2^n исходов, как в примеры.py."""
+    e2 = 0
+    for basis in itertools.product((1, 2, 3), repeat=n):
+        for bits in itertools.product((0, 1), repeat=n):
+            vs = [eig[b][s] for b, s in zip(basis, bits)]
+            pr = abs(np.prod([v[0].conj() for v in vs]) + np.prod([v[1].conj() for v in vs])) ** 2 / 2
+            est = np.real(sum(np.prod([Aop(v)[t] for v in vs]) for t in EL)) / 2
+            e2 += pr * est ** 2 / 3 ** n
+    return e2 - 1
+
+SH = {}
+for n in range(2, 9):
+    assert abs(ghz_moment(n, 1) - 1) < 1e-9                            # оценка несмещена
+    SH[n] = ghz_moment(n, 2) - 1
+    if n <= 4:
+        assert abs(SH[n] - ghz_brute(n)) < 1e-9
+print("n:        " + "  ".join(f"{n:7d}" for n in SH))
+print("Var:      " + "  ".join(f"{v:7.4g}" for v in SH.values()))
+print("Var/ε²:   " + "  ".join(f"{v / 0.05 ** 2:7.0f}" for v in SH.values()))
+print("3^n·1000: " + " ".join(f"{3 ** n * 1000:7d}" for n in SH))
+print("рост Var(n+1)/Var(n):", ", ".join(f"{SH[n + 1] / SH[n]:.3f}" for n in range(4, 8)))
+```
+
 Для $Z_1Z_2$ дисперсия равна $8 = 3^2 - 1$ при любом $n$, для $X^{\otimes n}$ — $3^n - 1$. Верность с GHZ — глобальная наблюдаемая, и её дисперсия при паули-снимках растёт экспоненциально, примерно в 1,5–1,6 раза на кубит. Но и так это на порядки дешевле томографии. По $20\,000$ снимкам при $n = 6$ получено: верность $0{,}9981$ (стандартная ошибка $0{,}0195$); $Z_iZ_{i+1}$ — от $0{,}983$ до $1{,}017$ (истинное 1); $X_1X_2$ — $-0{,}008$ (истинное 0); $X^{\otimes6}$ — $0{,}948$ при стандартной ошибке $\sqrt{3^6/20000} = 0{,}19$.
 
+```{python}
+def ghz_outcome_probs(basis):
+    n = len(basis)
+    a = np.array([[eig[b][s][0].conj() for s in (0, 1)] for b in basis])
+    c = np.array([[eig[b][s][1].conj() for s in (0, 1)] for b in basis])
+    bits = np.array(list(itertools.product((0, 1), repeat=n)))
+    return np.abs(np.prod(a[np.arange(n), bits], axis=1) + np.prod(c[np.arange(n), bits], axis=1)) ** 2 / 2, bits
+
+def ghz_fid_estimator(basis, bits):
+    n = len(basis)
+    A = np.array([[Aop(eig[b][s]) for s in (0, 1)] for b in basis])[np.arange(len(basis)), bits]
+    return np.real(sum(np.prod(A[:, :, i, j], axis=1) for i, j in EL)) / 2
+
+def pauli_estimator(basis, bits, obs):
+    """3^k·Π(±1), если базисы совпали на всех кубитах носителя obs, иначе 0."""
+    val = np.ones(len(bits))
+    for i, o in enumerate(obs):
+        if o:
+            if basis[i] != o:
+                return np.zeros(len(bits))
+            val = val * 3 * (1 - 2 * bits[:, i])
+    return val
+
+for n in (3, 4):                                                       # точные дисперсии Z1Z2 и X^n
+    vz = vx = 0
+    for basis in itertools.product((1, 2, 3), repeat=n):
+        pr, bits = ghz_outcome_probs(basis)
+        vz += pr @ pauli_estimator(basis, bits, (3, 3) + (0,) * (n - 2)) ** 2 / 3 ** n
+        vx += pr @ pauli_estimator(basis, bits, (1,) * n) ** 2 / 3 ** n
+    assert np.isclose(vz - 1, 8) and np.isclose(vx - 1, 3 ** n - 1)
+
+n, Nsnap = 6, 20000
+obs_list = [tuple(3 if j in (i, i + 1) else 0 for j in range(n)) for i in range(n - 1)]
+obs_list += [(1,) * n, (3,) * n, (1, 1) + (0,) * (n - 2), (3,) + (0,) * (n - 1), (2, 2) + (1,) * (n - 2)]
+names = [f"Z{i + 1}Z{i + 2}" for i in range(n - 1)] + ["X^⊗6", "Z^⊗6", "X1X2", "Z1", "Y1Y2X3..X6"]
+psi_g = (ket(0, 2 ** n) + ket(2 ** n - 1, 2 ** n)) / sqrt(2)
+true_vals = [np.real(psi_g.conj() @ pauli_string(o) @ psi_g) for o in obs_list]
+bases_idx = rng.integers(1, 4, size=(Nsnap, n))
+sum_f, sum_o = 0, np.zeros(len(obs_list))
+uniq, cnt = np.unique(bases_idx, axis=0, return_counts=True)
+for u, c in zip(uniq, cnt):
+    basis = tuple(int(x) for x in u)
+    pr, bits = ghz_outcome_probs(basis)
+    draws = bits[rng.choice(len(pr), size=c, p=pr / pr.sum())]
+    sum_f += ghz_fid_estimator(basis, draws).sum()
+    sum_o += [pauli_estimator(basis, draws, o).sum() for o in obs_list]
+est_f, est_o = sum_f / Nsnap, sum_o / Nsnap
+print(f"n = 6, {Nsnap} снимков: верность {est_f:.4f} (ст. ошибка √({SH[6]:.2f}/{Nsnap}) = {sqrt(SH[6] / Nsnap):.4f})")
+for nm, e, t, o in zip(names, est_o, true_vals, obs_list):
+    print(f"  {nm:11s} оценка {e:+.3f}, истинное {t:+.0f}, ст. ошибка ≈ {sqrt(3 ** sum(1 for x in o if x) / Nsnap):.3f}")
+assert abs(est_f - 1) < 5 * sqrt(SH[6] / Nsnap)
+assert all(abs(e - t) < 5 * sqrt(3 ** sum(1 for x in o if x) / Nsnap) for e, t, o in zip(est_o, true_vals, obs_list))
+```
+
 Для глобальной наблюдаемой нужен глобальный ансамбль. Группа Клиффорда — унитарный 3-дизайн: её средние до третьих моментов совпадают с хааровскими. Поэтому дисперсию клиффордовых снимков можно считать по мере Хаара. Для $O = \lvert\psi\rangle\langle\psi\rvert = \rho$ она равна $2(d-1)/(d+2)<2$ при любом $n$. При $n = 3$ по $20\,000$ хааровских снимков: оценка $0{,}9947$, выборочная дисперсия $1{,}375$, точная $1{,}4000$. Цена — глубокие схемы для случайных $n$-кубитных клиффордов.
+
+```{python}
+n = 3; d = 2 ** n
+psi_t = (ket(0, d) + ket(d - 1, d)) / sqrt(2)
+vals = []
+for _ in range(20000):                                                 # глобальные хааровские снимки (d + 1)U†|b><b|U − I
+    U = haar_unitary(d)
+    pr = np.abs(U @ psi_t) ** 2
+    b = rng.choice(d, p=pr / pr.sum())
+    v = dag(U)[:, b]
+    vals.append((d + 1) * abs(psi_t.conj() @ v) ** 2 - 1)
+vals = np.array(vals)
+var_exact = 2 * (d - 1) / (d + 2)
+print(f"GHZ_3, 20000 хааровских снимков: оценка верности {vals.mean():.4f}, выборочная дисперсия {vals.var():.3f}, точная 2(d−1)/(d+2) = {var_exact:.4f}")
+assert abs(vals.mean() - 1) < 0.05 and abs(vals.var() - var_exact) < 0.1
+```
 
 **Когда тени неэффективны** (контрольный вопрос 4 ЛР11): глобальные наблюдаемые при паули-снимках; наблюдаемые с большой нормой Фробениуса (например, проекторы высокого ранга) при клиффордовых; нелинейные функции состояния (энтропии высоких порядков) требуют больше снимков. Тени не заменяют томографию, если действительно нужно **всё** состояние.
 
@@ -310,7 +847,33 @@ $$
 11. (•••) Для глобальных хааровских (или клиффордовых) снимков и $O = \rho = \lvert\psi\rangle\langle\psi\rvert$ докажите, что дисперсия оценки равна $2(d-1)/(d+2)$. Указание: для случайного базиса $x = \lvert\langle\psi|v\rangle\rvert^2\sim\mathrm{Beta}(1, d-1)$, а исход выбирается с весом $x$.
 12. (••) Выведите (4.2): найдите медиану распределения $\mathrm{Exp}(1)$ и долю вероятности, приходящуюся на тяжёлые исходы.
 
-### Ответы и указания
+Численная проверка ответов к задачам 1–7, 9, 10, 12:
+
+```{python}
+sgs1 = np.linalg.eigvalsh(sgs_project(r_ex))
+print(f"1: спектр ρ̂ = {np.linalg.eigvalsh(r_ex).round(4).tolist()}, после SGS = {sgs1.round(4).tolist()}")
+print(f"2: 3^5 = {3 ** 5}, 4^5 − 1 = {4 ** 5 - 1}; процесс: 12^5 = {12 ** 5}, 16^5 − 4^5 = {16 ** 5 - 4 ** 5}")
+print(f"3: e = 0,02: F_pro = 1 − 3e/2 = {1 - 1.5 * 0.02:.3f}")
+r4 = (1 - 0.995) / 2
+print(f"4: r = {r4:.4f}, F_avg = {1 - r4:.4f}, F_pro = {(3 * (1 - r4) - 1) / 2:.5f}")
+print(f"5: r = 3(1 − p)/4 = {3 * 0.02 / 4:.3f}")
+print(f"6: r_G ≈ (1 − 0,990/0,995)/2 = {(1 - 0.990 / 0.995) / 2:.2e}")
+q7 = 0.03
+Dq = ptm([sqrt(1 - 3 * q7 / 4) * I2] + [sqrt(q7 / 4) * P for P in (X, Y, Z)])
+A7, B7 = E_v @ Dq @ (rho_v - vec_state(I2 / 2)), E_v @ Dq @ vec_state(I2 / 2)
+assert np.isclose(A7, (1 - q7) / 2) and np.isclose(B7, 0.5)
+print(f"7: Λ = Δ_q, q = {q7}: A = {A7:.4f} = (1 − q)/2, B = {B7:.4f}")
+F9 = 0.999 ** 1000 * 0.995 ** 500
+print(f"9: F ≈ {F9:.4f}, выборок ≈ 25/F² = {25 / F9 ** 2:.2e}")
+print(f"10: N ~ (9/ε²)·2 ln(2M/δ) = {9 / 0.05 ** 2 * 2 * log(2 * 100 / 0.01):.2e}")
+from scipy.integrate import quad
+hop = quad(lambda x: x * np.exp(-x), log(2), np.inf)[0]
+assert abs(hop - (1 + log(2)) / 2) < 1e-10 and np.allclose(sgs1, [0, 1])
+print(f"12: ∫_{{ln 2}}^∞ x e^(−x) dx = {hop:.6f} = (1 + ln 2)/2")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** $\hat\rho = \frac12(I + 0{,}6X + 0{,}9Z)$, $\lvert\mathbf r\rvert = 1{,}0817$, спектр $\{1{,}0408;\ -0{,}0408\}$. SGS: спектр $\{1, 0\}$ — чистое состояние с вектором Блоха $\mathbf r/\lvert\mathbf r\rvert$.
 - **2.** $3^5 = 243$ настройки, $4^5 - 1 = 1023$ параметра; процесс: $12^5 = 248\,832$ конфигурации, $16^5 - 4^5 = 1\,047\,552$ параметра.
 - **3.** Каждая компонента Блоха выхода умножается на $1 - 2e$, т. е. оценённый канал — $\mathbf r\mapsto(1-2e)\mathbf r$, $M = (1-2e)I$, $F_{\text{pro}} = \frac14(1 + \operatorname{Tr}M) = 1 - \frac32e$; при $e = 0{,}02$ — $0{,}970$.
@@ -323,12 +886,13 @@ $$
 - **10.** Оценка равна $3^k\prod_{j}b_j$ ($b_j = \pm1$), если на всех $k$ кубитах базисы совпали (вероятность $3^{-k}$), и нулю иначе: $\mathbb E[\hat o^2] = 3^{2k}\cdot3^{-k} = 3^k$. Для 100 наблюдаемых: $N\sim\frac9{\varepsilon^2}\cdot2\ln\frac{2M}\delta\approx7\cdot10^4$ (с точностью до абсолютной константы).
 - **11.** $\mathbb E_{\text{Born}}[x] = d\,\mathbb E[x^2] = \frac2{d+1}$, $\mathbb E_{\text{Born}}[x^2] = d\,\mathbb E[x^3] = \frac6{(d+1)(d+2)}$; $\hat o = (d+1)x - 1$, $\mathbb E\hat o = 1$, $\operatorname{Var}\hat o = \frac{6(d+1)}{d+2} - 4 = \frac{2(d-1)}{d+2}$. При $d = 8$: $1{,}4$.
 - **12.** Медиана $\mathrm{Exp}(1)$ — $\ln2$. Доля вероятности: $\mathbb E[x\,\mathbf 1_{x>\ln2}] = \int_{\ln2}^\infty xe^{-x}dx = (1 + \ln2)e^{-\ln2} = \frac{1 + \ln2}2 = 0{,}846574$.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 55 с; дольше всего МП-томография и квантовый объём) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, все числа совпадают с `примеры.py`. Самые долгие части переписаны быстрее при тех же вызовах генератора: МП-итерации — через матрицу векторов всех проекторов, схемы XEB и квантового объёма — тензорными операциями над кубитами (идеальная схема — вектором состояния), точные дисперсии паули-снимков — факторизацией по кубитам. Полный файл `примеры.py` (около 55 с; дольше всего МП-томография и квантовый объём) проверяет:
 1. линейную инверсию (1.1) по $3^n$ настройкам; проекцию SGS (сравнение с близкими матрицами плотности); МП-итерации $R\rho R$; верности и долю отрицательных оценок при $n = 1, 2, 3$ и $10^2$–$10^4$ запусков; наклоны $\approx-\frac12$;
 2. томографию процесса (2.1) по четырём входам; смещение $F_{\text{pro}}$ из-за ошибок считывания и приготовления, формулу $1 - \frac32e$; калибровочную инвариантность (2.2) вероятностей и неинвариантность $F_{\text{pro}}$;
 3. группу $\mathcal C_1$; точную проверку модели RB (3.2) усреднением по всем $24^m$ последовательностям; стандартный протокол с подгонкой; нечувствительность $p$ к SPAM; interleaved RB (3.4);
