@@ -46,6 +46,10 @@ jobs:
         run: python -m pytest -q -n auto --durations=5 tests/
 
       - name: Сборка сайта
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
         run: quarto render
 
       - uses: actions/upload-pages-artifact@v5
