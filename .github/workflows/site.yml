@@ -50,7 +50,15 @@ jobs:
           OMP_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
-        run: quarto render
+        # при ошибке хвост лога выводится аннотациями (их видно без входа в GitHub)
+        run: |
+          set -o pipefail
+          if ! quarto render 2>&1 | tee render.log; then
+            msg=$(tail -n 40 render.log | sed 's/\x1b\[[0-9;]*m//g')
+            msg=${msg//'%'/'%25'}
+            echo "::error title=quarto render::${msg//$'\n'/'%0A'}"
+            exit 1
+          fi
 
       - uses: actions/upload-pages-artifact@v5
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
