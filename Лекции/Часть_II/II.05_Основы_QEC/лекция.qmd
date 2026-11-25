@@ -1,15 +1,224 @@
-# Лекция II.5. Основы квантовой коррекции ошибок
+---
+title: "Лекция II.5. Основы квантовой коррекции ошибок"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.B «Квантовая коррекция ошибок и отказоустойчивость».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.3 (проективные измерения, §1); лекция I.5 (запрет клонирования, теорема 1.1); лекция I.8 (измерения внутри схемы и динамические схемы, §3); лекция I.9 (группа Паули и симплектическая запись, §1; стабилизаторы, §3); лекция II.1 (представление Крауса, §2; унитарная свобода, §4.3; каналы Паули, §5.2; верность процесса, §7.1); лекция II.2 (стандартные каналы, §1).
+**Пререквизиты:** [лекция I.3](../../Часть_I/I.03_Матрица_плотности_POVM/лекция.qmd) (проективные измерения, §1); [лекция I.5](../../Часть_I/I.05_Протоколы_на_запутанности/лекция.qmd) (запрет клонирования, теорема 1.1); [лекция I.8](../../Часть_I/I.08_Схемы_и_универсальность/лекция.qmd) (измерения внутри схемы и динамические схемы, §3); [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (группа Паули и симплектическая запись, §1; стабилизаторы, §3); [лекция II.1](../II.01_Квантовые_каналы/лекция.qmd) (представление Крауса, §2; унитарная свобода, §4.3; каналы Паули, §5.2; верность процесса, §7.1); [лекция II.2](../II.02_Уравнение_Линдблада/лекция.qmd) (стандартные каналы, §1).
 **Литература:** N&C, §§ 10.1–10.3; Shor P. W. // PRA 52, R2493 (1995); Knill E., Laflamme R. // PRA 55, 900 (1997); Laflamme R., Miquel C., Paz J. P., Zurek W. H. // PRL 77, 198 (1996); Bennett C. H., DiVincenzo D. P., Smolin J. A., Wootters W. K. // PRA 54, 3824 (1996); Gottesman D. Stabilizer codes and quantum error correction, PhD thesis, Caltech (1997), arXiv:quant-ph/9705052, гл. 2–3.
-**Материалы:** `примеры.py` — численная проверка всех утверждений: код повторения (классический и квантовые от $X$- и $Z$-ошибок), схема синдрома на вспомогательных кубитах, непрерывные ошибки, код Шора (стабилизаторы, логические операторы, схема кодирования, исправление произвольных однокубитных ошибок и каналов), условия Книлла–Лафламма и построение восстановления по ним, граница Хэмминга и код [[5,1,3]], точная логическая ошибка кодов при деполяризующем шуме и амплитудном затухании; задачи к семинару С4 и к ЛР13 — в § 9.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: код повторения (классический и квантовые от $X$- и $Z$-ошибок), схема синдрома на вспомогательных кубитах, непрерывные ошибки, код Шора (стабилизаторы, логические операторы, схема кодирования, исправление произвольных однокубитных ошибок и каналов), условия Книлла–Лафламма и построение восстановления по ним, граница Хэмминга и код [[5,1,3]], точная логическая ошибка кодов при деполяризующем шуме и амплитудном затухании; задачи к семинару С4 и к ЛР13 — в § 9. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §7, §12, §18).
 - $\mathcal C$ — кодовое подпространство, $\Pi$ — проектор на него; $\lvert0_L\rangle$, $\lvert1_L\rangle$ — базис кода; $\bar X$, $\bar Z$ — логические операторы. Код с $n$ физическими кубитами, $k$ логическими и дистанцией $d$ обозначается $[[n,k,d]]$.
 - $p$ — вероятность ошибки на кубит. **Деполяризующий шум с вероятностью $p$** — $X$, $Y$, $Z$ по $p/3$; это канал $\Delta_{4p/3}$ в параметризации II.1 (и `DEPOLARIZE1(p)` в Stim). Bit flip — $\mathcal X_p(\rho) = (1-p)\rho + pX\rho X$, phase flip — $\mathcal D_p$ (II.1). $p_L$ — вероятность логической ошибки.
 - Синдром $s$ — набор исходов измерения проверочных операторов; $C_s$ — исправление, которое декодер сопоставляет синдрому.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты, стабилизаторные коды и логический канал"
+import itertools
+from functools import reduce
+from math import comb, log2
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import expm
+from scipy.optimize import brentq
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+H = np.array([[1, 1], [1, -1]], dtype=complex) / np.sqrt(2)
+PAULI = {"I": I2, "X": X, "Y": Y, "Z": Z}
+
+def dag(A):
+    return A.conj().T
+
+def kron(*ops):
+    return reduce(np.kron, ops)
+
+def pauli(s):
+    """Паули-строка 'XZZXI' -> матрица."""
+    return kron(*[PAULI[c] for c in s])
+
+def op_on(U, q, n):
+    return kron(*[U if i == q else I2 for i in range(n)])
+
+def ket(bits):
+    v = np.zeros(2 ** len(bits), dtype=complex)
+    v[int(bits, 2)] = 1
+    return v
+
+def cnot(c, t, n):
+    P0 = np.diag([1, 0]).astype(complex)
+    P1 = np.diag([0, 1]).astype(complex)
+    return kron(*[P0 if i == c else I2 for i in range(n)]) + kron(*[P1 if i == c else (X if i == t else I2) for i in range(n)])
+
+def rho_of(psi):
+    return np.outer(psi, psi.conj())
+
+def fid(psi, phi):
+    return abs(np.vdot(psi, phi)) ** 2
+
+# Симплектическая запись (I.9, §1.2): паули-строка <-> (x|z)
+def sym(s):
+    x = np.array([c in "XY" for c in s], dtype=np.uint8)
+    z = np.array([c in "ZY" for c in s], dtype=np.uint8)
+    return x, z
+
+def sym_inner(x1, z1, x2, z2):
+    return (np.dot(x1, z2) + np.dot(z1, x2)) % 2
+
+class StabCode:
+    """Стабилизаторный код с одним логическим кубитом: генераторы, X_L, Z_L."""
+
+    def __init__(self, name, gens, XL, ZL, allowed="XYZ"):
+        self.name, self.gens, self.XL, self.ZL = name, gens, XL, ZL
+        self.allowed = allowed  # какие паули допускаются в исправлениях таблицы
+        self.n = len(gens[0])
+        self.Sx = np.array([sym(g)[0] for g in gens]).T  # n x r
+        self.Sz = np.array([sym(g)[1] for g in gens]).T
+        self.lx = [sym(XL), sym(ZL)]
+        # проверки: генераторы коммутируют, логические коммутируют с ними и антикоммутируют друг с другом
+        for a, b in itertools.combinations(gens, 2):
+            assert sym_inner(*sym(a), *sym(b)) == 0
+        for L in (XL, ZL):
+            for g in gens:
+                assert sym_inner(*sym(L), *sym(g)) == 0
+        assert sym_inner(*sym(XL), *sym(ZL)) == 1
+
+    def projector(self):
+        n = self.n
+        P = np.eye(2 ** n, dtype=complex)
+        for g in self.gens:
+            sign = -1 if g.startswith("-") else 1
+            P = P @ (np.eye(2 ** n) + sign * pauli(g.lstrip("-"))) / 2
+        return P
+
+    def logical_states(self):
+        P = self.projector()
+        # |0_L>: +1 собственный вектор Z_L внутри кода
+        PZ = P @ (np.eye(2 ** self.n) + pauli(self.ZL)) / 2
+        w, v = np.linalg.eigh(PZ)
+        k0 = v[:, -1]
+        k1 = pauli(self.XL) @ k0
+        return k0, k1
+
+    def all_paulis(self):
+        """Все 4^n паули-строк: массивы x, z (N x n), вес, синдром (целое)."""
+        n = self.n
+        idx = np.arange(4 ** n)
+        digits = (idx[:, None] // 4 ** np.arange(n - 1, -1, -1)) % 4  # 0=I,1=X,2=Y,3=Z
+        x = ((digits == 1) | (digits == 2)).astype(np.int64)
+        z = ((digits == 2) | (digits == 3)).astype(np.int64)
+        syn_bits = (x @ self.Sz + z @ self.Sx) % 2
+        syn = syn_bits @ (2 ** np.arange(syn_bits.shape[1] - 1, -1, -1))
+        w = (x | z).sum(1)
+        return x, z, w, syn
+
+    def decoder_table(self):
+        """Таблица синдромов: для каждого синдрома — паули минимального веса (первая по порядку)."""
+        if hasattr(self, "_table"):
+            return self._table
+        x, z, w, syn = self.all_paulis()
+        idx = np.arange(4 ** self.n)
+        digits = (idx[:, None] // 4 ** np.arange(self.n - 1, -1, -1)) % 4
+        ok = np.all(np.isin(digits, [0] + ["IXYZ".index(c) for c in self.allowed]), axis=1)
+        order = [i for i in np.lexsort((idx, w)) if ok[i]]
+        table = {}
+        for i in order:
+            s = int(syn[i])
+            if s not in table:
+                table[s] = i
+        self._table = (table, (x, z, w, syn))
+        return self._table
+
+    def correction(self, s):
+        table, (x, z, _, _) = self.decoder_table()
+        i = table[s]
+        return "".join("IXZY"[x[i][q] + 2 * z[i][q]] for q in range(self.n))
+
+    def isometry(self):
+        if not hasattr(self, "_V"):
+            k0, k1 = self.logical_states()
+            self._V = np.stack([k0, k1], axis=1)
+        return self._V
+
+    def decode(self, rho):
+        """Идеальное измерение синдрома + коррекция по таблице; результат — логическая матрица 2 x 2.
+        Подпространство синдрома s натянуто на C_s|0_L>, C_s|1_L> (C_s — исправление из таблицы)."""
+        if not hasattr(self, "_W"):
+            r = len(self.gens)
+            table, _ = self.decoder_table()
+            assert len(table) == 2 ** r  # все синдромы достижимы
+            V = self.isometry()
+            self._W = [pauli(self.correction(s)) @ V for s in range(2 ** r)]
+        if rho.ndim == 1:
+            rho = rho_of(rho)
+        return sum(dag(Ws) @ rho @ Ws for Ws in self._W)
+
+    def failure_counts(self):
+        """N_fail[w] — число паули-строк веса w, после которых таблица даёт логическую ошибку."""
+        table, (x, z, w, syn) = self.decoder_table()
+        cx = np.array([x[table[int(s)]] for s in syn])
+        cz = np.array([z[table[int(s)]] for s in syn])
+        rx, rz = (x + cx) % 2, (z + cz) % 2
+        (Xx, Xz), (Zx, Zz) = self.lx
+        comm_X = (rx @ Xz + rz @ Xx) % 2  # антикоммутирует с X_L -> есть Z_L-составляющая
+        comm_Z = (rx @ Zz + rz @ Zx) % 2
+        fail = (comm_X | comm_Z).astype(bool)
+        N = np.array([np.sum(fail & (w == k)) for k in range(self.n + 1)])
+        tot = np.array([np.sum(w == k) for k in range(self.n + 1)])
+        return N, tot
+
+    def pL(self, p, N=None):
+        if N is None:
+            N, _ = self.failure_counts()
+        return sum(N[k] * (p / 3) ** k * (1 - p) ** (self.n - k) for k in range(self.n + 1))
+
+def kl_matrix(V, errors):
+    """Условия Книлла–Лафламма P E_a^+ E_b P = c_ab P, где P = V V^+ (V — изометрия кодирования).
+    Эквивалентно V^+ E_a^+ E_b V = c_ab I. Возвращает (выполнены?, c)."""
+    m, K = len(errors), V.shape[1]
+    EV = [E @ V for E in errors]
+    c = np.zeros((m, m), dtype=complex)
+    ok = True
+    for a in range(m):
+        for b in range(m):
+            M = dag(EV[a]) @ EV[b]
+            c[a, b] = np.trace(M) / K
+            if not np.allclose(M, c[a, b] * np.eye(K), atol=1e-10):
+                ok = False
+    return ok, c
+
+def apply_1q_channel(rho, kraus, q, n):
+    """Канал на кубите q: свёртка по оси q (кет) и n+q (бра)."""
+    r = rho.reshape([2] * (2 * n))
+    out = np.zeros_like(r)
+    for K in kraus:
+        t = np.moveaxis(np.tensordot(K, r, axes=([1], [q])), 0, q)
+        t = np.moveaxis(np.tensordot(K.conj(), t, axes=([1], [n + q])), 0, n + q)
+        out += t
+    return out.reshape(rho.shape)
+
+def logical_pauli_probs(V, channel, decode):
+    """Логический канал «кодирование V -> шум -> декодирование»: вероятности I, X, Y, Z и PTM R."""
+    R = np.zeros((4, 4))
+    paulis1 = [I2, X, Y, Z]
+    for j, Pj in enumerate(paulis1):
+        out = decode(channel(V @ Pj @ dag(V)))
+        for i, Pi in enumerate(paulis1):
+            R[i, j] = np.real(np.trace(Pi @ out)) / 2
+    lam = np.diag(R)[1:]
+    # канал Паули: lam_x = pI + pX - pY - pZ и т. д. (II.1, (5.2))
+    M = np.array([[1, 1, 1, 1], [1, 1, -1, -1], [1, -1, 1, -1], [1, -1, -1, 1]])
+    probs = np.linalg.solve(M, np.concatenate([[1], lam]))
+    return probs, R
+```
 
 ---
 
@@ -64,7 +273,7 @@ $$
 $$
 p_L(d) = \sum_{j>d/2}\binom dj p^j(1-p)^{d-j}\;\sim\;\binom{d}{(d+1)/2}p^{(d+1)/2}\quad(p\to0) . \tag{1.2}
 $$
-Раздел 0 `примеры.py`:
+Численно (ячейка и рисунок после таблицы):
 
 | $p$ | $d = 1$ | $d = 3$ | $d = 5$ | $d = 7$ | $d = 9$ |
 |---:|---:|---:|---:|---:|---:|
@@ -72,6 +281,29 @@ $$
 | 0,1 | 0,1 | 0,0280 | 0,00856 | 0,00273 | 0,000891 |
 | 0,45 | 0,45 | 0,425 | 0,407 | 0,392 | 0,379 |
 | 0,55 | 0,55 | 0,575 | 0,593 | 0,608 | 0,621 |
+
+```{python}
+#| fig-cap: "Код повторения длины $d$ с голосованием: при $p<1/2$ логическая ошибка падает с ростом $d$, при $p>1/2$ растёт — порог $1/2$"
+def pL_rep(d, p):
+    """(1.2): большинство голосов ошибается, если перевернулось больше половины битов."""
+    return sum(comb(d, j) * p ** j * (1 - p) ** (d - j) for j in range((d + 1) // 2, d + 1))
+
+for p in (0.1, 0.3, 0.5):
+    assert np.isclose(pL_rep(3, p), 3 * p ** 2 - 2 * p ** 3)                  # (1.1)
+print("корни 3p² − 2p³ = p:", sorted(np.round(np.roots([-2, 3, -1, 0]).real, 6).tolist()))
+print("   p     d = 1      d = 3      d = 5      d = 7      d = 9")
+for p in (0.01, 0.1, 0.45, 0.55):
+    print(f"  {p:4.2f}  " + "  ".join(f"{pL_rep(d, p):.3e}" for d in (1, 3, 5, 7, 9)))
+
+ps = np.linspace(0.001, 0.999, 300)
+fig, ax = plt.subplots(figsize=(6.4, 3.6))
+for d in (1, 3, 5, 9, 15):
+    ax.plot(ps, [pL_rep(d, p) for p in ps], label=f"$d = {d}$")
+ax.axvline(0.5, color="gray", ls=":")
+ax.set_xlabel("вероятность переворота бита $p$"); ax.set_ylabel("логическая ошибка $p_L$")
+ax.legend()
+plt.show()
+```
 
 При $p<1/2$ ошибка **экспоненциально убывает** с длиной кода, при $p>1/2$ растёт. Это простейший пример **порога**: ниже него увеличение кода подавляет ошибку сколь угодно сильно. Пороги квантовых кодов (II.7–II.8) — того же происхождения, но значительно ниже.
 
@@ -96,7 +328,42 @@ $$
 
 Четыре подпространства ортогональны, поэтому синдром однозначно указывает ошибку. Главное: **синдром не зависит от $\alpha$, $\beta$**. И $\lvert000\rangle$, и $\lvert111\rangle$ — собственные векторы $Z_1Z_2$ с одним и тем же значением, поэтому измерение чётности ничего не узнаёт о суперпозиции и не разрушает её.
 
-**Схема синдрома** (ЛР13, задание 1). Два вспомогательных кубита в $\lvert0\rangle$; для $Z_1Z_2$ — CNOT с кубитов 1 и 2 на первый вспомогательный, для $Z_2Z_3$ — с кубитов 2 и 3 на второй. Вспомогательный кубит накапливает чётность $x_1\oplus x_2$ и измеряется, после чего применяется условная коррекция (динамическая схема, I.8, §3). В `примеры.py` (раздел 1) вся схема на 5 кубитах промоделирована вектором состояния: каждая одиночная $X$-ошибка исправляется точно, и вероятности синдромов одинаковы для разных $(\alpha,\beta)$.
+**Схема синдрома** (ЛР13, задание 1). Два вспомогательных кубита в $\lvert0\rangle$; для $Z_1Z_2$ — CNOT с кубитов 1 и 2 на первый вспомогательный, для $Z_2Z_3$ — с кубитов 2 и 3 на второй. Вспомогательный кубит накапливает чётность $x_1\oplus x_2$ и измеряется, после чего применяется условная коррекция (динамическая схема, I.8, §3). В ячейке ниже вся схема на 5 кубитах промоделирована вектором состояния: каждая одиночная $X$-ошибка исправляется точно, и вероятности синдромов одинаковы для разных $(\alpha,\beta)$.
+
+```{python}
+alpha, beta = 0.6, 0.8j
+enc = cnot(0, 2, 3) @ cnot(0, 1, 3)                                            # (2.1)
+L3 = enc @ np.kron(np.array([alpha, beta]), ket("00"))
+assert np.allclose(L3, alpha * ket("000") + beta * ket("111"))
+# данные — кубиты 0, 1, 2; вспомогательные 3 (← Z1Z2) и 4 (← Z2Z3)
+syn_circ = cnot(1, 4, 5) @ cnot(2, 4, 5) @ cnot(0, 3, 5) @ cnot(1, 3, 5)
+SYN_TABLE3 = {"00": None, "10": 0, "11": 1, "01": 2}
+
+def correct_bitflip(state3):
+    """Схема синдрома, измерение вспомогательных кубитов, условная коррекция: список (вероятность, синдром, данные)."""
+    full = syn_circ @ np.kron(state3, ket("00"))
+    out = []
+    for s in ("00", "01", "10", "11"):
+        v = np.kron(np.eye(8), np.outer(ket(s), ket(s))) @ full
+        pr = np.real(np.vdot(v, v))
+        if pr < 1e-14:
+            continue
+        data = (v / np.sqrt(pr)).reshape(8, 4)[:, int(s, 2)]
+        if SYN_TABLE3[s] is not None:
+            data = op_on(X, SYN_TABLE3[s], 3) @ data
+        out.append((pr, s, data))
+    return out
+
+for q in range(3):
+    (pr, s, data), = correct_bitflip(op_on(X, q, 3) @ L3)
+    assert np.isclose(fid(data, L3), 1)
+    print(f"X{q + 1}: синдром {s} с вероятностью {pr:.0f}, после коррекции верность {fid(data, L3):.6f}")
+for a_, b_ in ((1, 0), (0, 1), (1 / np.sqrt(2), 1j / np.sqrt(2))):
+    st = enc @ np.kron(np.array([a_, b_]), ket("00"))
+    pr = {s: p_ for p_, s, _ in correct_bitflip(op_on(X, 1, 3) @ st)}
+    assert list(pr) == ["11"] and np.isclose(pr["11"], 1)
+print("синдром X2 — 11 с вероятностью 1 для входов |0>, |1>, (|0> + i|1>)/√2")
+```
 
 **Логическая ошибка.** При канале $\mathcal X_p$ на каждом кубите коррекция ошибается, если перевернулось два или три кубита, — и результат равен $\bar X = X_1X_2X_3$. Логический канал (кодирование → шум → синдром → коррекция) оказался точно каналом
 $$
@@ -104,13 +371,37 @@ $$
 $$
 (при $p = 0{,}1$: $p_L = 0{,}028$; проверено через PTM логического канала). Это допуск к ЛР13.
 
+```{python}
+REP3X = StabCode("повторения (X)", ["ZZI", "IZZ"], XL="XXX", ZL="ZII", allowed="X")
+REP3Z = StabCode("повторения (Z)", ["XXI", "IXX"], XL="ZZZ", ZL="XII", allowed="Z")
+V3 = REP3X.isometry()
+
+def pauli_channel_all(rho, kraus, n):
+    for q in range(n):
+        rho = apply_1q_channel(rho, kraus, q, n)
+    return rho
+
+for p in (0.05, 0.1, 0.2):
+    probs, _ = logical_pauli_probs(V3, lambda r: pauli_channel_all(r, [np.sqrt(1 - p) * I2, np.sqrt(p) * X], 3), REP3X.decode)
+    assert np.isclose(probs[1], 3 * p ** 2 - 2 * p ** 3) and np.allclose(probs[2:], 0)
+    print(f"p = {p}: логический канал — (p_I, p_X, p_Y, p_Z) = {np.round(probs, 6).tolist()}, 3p² − 2p³ = {3 * p ** 2 - 2 * p ** 3:.6f}")
+```
+
 ### 2.2. Непрерывная ошибка
 
 Пусть вместо переворота кубит 2 слегка повернулся: $e^{-i\theta X_2} = \cos\theta\,I - i\sin\theta\,X_2$. Тогда
 $$
 e^{-i\theta X_2}\lvert\psi_L\rangle = \cos\theta\,\lvert\psi_L\rangle - i\sin\theta\,X_2\lvert\psi_L\rangle . \tag{2.3}
 $$
-Слагаемые лежат в подпространствах с синдромами 00 и 11. Измерение синдрома **выбирает одно из них**: с вероятностью $\cos^2\theta$ ошибки «не было», с вероятностью $\sin^2\theta$ была $X_2$, и её исправляют. В обоих случаях после коррекции состояние точное. При $\theta = 0{,}3$ вероятности $0{,}9127$ и $0{,}0873$ (раздел 1 `примеры.py`). Это и есть механизм **дискретизации** (§4): континуум ошибок сводится к конечному набору измерением.
+Слагаемые лежат в подпространствах с синдромами 00 и 11. Измерение синдрома **выбирает одно из них**: с вероятностью $\cos^2\theta$ ошибки «не было», с вероятностью $\sin^2\theta$ была $X_2$, и её исправляют. В обоих случаях после коррекции состояние точное. При $\theta = 0{,}3$ вероятности $0{,}9127$ и $0{,}0873$ (ячейка ниже). Это и есть механизм **дискретизации** (§4): континуум ошибок сводится к конечному набору измерением.
+
+```{python}
+theta = 0.3
+res = correct_bitflip(expm(-1j * theta * op_on(X, 1, 3)) @ L3)
+for pr, s, data in res:
+    print(f"синдром {s}: вероятность {pr:.4f}, верность после коррекции {fid(data, L3):.6f}")
+assert np.allclose([pr for pr, _, _ in res], [np.cos(theta) ** 2, np.sin(theta) ** 2])
+```
 
 ### 2.3. Код от $Z$-ошибок
 
@@ -124,7 +415,17 @@ $$
 $$
 \lvert0_L\rangle = \lvert{+}{+}{+}\rangle,\quad \lvert1_L\rangle = \lvert{-}{-}{-}\rangle,\qquad \text{проверки } X_1X_2,\ X_2X_3 . \tag{2.5}
 $$
-Кодирование — как в (2.1), затем $H^{\otimes3}$; синдром измеряют так же, обрамив вспомогательные CNOT адамарами. При $\mathcal D_p$ логическая ошибка снова $3p^2 - 2p^3$ (проверено), а $X$-ошибки теперь действуют как логический оператор. Каждый из кодов исправляет только «свой» тип ошибки.
+Кодирование — как в (2.1), затем $H^{\otimes3}$; синдром измеряют так же, обрамив вспомогательные CNOT адамарами. При $\mathcal D_p$ логическая ошибка снова $3p^2 - 2p^3$ (проверено в ячейке ниже вместе с (2.4)), а $X$-ошибки теперь действуют как логический оператор. Каждый из кодов исправляет только «свой» тип ошибки.
+
+```{python}
+for p in (0.05, 0.1, 0.2):
+    dephase = [np.sqrt(1 - p) * I2, np.sqrt(p) * Z]
+    probsZ, _ = logical_pauli_probs(V3, lambda r: pauli_channel_all(r, dephase, 3), REP3X.decode)
+    probs_pf, _ = logical_pauli_probs(REP3Z.isometry(), lambda r: pauli_channel_all(r, dephase, 3), REP3Z.decode)
+    assert np.isclose(probsZ[3], 3 * p - 6 * p ** 2 + 4 * p ** 3) and np.isclose(probs_pf[1], 3 * p ** 2 - 2 * p ** 3)
+    print(f"D_p, p = {p}: код (2.1) — логическая Z-ошибка {probsZ[3]:.4f}; код (2.5) — p_L = {probs_pf[1]:.4f}")
+assert np.isclose(fid(REP3Z.isometry()[:, 0], kron(H, H, H) @ ket("000")), 1)   # |0_L> = |+++>
+```
 
 ---
 
@@ -136,7 +437,7 @@ $$
 $$
 \lvert0_L\rangle = \frac{(\lvert000\rangle + \lvert111\rangle)^{\otimes3}}{2\sqrt2},\qquad \lvert1_L\rangle = \frac{(\lvert000\rangle - \lvert111\rangle)^{\otimes3}}{2\sqrt2} . \tag{3.1}
 $$
-Схема кодирования: CNOT с кубита 1 на 4 и 7, $H$ на кубитах 1, 4, 7, затем в каждом блоке CNOT с первого кубита на два других (2 + 6 CNOT и 3 $H$; проверено в `примеры.py`).
+Схема кодирования: CNOT с кубита 1 на 4 и 7, $H$ на кубитах 1, 4, 7, затем в каждом блоке CNOT с первого кубита на два других (2 + 6 CNOT и 3 $H$; проверено в ячейке в конце пункта).
 
 **Проверочные операторы** — 8 коммутирующих паули-строк:
 
@@ -147,17 +448,63 @@ $$
 
 Их общее собственное подпространство с собственными значениями $+1$ двумерно — это $\mathcal C$. Логические операторы: $\bar X = Z_1Z_4Z_7$ (меняет знак во всех трёх блоках, т. е. $\lvert0_L\rangle\leftrightarrow\lvert1_L\rangle$) и $\bar Z = X_1X_2X_3$ (даёт $-1$ на $\lvert1_L\rangle$). Эквивалентно $\bar X = Z^{\otimes9}$, $\bar Z = X^{\otimes9}$: эти представители отличаются домножением на проверочные операторы. Язык проверочных операторов и логических операторов — это **стабилизаторный формализм** (I.9, §3); систематически он развивается в II.6.
 
+```{python}
+SHOR = StabCode("Шора [[9,1,3]]",
+                ["ZZIIIIIII", "IZZIIIIII", "IIIZZIIII", "IIIIZZIII", "IIIIIIZZI", "IIIIIIIZZ", "XXXXXXIII", "IIIXXXXXX"],
+                XL="ZIIZIIZII", ZL="XXXIIIIII")
+blkp, blkm = (ket("000") + ket("111")) / np.sqrt(2), (ket("000") - ket("111")) / np.sqrt(2)
+sh0, sh1 = kron(blkp, blkp, blkp), kron(blkm, blkm, blkm)                     # (3.1)
+P_shor = SHOR.projector()
+assert np.isclose(np.trace(P_shor).real, 2) and np.allclose(P_shor @ sh0, sh0) and np.allclose(P_shor @ sh1, sh1)
+del P_shor
+assert np.allclose(pauli(SHOR.XL) @ sh0, sh1) and np.allclose(pauli(SHOR.ZL) @ sh1, -sh1)
+assert np.allclose(pauli("Z" * 9) @ sh0, sh1) and np.allclose(pauli("X" * 9) @ sh1, -sh1)
+enc9 = cnot(0, 6, 9) @ cnot(0, 3, 9)
+enc9 = kron(*[H if q in (0, 3, 6) else I2 for q in range(9)]) @ enc9
+for b in (0, 3, 6):
+    enc9 = cnot(b, b + 2, 9) @ cnot(b, b + 1, 9) @ enc9
+assert np.allclose(enc9 @ ket("0" * 9), sh0) and np.allclose(enc9 @ ket("1" + "0" * 8), sh1)
+print("общее +1-подпространство 8 проверок двумерно и содержит (3.1); X̄ = Z1Z4Z7 ~ Z^⊗9, Z̄ = X1X2X3 ~ X^⊗9;")
+print("схема кодирования (2 CNOT, 3 H, 6 CNOT) даёт |0_L>, |1_L>")
+```
+
 ### 3.2. Исправление любой однокубитной ошибки
 
 - **$X_j$** обнаруживают $ZZ$-проверки своего блока, как в §2.1.
 - **$Z_j$** меняет знак блока: $(\lvert000\rangle + \lvert111\rangle)\leftrightarrow(\lvert000\rangle - \lvert111\rangle)$. Две $X^{\otimes6}$-проверки сравнивают знаки соседних блоков и указывают блок, как код (2.5). Исправление — $Z$ на **любом** кубите этого блока.
 - **$Y_j = iX_jZ_j$** даёт оба синдрома одновременно и исправляется двумя коррекциями.
 
-Раздел 2 `примеры.py`: все 28 паули-операторов веса $\le1$ исправляются таблицей синдромов, а $X_1X_4$ (два блока) — тоже. Но $X_1X_2$ (один блок) приводит к логической ошибке: код исправляет одну произвольную ошибку, его дистанция $d = 3$ (определение — §5.2). Код Шора — это $[[9,1,3]]$.
+Проверка (ячейка ниже): все 28 паули-операторов веса $\le1$ исправляются таблицей синдромов, а $X_1X_4$ (два блока) — тоже. Но $X_1X_2$ (один блок) приводит к логической ошибке: код исправляет одну произвольную ошибку, его дистанция $d = 3$ (определение — §5.2). Код Шора — это $[[9,1,3]]$.
+
+```{python}
+V9 = SHOR.isometry()
+psi_l = np.array([0.6, 0.8j])
+psiL = V9 @ psi_l
+logical_fid = lambda rhoL: np.real(np.vdot(psi_l, rhoL @ psi_l))
+singles = ["I" * 9] + ["I" * q + P + "I" * (8 - q) for q in range(9) for P in "XYZ"]
+assert all(np.isclose(logical_fid(SHOR.decode(pauli(s) @ psiL)), 1) for s in singles)
+for s in ("XIIXIIIII", "XXIIIIIII"):
+    print(f"{s}: логическая верность после коррекции {logical_fid(SHOR.decode(pauli(s) @ psiL)):.4f}")
+print(f"все {len(singles)} паули-ошибок веса ≤ 1 исправляются таблицей синдромов")
+```
 
 ### 3.3. Вырожденность
 
 $Z_1$, $Z_2$ и $Z_3$ дают **один и тот же синдром**. Различить их нельзя, но и не нужно: $Z_1Z_2$ — произведение проверочных операторов (оно действует на $\mathcal C$ тождественно), поэтому $Z_1\lvert\psi_L\rangle = Z_2\lvert\psi_L\rangle$. 28 операторов веса $\le1$ дают лишь 22 различных синдрома. Код, в котором разные исправимые ошибки действуют на кодовое пространство одинаково, называется **вырожденным**. Это специфически квантовое явление: у классических кодов разные ошибки на кодовых словах всегда различимы. Вырожденность — преимущество: код исправляет больше ошибок, чем различает синдромов (ЛР13, контрольный вопрос 2).
+
+```{python}
+def syndrome_of(code, s):
+    x, z = sym(s)
+    return tuple(int(v) for v in (x @ code.Sz + z @ code.Sx) % 2)
+
+syn_set = {}
+for s in singles:
+    syn_set.setdefault(syndrome_of(SHOR, s), []).append(s)
+assert len(syn_set) == 22 and sym_inner(*sym("ZZIIIIIII"), *sym(SHOR.XL)) == 0
+label = lambda s: "".join(f"{c}{i + 1}" for i, c in enumerate(s) if c != "I")
+groups = ["{" + ", ".join(label(e) for e in v) + "}" for v in syn_set.values() if len(v) > 1]
+print(f"{len(singles)} ошибок веса ≤ 1 → {len(syn_set)} различных синдромов; общий синдром у групп " + " ".join(groups))
+```
 
 ---
 
@@ -175,7 +522,22 @@ $$
 $$
 K_0 = \frac{1 + \sqrt{1-\gamma}}2\,I + \frac{1 - \sqrt{1-\gamma}}2\,Z,\qquad K_1 = \sqrt\gamma\,\lvert0\rangle\langle1\rvert = \frac{\sqrt\gamma}2(X + iY) . \tag{4.2}
 $$
-В `примеры.py` код Шора точно исправил случайную унитарную ошибку на случайном кубите (3 испытания), случайный канал с тремя операторами Крауса и $\mathcal A_{0,3}$ на одном кубите — всё одной и той же таблицей синдромов для паули-ошибок.
+В ячейке ниже код Шора точно исправил случайную унитарную ошибку на случайном кубите (3 испытания), случайный канал с тремя операторами Крауса и $\mathcal A_{0,3}$ на одном кубите — всё одной и той же таблицей синдромов для паули-ошибок.
+
+```{python}
+for trial in range(3):                                                         # случайная унитарная ошибка на случайном кубите
+    U = np.linalg.qr(rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2)))[0]
+    q = int(rng.integers(9))
+    print(f"случайная унитарная на кубите {q + 1}: верность {logical_fid(SHOR.decode(op_on(U, q, 9) @ psiL)):.6f}")
+Vst = np.linalg.qr(rng.normal(size=(6, 2)) + 1j * rng.normal(size=(6, 2)))[0]   # изометрия 2 → 6: три оператора Крауса
+kraus_rand = [Vst[2 * j:2 * j + 2, :] for j in range(3)]
+print(f"случайный канал (3 Крауса) на кубите 5: {logical_fid(SHOR.decode(apply_1q_channel(rho_of(psiL), kraus_rand, 4, 9))):.6f}")
+gam = 0.3
+ad = [np.array([[1, 0], [0, np.sqrt(1 - gam)]], complex), np.array([[0, np.sqrt(gam)], [0, 0]], complex)]
+a_, b_ = (1 + np.sqrt(1 - gam)) / 2, (1 - np.sqrt(1 - gam)) / 2
+assert np.allclose(ad[0], a_ * I2 + b_ * Z) and np.allclose(ad[1], np.sqrt(gam) * (X + 1j * Y) / 2)   # (4.2)
+print(f"A_0,3 на кубите 8: {logical_fid(SHOR.decode(apply_1q_channel(rho_of(psiL), ad, 7, 9))):.6f}")
+```
 
 Заметим: малый поворот на угол $\theta$ измерение синдрома превращает в паули-ошибку с вероятностью $\sin^2\theta\approx\theta^2$ (2.3), т. е. в терминах вероятностей когерентная ошибка становится стохастической. Как когерентные ошибки на многих кубитах складываются до измерения синдрома, обсуждается в II.8 (ср. II.1, §7.3).
 
@@ -205,7 +567,24 @@ $$
 $$
 По полярному разложению $F_k\Pi = \sqrt{d_k}\,U_k\Pi$ для некоторой унитарной $U_k$ (при $d_k>0$). Значит, $F_k$ переводит $\mathcal C$ в подпространство $\mathcal C_k = U_k\mathcal C$, растягивая все векторы одинаково, а по (5.2) подпространства $\mathcal C_k$ **взаимно ортогональны**. Восстановление: измерить, в каком $\mathcal C_k$ находится состояние (проекторы $P_k = U_k\Pi U_k^\dagger$, дополненные до полного набора), и применить $U_k^\dagger$. Его операторы Крауса $R_k = U_k^\dagger P_k$, и $R_kF_l\Pi = \delta_{kl}\sqrt{d_k}\,\Pi$ — каждый член восстанавливает состояние. $\square$
 
-Доказательство конструктивно. В `примеры.py` (раздел 3) по нему построено восстановление для кода Шора: из 28 ошибок веса $\le1$ получилось 22 ненулевых $d_k$, подпространства $F_k\mathcal C$ взаимно ортогональны, и восстановление исправляет, например, $Y_5$, $Z_1$, $X_9$.
+Доказательство конструктивно. В ячейке ниже по нему построено восстановление для кода Шора: из 28 ошибок веса $\le1$ получилось 22 ненулевых $d_k$, подпространства $F_k\mathcal C$ взаимно ортогональны, и восстановление исправляет, например, $Y_5$, $Z_1$, $X_9$.
+
+```{python}
+errs_shor = [pauli(s) for s in singles]
+ok, c_shor = kl_matrix(V9, errs_shor)
+w_, u_ = np.linalg.eigh(c_shor)                                                # c = u diag(d_k) u†
+FV = [sum(u_[a, k] * (errs_shor[a] @ V9) for a in range(len(errs_shor))) for k in range(len(w_))]
+keep = [k for k in range(len(w_)) if w_[k] > 1e-9]
+for k in keep:
+    for l in keep:
+        assert np.allclose(dag(FV[k]) @ FV[l], (w_[k] if k == l else 0) * np.eye(2), atol=1e-10)   # (5.2)
+A_rec = [dag(FV[k]) / np.sqrt(w_[k]) for k in keep]                            # R_k в логических координатах
+for s in ("IIIIYIIII", "ZIIIIIIII", "IIIIIIIIX"):
+    phi = pauli(s) @ psiL
+    out = sum(np.outer(A_ @ phi, (A_ @ phi).conj()) for A_ in A_rec)
+    assert np.isclose(logical_fid(out), 1)
+print(f"ненулевых d_k: {len(keep)}; подпространства F_k C взаимно ортогональны; восстановление исправляет Y5, Z1, X9")
+```
 
 **Следствие 5.2.** Если (5.1) выполнено для $\{E_a\}$, то оно выполнено и для любых линейных комбинаций $F = \sum_am_aE_a$: $\Pi F^\dagger G\Pi = \sum\bar m_an_bc_{ab}\Pi$.
 
@@ -218,10 +597,27 @@ $$
 - код **исправляет** любые ошибки веса $\le t = \lfloor(d-1)/2\rfloor$: для $E_a$, $E_b$ веса $\le t$ произведение $E_a^\dagger E_b$ имеет вес $\le2t<d$, и (5.1) выполнено;
 - код исправляет $d-1$ **стираний** (ошибок в известных местах).
 
-**Примеры** (раздел 3 `примеры.py`):
+**Примеры** (проверка — ячейка после списка):
 - код (2.1) с ошибками $\{I, X_1, X_2, X_3\}$: (5.1) выполнено, $c = I$. С добавлением $Z_1$ — нарушено: $\Pi Z_1\Pi = \lvert000\rangle\langle000\rvert - \lvert111\rangle\langle111\rvert = \bar Z$ на коде, не кратно $\Pi$. Дистанция этого кода против произвольных ошибок равна 1;
 - код Шора с 28 ошибками веса $\le1$: (5.1) выполнено, но $c$ **недиагональна** — 18 ненулевых внедиагональных элементов (пары $Z_iZ_j$ внутри блока, $c = 1$), ранг 22. Недиагональная (точнее, вырожденная) $c$ — формальное определение вырожденного кода;
 - код [[5,1,3]] (§6) с 16 ошибками веса $\le1$: $c = I$, код невырожденный.
+
+```{python}
+ok, c = kl_matrix(V3, [np.eye(8)] + [op_on(X, q, 3) for q in range(3)])
+assert ok and np.allclose(c, np.eye(4))
+ok2, _ = kl_matrix(V3, [np.eye(8)] + [op_on(X, q, 3) for q in range(3)] + [op_on(Z, 0, 3)])
+P3 = V3 @ dag(V3)
+assert not ok2 and np.allclose(P3 @ op_on(Z, 0, 3) @ P3, np.outer(ket("000"), ket("000")) - np.outer(ket("111"), ket("111")))
+print("код (2.1): {I, X1, X2, X3} — (5.1) выполнено, c = I; с Z1 — нарушено (ΠZ1Π = Z̄ на коде)")
+offdiag = np.sum(np.abs(c_shor - np.diag(np.diag(c_shor))) > 1e-9)
+assert ok and offdiag == 18
+print(f"код Шора: (5.1) выполнено; внедиагональных ненулевых c_ab: {offdiag}, ранг c = {np.linalg.matrix_rank(c_shor, tol=1e-9)}")
+FIVE = StabCode("[[5,1,3]]", ["XZZXI", "IXZZX", "XIXZZ", "ZXIXZ"], XL="XXXXX", ZL="ZZZZZ")
+singles5 = ["I" * 5] + ["I" * q + P + "I" * (4 - q) for q in range(5) for P in "XYZ"]
+ok5, c5 = kl_matrix(FIVE.isometry(), [pauli(s) for s in singles5])
+assert ok5 and np.allclose(c5, np.eye(16))
+print("[[5,1,3]]: 16 ошибок, c = I — невырожденный код")
+```
 
 ---
 
@@ -231,11 +627,23 @@ $$
 $$
 2^k\sum_{j=0}^t\binom nj3^j\le2^n . \tag{6.1}
 $$
-Это **квантовая граница Хэмминга** (Экерт, Маккьявелло, 1996). Для $k = 1$, $t = 1$: $2(1 + 3n)\le2^n$, откуда $n\ge5$. Для $t = 2$ минимальное $n = 10$, для $t = 3$ — 15 (раздел 4 `примеры.py`). Асимптотически, при $t = \tau n$,
+Это **квантовая граница Хэмминга** (Экерт, Маккьявелло, 1996). Для $k = 1$, $t = 1$: $2(1 + 3n)\le2^n$, откуда $n\ge5$. Для $t = 2$ минимальное $n = 10$, для $t = 3$ — 15 (ячейка в конце абзаца). Асимптотически, при $t = \tau n$,
 $$
 \frac kn\le1 - \tau\log_23 - h(\tau) , \tag{6.2}
 $$
 и правая часть обращается в ноль при $\tau = 0{,}1893$. Вывод использует ортогональность образов, т. е. невырожденность; для вырожденных кодов в общем случае (6.1) не доказана. Но $n\ge5$ при $d = 3$ верно для любых кодов — это следует из квантовой границы Синглтона (II.6).
+
+```{python}
+def hamming_ok(n, k, t):
+    return 2 ** k * sum(comb(n, j) * 3 ** j for j in range(t + 1)) <= 2 ** n   # (6.1)
+
+nmin = {t: next(n for n in range(1, 60) if hamming_ok(n, 1, t)) for t in (1, 2, 3)}
+print("k = 1: наименьшее n по (6.1):", ", ".join(f"t = {t} → {n}" for t, n in nmin.items()))
+h2 = lambda x: -x * log2(x) - (1 - x) * log2(1 - x)
+tau0 = brentq(lambda x: 1 - x * log2(3) - h2(x), 0.01, 0.3)
+print(f"правая часть (6.2) обращается в ноль при τ = {tau0:.4f}")
+assert (nmin[1], nmin[2], nmin[3]) == (5, 10, 15)
+```
 
 **Код [[5,1,3]]** (Лафламм, Микель, Пас, Зурек, 1996; Беннетт и др., 1996) достигает (6.1) с равенством: $2(1 + 15) = 32 = 2^5$. Такой код называется **совершенным**. Его проверочные операторы — циклические сдвиги одной строки:
 $$
@@ -243,11 +651,24 @@ XZZXI,\quad IXZZX,\quad XIXZZ,\quad ZXIXZ;\qquad \bar X = XXXXX,\quad \bar Z = Z
 $$
 Четыре проверки дают $2^4 = 16$ синдромов, и они ровно распределены между «нет ошибки» и 15 однокубитными паули-ошибками (проверено). Код не состоит из отдельных $X$- и $Z$-проверок, в отличие от кода Шора; $\lvert0_L\rangle$ — суперпозиция 16 базисных векторов с амплитудами $\pm\frac14$. Это наименьший код, исправляющий произвольную однокубитную ошибку; его схема кодирования — дополнительное задание ЛР13.
 
+```{python}
+syn5 = {syndrome_of(FIVE, s) for s in singles5}
+k0_5, _ = FIVE.logical_states()
+amps = k0_5[np.abs(k0_5) > 1e-9]
+assert 2 * (1 + 15) == 2 ** 5 and len(syn5) == 16 and len(amps) == 16 and np.allclose(np.abs(amps), 0.25)
+for bits in itertools.product((0, 1), repeat=4):                               # все 15 нетривиальных элементов стабилизатора — веса 4
+    if any(bits):
+        x_ = sum(b * sym(g)[0] for b, g in zip(bits, FIVE.gens)) % 2
+        z_ = sum(b * sym(g)[1] for b, g in zip(bits, FIVE.gens)) % 2
+        assert np.sum(x_ | z_) == 4
+print(f"[[5,1,3]]: 2(1 + 15) = 32 = 2^5; {len(syn5)} различных синдромов у 16 ошибок веса ≤ 1; |0_L> — {len(amps)} амплитуд ±1/4")
+```
+
 ---
 
 ## 7. Логическая ошибка: численный эксперимент
 
-Модель **code capacity**: деполяризующий шум с вероятностью $p$ на каждом кубите кода, затем **идеальное** измерение синдрома и исправление по таблице (для каждого синдрома — паули-оператор минимального веса). Для паули-шума логическую ошибку можно вычислить точно, перебрав все $4^n$ паули-строк (раздел 5 `примеры.py`):
+Модель **code capacity**: деполяризующий шум с вероятностью $p$ на каждом кубите кода, затем **идеальное** измерение синдрома и исправление по таблице (для каждого синдрома — паули-оператор минимального веса). Для паули-шума логическую ошибку можно вычислить точно, перебрав все $4^n$ паули-строк (ячейка и рисунок после списка ниже):
 $$
 p_L(p) = \sum_wN_{\text{fail}}(w)\Bigl(\frac p3\Bigr)^w(1-p)^{n-w} , \tag{7.1}
 $$
@@ -263,9 +684,65 @@ $$
 - У [[5,1,3]] **все** ошибки веса 2 приводят к логической ошибке — у совершенного невырожденного кода каждый синдром уже занят ошибкой веса $\le1$. У кода Шора из 324 строк веса 2 исправляется 207: 63 отказа — строки с тем же синдромом, что у ошибки веса 1 (две $X$-составляющие в одном блоке, две $Z$ в разных блоках), остальные 54 — случаи, когда синдром одинаков у двух ошибок веса 2 из разных логических классов.
 - **Псевдопорог** — значение $p$, при котором $p_L(p) = p$: ниже него кодировать выгодно. Это свойство конкретного кода, а не семейства кодов; **порог** определяется для семейства с растущей дистанцией (§1, II.7–II.8) — контрольный вопрос 4 ЛР13.
 
+```{python}
+#| fig-cap: "Логическая ошибка в модели code capacity (точное перечисление всех $4^n$ паули-строк): коды с $d = 3$ дают $p_L\\propto p^2$; точки пересечения с прямой $p_L = p$ — псевдопороги"
+CODES = {}
+for code in (REP3X, SHOR, FIVE):
+    N, tot = code.failure_counts()
+    CODES[code.name] = (code, N)
+    print(f"{code.name:15s} N_fail(1) = {N[1]}, N_fail(2) = {N[2]} из {tot[2]}")
+(_, N_s), (_, N_5) = CODES["Шора [[9,1,3]]"], CODES["[[5,1,3]]"]
+assert CODES["повторения (X)"][1][1] == 6 and N_s[1] == 0 and N_5[1] == 0 and N_5[2] == 90
+table_s, (xs_, zs_, ws_, syns_) = SHOR.decoder_table()                        # разбор отказов Шора на весе 2
+(Xx_, Xz_), (Zx_, Zz_) = SHOR.lx
+n_w1, n_w2 = 0, 0
+for i in np.where(ws_ == 2)[0]:
+    c_ = table_s[int(syns_[i])]
+    rx_, rz_ = (xs_[i] + xs_[c_]) % 2, (zs_[i] + zs_[c_]) % 2
+    if ((rx_ @ Xz_ + rz_ @ Xx_) % 2) or ((rx_ @ Zz_ + rz_ @ Zx_) % 2):
+        n_w1, n_w2 = n_w1 + (ws_[c_] == 1), n_w2 + (ws_[c_] != 1)
+print(f"Шор, вес 2: исправлено {324 - N_s[2]}; отказов {n_w1} (синдром как у веса 1) + {n_w2} (неоднозначность среди веса 2)")
+PTH = {}
+for name in ("Шора [[9,1,3]]", "[[5,1,3]]"):
+    code, N = CODES[name]
+    PTH[name] = brentq(lambda p: code.pL(p, N) - p, 1e-4, 0.4)
+    print(f"{name:15s} A = N_fail(2)/9 = {N[2] / 9:.0f}, p_L(10^-3) = {code.pL(1e-3, N):.3e}, псевдопорог {PTH[name]:.4f}")
+
+ps = np.logspace(-3, np.log10(0.3), 100)
+fig, ax = plt.subplots(figsize=(6.4, 3.8))
+ax.loglog(ps, ps, "k:", label="без кода, $p_L = p$")
+for name, (code, N) in CODES.items():
+    ax.loglog(ps, [code.pL(p, N) for p in ps], label=f"код {name}")
+for name in PTH:
+    ax.plot(PTH[name], PTH[name], "ko", ms=5)
+ax.set_xlabel("вероятность ошибки на кубит $p$"); ax.set_ylabel("логическая ошибка $p_L$")
+ax.legend()
+plt.show()
+```
+
 Сверка: матричный расчёт логического канала кода Шора при $p = 0{,}05$ дал $1 - p_I = 0{,}028071$, что совпадает с (7.1); вероятности логических $X$, $Y$, $Z$ — $0{,}0184$, $0{,}0005$, $0{,}0092$.
 
+```{python}
+p_chk = 0.05
+dep_k = [np.sqrt(1 - p_chk) * I2] + [np.sqrt(p_chk / 3) * P for P in (X, Y, Z)]
+probs_shor, _ = logical_pauli_probs(V9, lambda r: pauli_channel_all(r, dep_k, 9), SHOR.decode)
+assert np.isclose(1 - probs_shor[0], SHOR.pL(p_chk, N_s), atol=1e-12)
+print(f"p = {p_chk}: 1 − p_I = {1 - probs_shor[0]:.6f}, (7.1): {SHOR.pL(p_chk, N_s):.6f}; логические X, Y, Z: "
+      + ", ".join(f"{v:.4f}" for v in probs_shor[1:]))
+```
+
 **Амплитудное затухание.** При $\mathcal A_\gamma$ на всех 9 кубитах (восстановление — та же таблица для паули-ошибок) неверность логического канала $1 - F_{\text{pro}}\approx4{,}5\,\gamma^2$: $4{,}509\cdot10^{-4}$ при $\gamma = 0{,}01$, отношение при удвоении $\gamma$ равно $4{,}003$. Ошибка подавлена до второго порядка, хотя $\mathcal A_\gamma$ — не паули-канал (§4).
+
+```{python}
+AD_RES = {}
+for gam in (0.01, 0.02, 0.04):
+    adk = [np.array([[1, 0], [0, np.sqrt(1 - gam)]], complex), np.array([[0, np.sqrt(gam)], [0, 0]], complex)]
+    _, Rm = logical_pauli_probs(V9, lambda r: pauli_channel_all(r, adk, 9), SHOR.decode)
+    AD_RES[gam] = 1 - (1 + Rm[1, 1] + Rm[2, 2] + Rm[3, 3]) / 4                 # неверность логического канала
+    print(f"γ = {gam}: 1 − F_pro = {AD_RES[gam]:.3e}, (1 − F_pro)/γ² = {AD_RES[gam] / gam ** 2:.3f}")
+print(f"отношение при удвоении γ: {AD_RES[0.02] / AD_RES[0.01]:.3f}")
+assert 3.7 < AD_RES[0.02] / AD_RES[0.01] < 4.3
+```
 
 **Чего здесь нет.** Мы считали измерение синдрома идеальным. На самом деле вспомогательные кубиты и CNOT тоже шумят, синдром может быть ошибочным, а одна ошибка на вспомогательном кубите может распространиться на несколько кубитов данных. Как с этим бороться — в II.6 (схемы синдрома), II.7 (повторные измерения, детекторы) и II.8 (отказоустойчивость); ЛР13, задание 5.
 
@@ -313,7 +790,20 @@ $$
 11. (•) Найдите $p_L$ кода повторения длины 5 при $p = 0{,}1$. Почему порог кода повторения равен $1/2$ при любой длине?
 12. (••) Код Шора при деполяризующем шуме: используя $N_{\text{fail}}(2) = 117$, найдите коэффициент $A$ в $p_L\approx Ap^2$ и оцените псевдопорог из уравнения $Ap^2 = p$. Сравните с точным значением 0,1049 и объясните расхождение.
 
-### Ответы и указания
+Численная проверка ответов к задачам 1, 3, 4, 7, 8, 11, 12 (задачи 2, 5, 6, 10 — в ячейках выше):
+
+```{python}
+print(f"1: p_L(0,1) = {3 * 0.01 - 2 * 0.001:.3f}")
+print(f"3: sin²(0,3) = {np.sin(0.3) ** 2:.4f}, cos²(0,3) = {np.cos(0.3) ** 2:.4f}")
+print(f"4: (1 − (1 − 2p)³)/2 при p = 0,1: {(1 - 0.8 ** 3) / 2:.3f}")
+print(f"7: t = 2: n = 9 — {2 * (1 + 27 + 9 * comb(9, 2))} > 512, n = 10 — {2 * (1 + 30 + 9 * comb(10, 2))} ≤ 1024")
+print(f"8: (1 − F_pro)/γ² = {AD_RES[0.01] / 0.01 ** 2:.2f} при γ = 0,01")
+print(f"11: p_L(d = 5, p = 0,1) = {pL_rep(5, 0.1):.5f}")
+print(f"12: A = {N_s[2] / 9:.0f}, Ap² = p при p = {9 / N_s[2]:.3f}; точный псевдопорог {PTH['Шора [[9,1,3]]']:.4f}")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** Ошибка — при двух или трёх переворотах: $3p^2(1-p) + p^3$. $p_L<p\iff p<1/2$. При $p = 0{,}1$: $p_L = 0{,}028$.
 - **2.** Таблица §2.1. Код (2.1) — собственное подпространство обоих операторов, а $X_j$ коммутирует или антикоммутирует с ними независимо от состояния: $X_j\lvert\psi_L\rangle$ — собственный вектор с определённым синдромом. Вероятность синдрома — $\lVert\Pi_sE\lvert\psi_L\rangle\rVert^2$, при $E = X_j$ она равна 0 или 1 для любых $\alpha$, $\beta$.
 - **3.** По (2.3): синдром 00 с вероятностью $\cos^2\theta = 0{,}9127$, синдром 11 — $\sin^2\theta = 0{,}0873$; в обоих случаях после коррекции $\alpha\lvert000\rangle + \beta\lvert111\rangle$ (глобальная фаза $-i$ во втором случае несущественна).
@@ -323,15 +813,16 @@ $$
 - **7.** $t = 1$: $2(1 + 3n)\le2^n\Rightarrow n\ge5$. $t = 2$: $n = 9$ даёт $2\cdot352 = 704>512$, $n = 10$ — $2\cdot436 = 872\le1024$; $n\ge10$. (Граница — лишь необходимое условие; код с такими параметрами может и не существовать.)
 - **8.** $K_0 = \frac{1+\sqrt{1-\gamma}}2I + \frac{1-\sqrt{1-\gamma}}2Z$, $K_1 = \frac{\sqrt\gamma}2(X + iY)$ — линейные комбинации исправимых ошибок; по теореме 4.1 канал исправляется точно. На всех кубитах: исправимы все члены первого порядка по $\gamma$ (одна $K_1$ или одно отклонение $K_0$ от $I$), неисправимы — члены с двумя ошибками на разных кубитах, поэтому $1 - F_{\text{pro}} = O(\gamma^2)$; численно $\approx4{,}5\gamma^2$.
 - **9.** См. доказательство теоремы 5.1: $F_k = \sum_au_{ak}E_a$, $F_k\Pi = \sqrt{d_k}U_k\Pi$, $R_k = U_k^\dagger P_k$, $\sum_kR_k^\dagger R_k = \sum_kP_k$ (дополнить проектором на ортогональное дополнение).
-- **10.** Синдромы — в `примеры.py`, раздел 4. Синдромов $16 = 1 + 15$, и все заняты ошибками веса $\le1$. Ошибка $E$ веса 2 имеет синдром некоторой $E'$ веса $\le1$, исправление $E'$ оставляет $E'E$ веса $\le3$ с нулевым синдромом; все 15 нетривиальных произведений проверочных операторов (6.3) имеют вес 4, поэтому $E'E$ — не произведение проверок, а коммутирующий с ними нетривиальный, т. е. логический, оператор. $p_L\approx\binom52\cdot9\cdot(p/3)^2 = 10p^2$.
+- **10.** Синдромы — в ячейке §6. Синдромов $16 = 1 + 15$, и все заняты ошибками веса $\le1$. Ошибка $E$ веса 2 имеет синдром некоторой $E'$ веса $\le1$, исправление $E'$ оставляет $E'E$ веса $\le3$ с нулевым синдромом; все 15 нетривиальных произведений проверочных операторов (6.3) имеют вес 4, поэтому $E'E$ — не произведение проверок, а коммутирующий с ними нетривиальный, т. е. логический, оператор. $p_L\approx\binom52\cdot9\cdot(p/3)^2 = 10p^2$.
 - **11.** $p_L = 10p^3(1-p)^2 + 5p^4(1-p) + p^5 = 0{,}00856$. Голосование ошибается, когда перевернулось больше половины битов; при $p<1/2$ это событие экспоненциально маловероятно по $d$ (закон больших чисел), при $p>1/2$ — наоборот.
 - **12.** $A = 117/9 = 13$; $13p^2 = p\Rightarrow p\approx0{,}077$. Точный псевдопорог $0{,}1049$ выше: при таких $p$ вклад высших степеней в (7.1) существен (и множитель $(1-p)^{n-2}$ уменьшает член с $p^2$).
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 10 с; дольше всего — перебор $4^9$ паули-строк и логические каналы на 9 кубитах) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, все числа совпадают с `примеры.py`. Полный файл `примеры.py` (около 18 с; дольше всего — исправление ошибок кода Шора на векторах размерности 512 и логические каналы на 9 кубитах) проверяет:
 0. формулы (1.1)–(1.2), точку безубыточности, таблицу $p_L(d)$;
 1. кодирование (2.1); схему синдрома на 5 кубитах (вектор состояния), независимость синдрома от $\alpha$, $\beta$; непрерывную ошибку (2.3); логические каналы (2.2), (2.4) и кода (2.5) через PTM;
 2. код Шора: проверочные операторы, логические операторы, схему кодирования; исправление всех ошибок веса $\le1$, случайных унитарных ошибок, случайного канала и $\mathcal A_\gamma$; разложение (4.2); 22 различных синдрома;
