@@ -1,16 +1,120 @@
-# Лекция II.7. Топологические коды и декодирование
+---
+title: "Лекция II.7. Топологические коды и декодирование"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.B «Квантовая коррекция ошибок и отказоустойчивость».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.9 (стабилизаторы, §3); лекция II.5 (код повторения и порог, §1; дистанция, §5.2; псевдопорог, §7); лекция II.6 (стабилизаторные и CSS-коды, §1, §3; ML-декодер по классам, §2.2; крючковые ошибки, §6).
+**Пререквизиты:** [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (стабилизаторы, §3); [лекция II.5](../II.05_Основы_QEC/лекция.qmd) (код повторения и порог, §1; дистанция, §5.2; псевдопорог, §7); [лекция II.6](../II.06_Стабилизаторные_коды/лекция.qmd) (стабилизаторные и CSS-коды, §1, §3; ML-декодер по классам, §2.2; крючковые ошибки, §6).
 **Литература:** Kitaev A. Yu. // Ann. Phys. 303, 2 (2003); Dennis E., Kitaev A., Landahl A., Preskill J. Topological quantum memory // J. Math. Phys. 43, 4452 (2002); Fowler A. G., Mariantoni M., Martinis J. M., Cleland A. N. // PRA 86, 032324 (2012); Delfosse N., Nickerson N. H. Almost-linear time decoding algorithm for topological codes // Quantum 5, 595 (2021); Bausch J. et al. // Nature 635, 834 (2024); Horsman C., Fowler A. G., Devitt S., Van Meter R. Surface code quantum computing by lattice surgery // New J. Phys. 14, 123011 (2012).
-**Материалы:** `примеры.py` — численная проверка всех утверждений: торический код (ранги, $k = 2$, логические операторы, дистанция, возбуждения), планарный и повёрнутый коды (число кубитов, $k = 1$, дистанция, логические операторы), декодеры MWPM и union-find, точное сравнение с ML-декодером на торе $3\times3$, пороги в моделях code capacity и феноменологической, подавление ошибки ниже порога, ресурсная оценка; задачи к семинару С5 и к ЛР14 — в § 8.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: торический код (ранги, $k = 2$, логические операторы, дистанция, возбуждения), планарный и повёрнутый коды (число кубитов, $k = 1$, дистанция, логические операторы), декодеры MWPM и union-find, точное сравнение с ML-декодером на торе $3\times3$, пороги в моделях code capacity и феноменологической, подавление ошибки ниже порога, ресурсная оценка; задачи к семинару С5 и к ЛР14 — в § 8. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта; самый долгий расчёт (MWPM в §5.1) на странице не повторяется, об этом сказано на месте.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §18–§19).
 - Торический код: решётка $L\times L$ на торе, кубиты на рёбрах ($n = 2L^2$); **звезда** $A_v = \prod_{e\ni v}X_e$, **плакет** $B_f = \prod_{e\in\partial f}Z_e$.
 - $d$ — дистанция поверхностного кода; $p$ — вероятность ошибки на кубит (II.5); $p_{\text{th}}$ — порог; $\Lambda = p_L(d)/p_L(d+2)$ — коэффициент подавления.
 - **Детектор** — чётность двух последовательных измерений одного стабилизатора; **дефект** — детектор со значением 1.
 - MWPM — паросочетание минимального веса (minimum-weight perfect matching), UF — декодер union-find.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты, линейная алгебра над F_2, дистанция CSS-кода"
+import itertools
+from math import comb
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+def gf2_rank(M):
+    M = (np.array(M, dtype=np.uint8) % 2).copy()
+    r = 0
+    rows, cols = M.shape
+    for c in range(cols):
+        piv = np.nonzero(M[r:, c])[0]
+        if len(piv) == 0:
+            continue
+        p = r + piv[0]
+        M[[r, p]] = M[[p, r]]
+        for i in np.nonzero(M[:, c])[0]:
+            if i != r:
+                M[i] ^= M[r]
+        r += 1
+        if r == rows:
+            break
+    return r
+
+def gf2_nullspace(M):
+    """Базис ядра M над F_2 (строки результата)."""
+    M = (np.array(M, dtype=np.uint8) % 2).copy()
+    rows, cols = M.shape
+    pivots, r = [], 0
+    for c in range(cols):
+        piv = np.nonzero(M[r:, c])[0] if r < rows else []
+        if len(piv) == 0:
+            continue
+        p = r + piv[0]
+        M[[r, p]] = M[[p, r]]
+        for i in np.nonzero(M[:, c])[0]:
+            if i != r:
+                M[i] ^= M[r]
+        pivots.append(c)
+        r += 1
+        if r == rows:
+            break
+    basis = []
+    for f in (c for c in range(cols) if c not in pivots):
+        v = np.zeros(cols, dtype=np.uint8)
+        v[f] = 1
+        for i, pc in enumerate(pivots):
+            if M[i, f]:
+                v[pc] = 1
+        basis.append(v)
+    return np.array(basis)
+
+def in_rowspace(M, v):
+    return gf2_rank(np.vstack([M, v])) == gf2_rank(M)
+
+def css_logicals(HX, HZ):
+    """k и кандидаты в логические Z (ker HX без row HZ) и X (ker HZ без row HX)."""
+    k = HX.shape[1] - gf2_rank(HX) - gf2_rank(HZ)
+    Zc = [v for v in gf2_nullspace(HX) if not in_rowspace(HZ, v)]
+    Xc = [v for v in gf2_nullspace(HZ) if not in_rowspace(HX, v)]
+    return k, Zc, Xc
+
+def css_distance(Hchk, logicals):
+    """Наименьший вес e с Hchk e = 0 и нечётным перекрытием с одним из logicals.
+    Граф: вершины — проверки и «граница», рёбра — кубиты (каждый кубит не более чем в двух проверках);
+    ищется кратчайший замкнутый путь с ненулевой логической маской (поиск в ширину по (вершина, маска))."""
+    m, n = Hchk.shape
+    B = m
+    adj = [[] for _ in range(m + 1)]
+    Lm = np.array(logicals, dtype=np.uint8)
+    for q in range(n):
+        ch = list(np.nonzero(Hchk[:, q])[0])
+        assert len(ch) in (1, 2)
+        a, b = (ch[0], ch[1]) if len(ch) == 2 else (ch[0], B)
+        mask = int("".join(str(int(x)) for x in Lm[:, q]), 2)
+        adj[a].append((b, mask))
+        adj[b].append((a, mask))
+    best = None
+    for s0 in range(m + 1):
+        dist, frontier, dcur = {(s0, 0): 0}, [(s0, 0)], 0
+        while frontier and (best is None or dcur < best):
+            dcur += 1
+            nxt = []
+            for (u, msk) in frontier:
+                for (w, qm) in adj[u]:
+                    st = (w, msk ^ qm)
+                    if st not in dist:
+                        dist[st] = dcur
+                        nxt.append(st)
+                        if w == s0 and st[1] != 0:
+                            best = dcur if best is None else min(best, dcur)
+            frontier = nxt
+    return best
+```
 
 ---
 
@@ -62,7 +166,30 @@ $$
 $$
 \prod_vA_v = \prod_fB_f = I , \tag{1.2}
 $$
-и независимых генераторов $2(L^2 - 1)$. Значит, $k = 2L^2 - 2(L^2 - 1) = 2$ (раздел 1 `примеры.py`: ранги $L^2 - 1$ при $L = 3, 4, 5$).
+и независимых генераторов $2(L^2 - 1)$. Значит, $k = 2L^2 - 2(L^2 - 1) = 2$ (ранги $L^2 - 1$ при $L = 3, 4, 5$ — в ячейке ниже).
+
+```{python}
+def toric(L):
+    """Проверочные матрицы торического кода: h(r, c) — ребро из вершины (r, c) вправо, v(r, c) — вниз."""
+    h = lambda r, c: (r % L) * L + (c % L)
+    v = lambda r, c: L * L + (r % L) * L + (c % L)
+    HX = np.zeros((L * L, 2 * L * L), dtype=np.uint8)   # звёзды (X)
+    HZ = np.zeros((L * L, 2 * L * L), dtype=np.uint8)   # плакеты (Z)
+    for r in range(L):
+        for c in range(L):
+            HX[r * L + c, [h(r, c), h(r, c - 1), v(r, c), v(r - 1, c)]] = 1
+            HZ[r * L + c, [h(r, c), h(r + 1, c), v(r, c), v(r, c + 1)]] = 1
+    return HX, HZ, h, v
+
+TOR = {L: toric(L) for L in (3, 4, 5)}
+for L, (HX, HZ, h, v) in TOR.items():
+    assert np.all(HX @ HZ.T % 2 == 0)                                  # общих рёбер 0 или 2
+    assert np.all(HX.sum(0) % 2 == 0) and np.all(HZ.sum(0) % 2 == 0)   # (1.2)
+    rX, rZ = gf2_rank(HX), gf2_rank(HZ)
+    assert rX == rZ == L * L - 1
+    print(f"L = {L}: n = {2 * L * L}, ранги звёзд / плакетов {rX} / {rZ}, k = {2 * L * L - rX - rZ}")
+```
+
 
 ### 1.2. Логические операторы и дистанция
 
@@ -77,11 +204,48 @@ $$
 $$
 где $\bar Z_1$ — $Z$ на горизонтальных рёбрах одной строки, $\bar X_1$ — $X$ на горизонтальных рёбрах одного столбца (дуальный цикл, пересекающий их по вертикали), и т. д. Пары $\bar Z_j$, $\bar X_j$ пересекаются по одному ребру (антикоммутируют), разные пары — по нулю рёбер. Кодовые слова различаются **гомологическим классом** — чётностью числа оборотов вокруг каждого из двух циклов тора.
 
-Самый короткий нестягиваемый цикл имеет длину $L$, поэтому **$d = L$**: торический код — $[[2L^2, 2, L]]$. В `примеры.py` дистанция найдена кратчайшим путём в графе проверок с учётом логического класса при $L = 3, 4, 5$ и сверена перебором при $L = 3$.
+Самый короткий нестягиваемый цикл имеет длину $L$, поэтому **$d = L$**: торический код — $[[2L^2, 2, L]]$. Проверим: дистанция найдена кратчайшим путём в графе проверок с учётом логического класса при $L = 3, 4, 5$ и сверена перебором при $L = 3$.
+
+```{python}
+for L, (HX, HZ, h, v) in TOR.items():
+    n = 2 * L * L
+    Z1, Z2, X1, X2 = (np.zeros(n, np.uint8) for _ in range(4))
+    Z1[[h(0, c) for c in range(L)]] = 1     # Z на горизонтальных рёбрах строки
+    Z2[[v(r, 0) for r in range(L)]] = 1     # Z на вертикальных рёбрах столбца
+    X1[[v(0, c) for c in range(L)]] = 1     # дуальные циклы
+    X2[[h(r, 0) for r in range(L)]] = 1
+    for Zl in (Z1, Z2):
+        assert np.all(HX @ Zl % 2 == 0) and not in_rowspace(HZ, Zl)
+    for Xl in (X1, X2):
+        assert np.all(HZ @ Xl % 2 == 0) and not in_rowspace(HX, Xl)
+    assert (Z1 @ X2) % 2 == 1 and (Z2 @ X1) % 2 == 1 and (Z1 @ X1) % 2 == 0 and (Z2 @ X2) % 2 == 0
+    dZ, dX = css_distance(HX, [X1, X2]), css_distance(HZ, [Z1, Z2])
+    assert dZ == dX == L
+    print(f"L = {L}: логические операторы (1.3) коммутируют со стабилизатором и не лежат в нём; d_Z = {dZ}, d_X = {dX}")
+HX3, HZ3 = TOR[3][:2]
+w_min = next(w for w in range(1, 4) for qs in itertools.combinations(range(18), w)
+             if np.all(HX3[:, list(qs)].sum(1) % 2 == 0) and not in_rowspace(HZ3, np.isin(np.arange(18), qs).astype(np.uint8)))
+assert w_min == 3
+print(f"перебор при L = 3: наименьший вес нестягиваемого Z-цикла {w_min}")
+```
+
 
 ### 1.3. Возбуждения
 
-Открытая $Z$-струна нарушает звёзды **только на концах** (раздел 1 `примеры.py`: струна из трёх рёбер нарушает ровно две звезды). Нарушенные стабилизаторы ведут себя как квазичастицы: $e$-частицы (звёзды) на концах $Z$-струн и $m$-частицы (плакеты) на концах $X$-струн. Они рождаются парами, а логическая ошибка — это пара, которая разошлась и аннигилировала, обойдя тор. В физике торический код — модель топологического порядка: основное состояние гамильтониана $-\sum A_v - \sum B_f$ четырёхкратно вырождено, и вырождение нельзя снять никаким локальным возмущением в первых $\sim L$ порядках теории возмущений. $e$ и $m$ — **анионы**: при обносе одной вокруг другой состояние приобретает фазу $-1$ (обзорно).
+Открытая $Z$-струна нарушает звёзды **только на концах** (в ячейке ниже струна из трёх рёбер нарушает ровно две звезды). Нарушенные стабилизаторы ведут себя как квазичастицы: $e$-частицы (звёзды) на концах $Z$-струн и $m$-частицы (плакеты) на концах $X$-струн. Они рождаются парами, а логическая ошибка — это пара, которая разошлась и аннигилировала, обойдя тор. В физике торический код — модель топологического порядка: основное состояние гамильтониана $-\sum A_v - \sum B_f$ четырёхкратно вырождено, и вырождение нельзя снять никаким локальным возмущением в первых $\sim L$ порядках теории возмущений. $e$ и $m$ — **анионы**: при обносе одной вокруг другой состояние приобретает фазу $-1$ (обзорно).
+
+```{python}
+HX5, HZ5, h5, v5 = TOR[5]
+e = np.zeros(50, np.uint8)
+e[[h5(0, c) for c in range(3)]] = 1                    # Z на трёх рёбрах строки 0
+viol = np.nonzero(HX5 @ e % 2)[0]
+assert viol.tolist() == [0, 3]
+print(f"L = 5, Z-струна из трёх рёбер: нарушены звёзды в вершинах {[divmod(int(i), 5) for i in viol]}")
+loop = (HZ5[6] + HZ5[7]) % 2                          # граница двух соседних плакетов
+assert np.all(HX5 @ loop % 2 == 0) and in_rowspace(HZ5, loop)
+print(f"стягиваемый цикл длины {loop.sum()}: коммутирует со звёздами и лежит в стабилизаторе")
+```
+
 
 Задача декодирования: по положениям концов (дефектов) угадать, какими струнами их соединить, чтобы вместе с ошибкой получился **стягиваемый** цикл.
 
@@ -93,7 +257,7 @@ $$
 - на **грубой** границе рёбра «торчат наружу», и $Z$-струна может на ней заканчиваться, не нарушая звёзд;
 - на **гладкой** границе вершины имеют по три ребра, и на ней может заканчиваться $X$-струна (дуальная).
 
-Противоположные стороны однотипны. $\bar Z$ — $Z$-струна между двумя грубыми границами, $\bar X$ — $X$-струна между гладкими; $k = 1$, $d$ — ширина квадрата. Удобная запись: сетка $(2d-1)\times(2d-1)$, кубиты данных в узлах с чётной суммой координат, $X$-проверки в узлах (чётная, нечётная), $Z$-проверки — (нечётная, чётная). Параметры: $[[d^2 + (d-1)^2,\ 1,\ d]]$, с вспомогательными кубитами $(2d-1)^2$ (раздел 2 `примеры.py`).
+Противоположные стороны однотипны. $\bar Z$ — $Z$-струна между двумя грубыми границами, $\bar X$ — $X$-струна между гладкими; $k = 1$, $d$ — ширина квадрата. Удобная запись: сетка $(2d-1)\times(2d-1)$, кубиты данных в узлах с чётной суммой координат, $X$-проверки в узлах (чётная, нечётная), $Z$-проверки — (нечётная, чётная). Параметры: $[[d^2 + (d-1)^2,\ 1,\ d]]$, с вспомогательными кубитами $(2d-1)^2$ (таблица и проверка ниже).
 
 **Повёрнутый поверхностный код** (Бомбин, Мартин-Дельгадо, 2007; Хорсман и др., 2012) экономнее: $d\times d$ кубитов данных, проверки на гранях в шахматном порядке ($X$ и $Z$), внутри — веса 4, на границах — веса 2: на двух сторонах граничные проверки $X$-типа, на двух других — $Z$-типа. $Z$-струна может заканчиваться на сторонах с граничными $Z$-проверками (у кубита там лишь одна соседняя $X$-проверка), поэтому $\bar Z$ — $Z$ на строке, а $\bar X$ — $X$ на столбце. Параметры $[[d^2, 1, d]]$, проверок $d^2 - 1$, с вспомогательными кубитами (по одному на проверку)
 $$
@@ -107,7 +271,68 @@ $$
 | 5 | 41 / 81 | 25 / 49 |
 | 7 | 85 / 169 | 49 / 97 |
 
-Для всех трёх $d$ в `примеры.py` проверены коммутация, $k = 1$ и дистанция $d$ по обоим типам ошибок.
+Для всех трёх $d$ проверим коммутацию, $k = 1$ и дистанцию $d$ по обоим типам ошибок:
+
+```{python}
+def planar(d):
+    """Сетка (2d-1)^2: данные в (i, j) с чётной i+j, X-проверки в (чёт, нечёт), Z-проверки в (нечёт, чёт)."""
+    N = 2 * d - 1
+    data = {ij: t for t, ij in enumerate([(i, j) for i in range(N) for j in range(N) if (i + j) % 2 == 0])}
+    def rows(chks):
+        M = np.zeros((len(chks), len(data)), np.uint8)
+        for a, (i, j) in enumerate(chks):
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                if (i + di, j + dj) in data:
+                    M[a, data[(i + di, j + dj)]] = 1
+        return M
+    return (rows([(i, j) for i in range(0, N, 2) for j in range(1, N, 2)]),
+            rows([(i, j) for i in range(1, N, 2) for j in range(0, N, 2)]))
+
+def rotated(d):
+    """Данные (i, j), 0 <= i, j < d; грань (a, b) покрывает (a-1..a, b-1..b); X-тип при чётной a+b.
+    Граничные грани веса 2: сверху и снизу — только X, слева и справа — только Z."""
+    X_, Z_ = [], []
+    for a in range(d + 1):
+        for b in range(d + 1):
+            qs = [i * d + j for i in (a - 1, a) for j in (b - 1, b) if 0 <= i < d and 0 <= j < d]
+            isX = (a + b) % 2 == 0
+            if 1 <= a <= d - 1 and 1 <= b <= d - 1:
+                (X_ if isX else Z_).append(qs)
+            elif a in (0, d) and 1 <= b <= d - 1 and isX:
+                X_.append(qs)
+            elif b in (0, d) and 1 <= a <= d - 1 and not isX:
+                Z_.append(qs)
+    rows = lambda chks: np.array([np.isin(np.arange(d * d), qs) for qs in chks], dtype=np.uint8)
+    return rows(X_), rows(Z_)
+
+print(" d   планарный: данные / всего, k, d_Z, d_X   повёрнутый: данные / всего, k, d_Z, d_X")
+SURF = {}
+for d in (3, 5, 7):
+    row = []
+    for HXc, HZc in (planar(d), rotated(d)):
+        assert np.all(HXc @ HZc.T % 2 == 0)
+        k, Zc, Xc = css_logicals(HXc, HZc)
+        Zl = Zc[0]
+        Xl = next(x for x in Xc if (x @ Zl) % 2 == 1)
+        n, m = HXc.shape[1], HXc.shape[0] + HZc.shape[0]
+        row.append((n, n + m, k, css_distance(HXc, [Xl]), css_distance(HZc, [Zl])))
+    (pn, pt, pk, pdz, pdx), (rn, rt, rk, rdz, rdx) = row
+    assert (pn, pt, rn, rt) == (d * d + (d - 1) ** 2, (2 * d - 1) ** 2, d * d, 2 * d * d - 1)
+    assert pk == rk == 1 and pdz == pdx == rdz == rdx == d
+    SURF[d] = (pn, pt, rt)
+    print(f" {d}   {pn:9d} / {pt:3d}, {pk}, {pdz}, {pdx}            {rn:9d} / {rt:3d}, {rk}, {rdz}, {rdx}")
+for d in (3, 5):                                   # логические операторы повёрнутого кода
+    RXd, RZd = rotated(d)
+    zrow = np.isin(np.arange(d * d), range(d)).astype(np.uint8)             # Z на строке
+    xcol = np.isin(np.arange(d * d), range(0, d * d, d)).astype(np.uint8)   # X на столбце
+    assert np.all(RXd @ zrow % 2 == 0) and not in_rowspace(RZd, zrow)
+    assert np.all(RZd @ xcol % 2 == 0) and not in_rowspace(RXd, xcol) and (zrow @ xcol) % 2 == 1
+    assert (RXd[:, 2 * d] % 2).sum() == 1          # Z на кубите левого столбца нарушает одну X-проверку
+RX5, RZ5 = rotated(5)
+print("веса проверок повёрнутого кода (d = 5):", sorted({int(w) for w in RX5.sum(1)} | {int(w) for w in RZ5.sum(1)}),
+      "; Z_L — Z на строке, X_L — X на столбце")
+```
+
 
 ---
 
@@ -147,7 +372,70 @@ $$
 $$
 \min_{\text{паросочетания }M}\ \sum_{(a,b)\in M}\operatorname{dist}(a, b),\qquad \operatorname{dist} = -\log\text{(вероятность кратчайшего пути)} . \tag{4.1}
 $$
-Это **паросочетание минимального веса** на полном графе дефектов; алгоритм Эдмондса («цветки», 1965) решает его за полиномиальное время. Для границ планарного кода добавляют виртуальные граничные вершины. Реализации: PyMatching (ЛР14), Sparse Blossom; в `примеры.py` — `networkx.max_weight_matching` с весами $-\operatorname{dist}$ на торе (манхэттенское расстояние с учётом периодичности). MWPM находит самую вероятную **цепь**, а не самый вероятный **класс** (II.6, (2.1)), и не учитывает корреляций между $X$- и $Z$-ошибками (у $Y$) — поэтому он не оптимален (контрольный вопрос 3 ЛР14).
+Это **паросочетание минимального веса** на полном графе дефектов; алгоритм Эдмондса («цветки», 1965) решает его за полиномиальное время. Для границ планарного кода добавляют виртуальные граничные вершины. Реализации: PyMatching (ЛР14), Sparse Blossom; на этой странице и в `примеры.py` — `networkx.max_weight_matching` с весами $-\operatorname{dist}$ на торе (манхэттенское расстояние с учётом периодичности; код в свёрнутой ячейке ниже). MWPM находит самую вероятную **цепь**, а не самый вероятный **класс** (II.6, (2.1)), и не учитывает корреляций между $X$- и $Z$-ошибками (у $Y$) — поэтому он не оптимален (контрольный вопрос 3 ЛР14).
+
+```{python}
+#| code-fold: true
+#| code-summary: "Граф декодирования тора, MWPM и выборка ошибок (код)"
+class DecodingGraph:
+    """Граф декодирования: вершины — детекторы, рёбра — механизмы ошибок (u, v, логическая маска)."""
+
+    def __init__(self, n_nodes, edges):
+        self.n, self.edges = n_nodes, edges
+        self.adj = [[] for _ in range(n_nodes)]
+        for e, (u, w, _) in enumerate(edges):
+            self.adj[u].append(e)
+            self.adj[w].append(e)
+
+def toric_graph(L):
+    """X-ошибки торического кода: вершины — плакеты, рёбра — кубиты.
+    Маска: бит 0 — ребро h(0, c) (пересекает Z_1), бит 1 — ребро v(r, 0) (пересекает Z_2)."""
+    edges = [(((r - 1) % L) * L + c, r * L + c, 1 if r == 0 else 0) for r in range(L) for c in range(L)]
+    edges += [(r * L + (c - 1) % L, r * L + c, 2 if c == 0 else 0) for r in range(L) for c in range(L)]
+    return DecodingGraph(L * L, edges)
+
+def pair_mask(L, p1, p2):
+    """Логическая маска пути между дефектами: сначала по строке, затем по столбцу, кратчайшим путём на торе."""
+    (r1, c1), (r2, c2) = p1, p2
+    mask = 0
+    dc = (c2 - c1) % L
+    if dc and ((dc <= L - dc and c1 + dc >= L) or (dc > L - dc and c1 - (L - dc) < 0)):
+        mask ^= 2
+    dr = (r2 - r1) % L
+    if dr and ((dr <= L - dr and r1 + dr >= L) or (dr > L - dr and r1 - (L - dr) < 0)):
+        mask ^= 1
+    return mask
+
+def toric_mwpm_mask(L, defects):
+    """MWPM (networkx) на полном графе дефектов, вес — минус манхэттенское расстояние на торе."""
+    if not defects:
+        return 0
+    pos = [(v // L, v % L) for v in defects]
+    if len(defects) == 2:            # единственное паросочетание — сразу (для нечётных L маска та же)
+        return pair_mask(L, pos[0], pos[1])
+    G = nx.Graph()
+    for a in range(len(defects)):
+        for b in range(a + 1, len(defects)):
+            dr, dc = abs(pos[a][0] - pos[b][0]), abs(pos[a][1] - pos[b][1])
+            G.add_edge(a, b, weight=-(min(dr, L - dr) + min(dc, L - dc)))
+    mask = 0
+    for a, b in nx.max_weight_matching(G, maxcardinality=True):
+        mask ^= pair_mask(L, pos[a], pos[b])
+    return mask
+
+def sample_toric_cc(L, p, shots):
+    """Независимые X-ошибки с вероятностью p: список (дефекты, истинная маска) и граф."""
+    g = toric_graph(L)
+    E = np.array(g.edges)
+    inc = np.zeros((len(E), L * L), np.int32)            # ребро -> его два плакета
+    inc[np.arange(len(E)), E[:, 0]] = 1
+    inc[np.arange(len(E)), E[:, 1]] = 1
+    errs = (rng.random((shots, len(E))) < p).astype(np.int32)
+    syn = errs @ inc % 2
+    masks = (errs @ (E[:, 2] & 1) % 2) + 2 * (errs @ (E[:, 2] >> 1) % 2)
+    return [(np.nonzero(row)[0].tolist(), int(m)) for row, m in zip(syn, masks)], g
+```
+
 
 ### 4.2. Union-find
 
@@ -156,11 +444,100 @@ $$
 2. **слияние:** полностью выросшее ребро объединяет кластеры (структура данных union-find); кластер с чётным числом дефектов перестаёт расти;
 3. **очистка (peeling):** в каждом кластере строится остовное дерево по выросшим рёбрам; листья обрабатываются с конца: если лист — дефект, ребро к родителю включается в исправление, а дефектность переносится на родителя.
 
-Кластер с чётным числом дефектов всегда можно «закрыть» внутри себя, так что исправление существует. UF немного уступает MWPM по точности, но гораздо быстрее — важно для декодирования в реальном времени (§4.4). В `примеры.py` реализован общий UF-декодер для любого графа декодирования; он используется и для тора, и для пространственно-временного графа.
+Кластер с чётным числом дефектов всегда можно «закрыть» внутри себя, так что исправление существует. UF немного уступает MWPM по точности, но гораздо быстрее — важно для декодирования в реальном времени (§4.4). Ниже (и в `примеры.py`) реализован общий UF-декодер для любого графа декодирования; он используется и для тора, и для пространственно-временного графа. Проверим его на прямой цепочке рёбер (задача 10):
+
+```{python}
+#| code-fold: true
+#| code-summary: "Декодер union-find (код)"
+def uf_decode(self, defects):
+    """Union-find (Дельфосс–Никерсон): рост нечётных кластеров на полребра, слияние, очистка леса.
+    Возвращает логическую маску исправления; self.rounds — число раундов роста."""
+    n, adj, edges = self.n, self.adj, self.edges
+    parent, parity = list(range(n)), [0] * n
+    for v in defects:
+        parity[v] = 1
+    boundary, support = {v: [v] for v in defects}, {}
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    active, self.rounds = set(defects), 0
+    while active:
+        self.rounds += 1
+        fusion = []
+        for r in list(active):                      # рост на полребра
+            for v in boundary[r]:
+                for e in adj[v]:
+                    s = support.get(e, 0)
+                    if s < 2:
+                        support[e] = s + 1
+                        if s + 1 == 2:
+                            fusion.append(e)
+        for e in fusion:                            # слияние
+            u, w, _ = edges[e]
+            ru, rw = find(u), find(w)
+            if ru == rw:
+                continue
+            bu = boundary.pop(ru, [u] if ru == u else []) or [u]
+            bw = boundary.pop(rw, [w] if rw == w else []) or [w]
+            parent[rw] = ru
+            parity[ru] ^= parity[rw]
+            boundary[ru] = bu + bw
+        new_active = set()
+        for r in set(find(a) for a in active):
+            boundary[r] = [v for v in set(boundary.get(r, [])) if any(support.get(e, 0) < 2 for e in adj[v])]
+            if parity[r]:
+                new_active.add(r)
+        active = new_active
+    gadj = {}                                       # очистка: остовный лес по выросшим рёбрам
+    for e in (e for e, s in support.items() if s == 2):
+        u, w, _ = edges[e]
+        gadj.setdefault(u, []).append((w, e))
+        gadj.setdefault(w, []).append((u, e))
+    dfl = {v: 0 for v in gadj}
+    for v in defects:
+        dfl[v] = 1
+    seen, mask = set(), 0
+    for root in gadj:
+        if root in seen:
+            continue
+        order, par = [root], {root: None}
+        seen.add(root)
+        i = 0
+        while i < len(order):
+            u = order[i]
+            i += 1
+            for (w, e) in gadj[u]:
+                if w not in seen:
+                    seen.add(w)
+                    par[w] = (u, e)
+                    order.append(w)
+        for v in reversed(order[1:]):               # листья с конца
+            if dfl[v]:
+                u, e = par[v]
+                mask ^= edges[e][2]
+                dfl[v], dfl[u] = 0, dfl[u] ^ 1
+        assert dfl[root] == 0
+    return mask
+
+DecodingGraph.uf_decode = uf_decode
+```
+
+```{python}
+chain = DecodingGraph(8, [(i, i + 1, 1 << i) for i in range(7)])   # цепочка 0–1–…–7, маска = номер ребра
+mk = chain.uf_decode([2, 5])
+used = [i for i in range(7) if (mk >> i) & 1]
+assert used == [2, 3, 4] and chain.rounds == 3
+print(f"UF на цепочке, дефекты в вершинах 2 и 5: {chain.rounds} раунда роста, исправление — рёбра {used}")
+```
+
 
 ### 4.3. Точное сравнение на маленьком торе
 
-На торе $3\times3$ (18 кубитов, $X$-ошибки с вероятностью $p$) решение декодера зависит только от синдрома (256 вариантов), поэтому $p_L$ можно вычислить **точно**, перебрав все $2^{18}$ ошибок. ML-декодер по классам — максимум по четырём гомологическим классам (раздел 3 `примеры.py`):
+На торе $3\times3$ (18 кубитов, $X$-ошибки с вероятностью $p$) решение декодера зависит только от синдрома (256 вариантов), поэтому $p_L$ можно вычислить **точно**, перебрав все $2^{18}$ ошибок. ML-декодер по классам — максимум по четырём гомологическим классам (ячейка после таблицы):
 
 | $p$ | MWPM | union-find | ML (оптимальный) |
 |---:|---:|---:|---:|
@@ -168,6 +545,42 @@ $$
 | 0,05 | 0,061287 | 0,081683 | 0,061250 |
 | 0,10 | 0,226379 | 0,257274 | 0,225927 |
 | 0,15 | 0,411774 | 0,435972 | 0,409964 |
+
+```{python}
+g3 = toric_graph(3)
+E3 = np.array(g3.edges)
+allerr = ((np.arange(2 ** 18)[:, None] >> np.arange(17, -1, -1)) & 1).astype(np.uint8)   # все 2^18 ошибок
+syn_all = np.zeros((2 ** 18, 9), np.int64)
+for q, (u, w, m) in enumerate(g3.edges):
+    syn_all[:, u] += allerr[:, q]
+    syn_all[:, w] += allerr[:, q]
+syn_id = (syn_all % 2) @ (2 ** np.arange(8, -1, -1))
+mask_all = np.bitwise_xor.reduce(allerr * E3[:, 2], axis=1)
+wt_all = allerr.sum(1)
+dec = {int(s): (toric_mwpm_mask(3, [i for i in range(9) if (s >> (8 - i)) & 1]),
+                g3.uf_decode([i for i in range(9) if (s >> (8 - i)) & 1])) for s in np.unique(syn_id)}
+mw_arr = np.array([dec[int(s)][0] for s in syn_id])
+uf_arr = np.array([dec[int(s)][1] for s in syn_id])
+print(f"синдромов: {len(dec)}\n   p      MWPM       UF         ML")
+EXACT3 = {}
+for p in (0.01, 0.05, 0.1, 0.15):
+    prob = p ** wt_all * (1 - p) ** (18 - wt_all)
+    P = np.zeros((512, 4))
+    np.add.at(P, (syn_id, mask_all), prob)               # вероятности (синдром, класс)
+    EXACT3[p] = (1 - prob[mw_arr == mask_all].sum(), 1 - prob[uf_arr == mask_all].sum(), 1 - P.max(1).sum())
+    assert EXACT3[p][2] <= min(EXACT3[p][:2]) + 1e-12
+    print(f"  {p:4.2f}   " + "   ".join(f"{x:.6f}" for x in EXACT3[p]))
+ok1 = wt_all <= 1
+assert np.all(mw_arr[ok1] == mask_all[ok1]) and np.all(uf_arr[ok1] == mask_all[ok1])
+bad_mw = np.nonzero((mw_arr != mask_all) & (wt_all == 2))[0]
+n2_uf = int(np.sum((uf_arr != mask_all) & (wt_all == 2)))
+# ошибки веса 2, на которых ошибается MWPM: два ребра одного прямого нестягиваемого дуального цикла
+line = lambda q: ("h", q % 3) if q < 9 else ("v", (q - 9) // 3)    # h-рёбра столбца c, v-рёбра строки r
+pairs = [np.nonzero(allerr[i])[0] for i in bad_mw]
+assert len(bad_mw) == 18 and all(line(a) == line(b) for a, b in pairs) and len({line(a) for a, _ in pairs}) == 6
+print(f"ошибок веса 2 из {comb(18, 2)} декодированы неверно: MWPM {len(bad_mw)} (все — пары на одном из 6 прямых циклов), UF {n2_uf}")
+```
+
 
 Все ошибки веса 1 исправляются обоими декодерами. Из 153 ошибок веса 2 MWPM ошибается на 18: это пары рёбер на одном из шести прямых нестягиваемых циклов длины 3, синдром которых совпадает с синдромом оставшегося ребра цикла; декодер выбирает между такой парой и одиночной ошибкой, и при малых $p$ правильно выбрать одиночную (ML поступает так же). UF ошибается на 38 ошибках веса 2 и потому проигрывает уже при малых $p$. ML лучше всех, но при малых $p$ почти совпадает с MWPM; разница растёт с $p$.
 
@@ -185,21 +598,57 @@ ML-декодер суммирует вероятности всех цепей 
 
 ### 5.1. Code capacity
 
-Раздел 4 `примеры.py`: тор $L = 5, 7, 9$, независимые $X$-ошибки, по 3000 испытаний на точку (статистическая погрешность $\lesssim0{,}009$).
+Полная версия расчёта (`примеры.py`, около 2 мин): тор $L = 5, 7, 9$, независимые $X$-ошибки, по 3000 испытаний на точку (статистическая погрешность $\lesssim0{,}009$). Таблица — её результат:
 
 | $p$ | MWPM $L=5$ | MWPM $L=7$ | MWPM $L=9$ | UF $L=5$ | UF $L=7$ | UF $L=9$ |
 |---:|---:|---:|---:|---:|---:|---:|
 | 0,08 | 0,148 | 0,098 | 0,093 | 0,185 | 0,141 | 0,133 |
-| 0,09 | 0,180 | 0,163 | 0,145 | 0,220 | 0,209 | 0,219 |
-| 0,10 | 0,231 | 0,228 | 0,231 | 0,272 | 0,288 | 0,292 |
-| 0,11 | 0,296 | 0,303 | 0,325 | 0,334 | 0,352 | 0,388 |
-| 0,12 | 0,314 | 0,366 | 0,389 | 0,362 | 0,422 | 0,446 |
+| 0,09 | 0,181 | 0,163 | 0,145 | 0,220 | 0,209 | 0,219 |
+| 0,10 | 0,230 | 0,227 | 0,231 | 0,272 | 0,288 | 0,292 |
+| 0,11 | 0,296 | 0,302 | 0,324 | 0,334 | 0,352 | 0,388 |
+| 0,12 | 0,314 | 0,366 | 0,387 | 0,362 | 0,422 | 0,446 |
 
-Ниже порога ошибка убывает с $L$, выше — растёт. Пересечения кривых (линейная интерполяция): для MWPM $0{,}103$ ($L = 5/7$) и $0{,}098$ ($L = 7/9$), для UF $0{,}094$ и $0{,}085$. Это согласуется с известными значениями $\approx10{,}3\,\%$ (MWPM) и $\approx9{,}9\,\%$ (UF) в пределах нашей статистики и конечных размеров (задача 11). Взяты нечётные $L$: при чётном $L$ ошибки веса $L/2$ на нестягиваемом цикле дают «ничью», которую декодер разрешает наугад, и на малых решётках это заметно сдвигает пересечения (в первом варианте расчёта с $L = 4, 6, 8$ они получились $\approx0{,}11$).
+Ниже порога ошибка убывает с $L$, выше — растёт. Пересечения кривых (линейная интерполяция): для MWPM $0{,}104$ ($L = 5/7$) и $0{,}098$ ($L = 7/9$), для UF $0{,}094$ и $0{,}085$. Это согласуется с известными значениями $\approx10{,}3\,\%$ (MWPM) и $\approx9{,}9\,\%$ (UF) в пределах нашей статистики и конечных размеров (задача 11). Взяты нечётные $L$: при чётном $L$ ошибки веса $L/2$ на нестягиваемом цикле дают «ничью», которую декодер разрешает наугад, и на малых решётках это заметно сдвигает пересечения (в первом варианте расчёта с $L = 4, 6, 8$ они получились $\approx0{,}11$).
+
+Ячейка ниже повторяет расчёт для UF на той же выборке ошибок (тот же генератор и порядок вызовов, все 3000 испытаний каждой точки) — его числа совпадают с таблицей. MWPM на networkx — самая медленная часть полной версии (около 1,5 мин), поэтому на странице он здесь **не повторяется**: столбцы MWPM и их пересечения — результат `примеры.py`. Тот же декодер MWPM работает на этой странице в §4.3 (точный расчёт) и §5.3 (подавление ошибки).
+
+```{python}
+#| fig-cap: "Торический код, code capacity, декодер union-find: доля логических ошибок при $L = 5, 7, 9$ (3000 испытаний на точку, полосы — стандартная погрешность). Кривые пересекаются около порога"
+P_GRID, L_LIST, SHOTS = (0.08, 0.09, 0.10, 0.11, 0.12), (5, 7, 9), 3000
+CC_UF = {}
+for L in L_LIST:
+    for p in P_GRID:
+        samples, g = sample_toric_cc(L, p, SHOTS)
+        CC_UF[(L, p)] = np.mean([g.uf_decode(df) != m for df, m in samples])
+
+def crossing(tab, L1, L2, grid):
+    """Пересечение кривых p_L(L1) и p_L(L2) — линейная интерполяция разности."""
+    diff = [tab[(L2, p)] - tab[(L1, p)] for p in grid]
+    for i in range(len(grid) - 1):
+        if diff[i] < 0 <= diff[i + 1]:
+            return grid[i] + (grid[i + 1] - grid[i]) * (-diff[i]) / (diff[i + 1] - diff[i])
+
+print("   p   " + "".join(f"   UF L={L}" for L in L_LIST))
+for p in P_GRID:
+    print(f"  {p:4.2f} " + "".join(f"     {CC_UF[(L, p)]:.3f}" for L in L_LIST))
+TH_UF = [crossing(CC_UF, 5, 7, P_GRID), crossing(CC_UF, 7, 9, P_GRID)]
+print(f"UF: пересечения L = 5/7 и 7/9: {TH_UF[0]:.3f}, {TH_UF[1]:.3f}")
+assert CC_UF[(9, 0.08)] < CC_UF[(5, 0.08)] and CC_UF[(9, 0.12)] > CC_UF[(5, 0.12)]   # ниже порога убывает с L
+
+fig, ax = plt.subplots(figsize=(6.0, 3.6))
+for L in L_LIST:
+    y = np.array([CC_UF[(L, p)] for p in P_GRID])
+    ax.errorbar(P_GRID, y, yerr=np.sqrt(y * (1 - y) / SHOTS), marker="o", ms=4, capsize=2, label=f"$L = {L}$")
+ax.set_xlabel("вероятность ошибки $p$")
+ax.set_ylabel("логическая ошибка $p_L$")
+ax.legend()
+plt.show()
+```
+
 
 ### 5.2. Феноменологическая модель
 
-Раздел 5 `примеры.py`: тор $L\times L$, $L$ раундов, в каждом — $X$-ошибки данных с вероятностью $p$ и ошибки измерения каждого плакета с той же вероятностью, затем идеальный раунд; декодер UF на пространственно-временном графе; 600 испытаний.
+Тор $L\times L$, $L$ раундов, в каждом — $X$-ошибки данных с вероятностью $p$ и ошибки измерения каждого плакета с той же вероятностью, затем идеальный раунд; декодер UF на пространственно-временном графе; 1000 испытаний на точку (ячейка после таблицы).
 
 | $p$ | $L = 4$ | $L = 6$ | $L = 8$ |
 |---:|---:|---:|---:|
@@ -207,6 +656,44 @@ ML-декодер суммирует вероятности всех цепей 
 | 0,025 | 0,098 | 0,083 | 0,078 |
 | 0,030 | 0,129 | 0,165 | 0,186 |
 | 0,035 | 0,206 | 0,303 | 0,365 |
+
+```{python}
+def pheno_graph(L, T):
+    """Детекторы (t, плакет), t = 0..T; пространственные рёбра в слоях 0..T-1 (ошибка данных перед раундом t),
+    временные (t, p)–(t+1, p) (ошибка измерения в раунде t). Раунд T — идеальный."""
+    base = toric_graph(L)
+    edges = [(t * L * L + u, t * L * L + w, m) for t in range(T) for (u, w, m) in base.edges]
+    kinds = [0] * len(edges)
+    edges += [(t * L * L + pl, (t + 1) * L * L + pl, 0) for t in range(T) for pl in range(L * L)]
+    kinds += [1] * (T * L * L)
+    return DecodingGraph((T + 1) * L * L, edges), np.array(kinds)
+
+def run_pheno(L, p, shots):
+    g, _ = pheno_graph(L, L)
+    E = np.array(g.edges)
+    fails = 0
+    for _ in range(shots):
+        idx = np.nonzero(rng.random(len(E)) < p)[0]
+        syn = np.zeros(g.n, np.uint8)
+        np.add.at(syn, E[idx, 0], 1)
+        np.add.at(syn, E[idx, 1], 1)
+        mask = int(np.bitwise_xor.reduce(E[idx, 2])) if len(idx) else 0
+        fails += g.uf_decode(list(np.nonzero(syn % 2)[0])) != mask
+    return fails / shots
+
+gph, kinds = pheno_graph(4, 4)
+u, w, m = gph.edges[np.nonzero(kinds == 1)[0][5]]
+assert w - u == 16 and m == 0          # ошибка измерения: дефекты одного плакета в соседних слоях
+PH_GRID, PH_L = (0.020, 0.025, 0.030, 0.035), (4, 6, 8)
+PH = {(L, p): run_pheno(L, p, 1000) for L in PH_L for p in PH_GRID}
+print("    p     " + "     ".join(f"L = {L}" for L in PH_L))
+for p in PH_GRID:
+    print(f"  {p:5.3f}   " + "     ".join(f"{PH[(L, p)]:.3f}" for L in PH_L))
+xs_ph = [crossing(PH, 4, 6, PH_GRID), crossing(PH, 6, 8, PH_GRID)]
+assert PH[(8, 0.020)] < PH[(4, 0.020)] and PH[(8, 0.035)] > PH[(4, 0.035)]
+print(f"пересечения L = 4/6 и 6/8: {xs_ph[0]:.3f}, {xs_ph[1]:.3f}")
+```
+
 
 Пересечения $\approx0{,}026$ для обеих пар $L$ — порог упал примерно вчетверо по сравнению с code capacity, хотя ошибки измерения имеют ту же вероятность, что и ошибки данных (у Дельфосса и Никерсона для UF в этой модели приводится $\approx2{,}6\,\%$). Пространственно-временной граф трёхмерен, и логическую цепь можно собрать из ошибок обоих типов (ЛР14, задание 5).
 
@@ -218,9 +705,37 @@ p_L\approx A\Bigl(\frac p{p_{\text{th}}}\Bigr)^{(d+1)/2},\qquad \Lambda = \frac{
 $$
 Показатель $(d+1)/2$ — минимальное число ошибок, способных образовать логическую цепь длины $d$ (как в коде повторения, II.5, (1.2)). **$\Lambda$** — во сколько раз падает ошибка при увеличении дистанции на 2; $\Lambda>1$ означает работу ниже порога, а большое $\Lambda$ — дешёвое масштабирование (контрольный вопрос 4 ЛР14; эксперимент Google — в II.8).
 
-Раздел 6 `примеры.py` (code capacity, MWPM, тор $L = 3, 5, 7$): при $p = 0{,}03$ $p_L = 2{,}04\cdot10^{-2},\ 6{,}70\cdot10^{-3},\ 1{,}45\cdot10^{-3}$, т. е. $\Lambda\approx3{,}1$ и $4{,}6$; при $p = 0{,}05$ $\Lambda\approx2{,}3$ и $1{,}6$. Порядок величины согласуется с $\Lambda\approx p_{\text{th}}/p\approx3$ и 2; чем дальше от порога, тем сильнее подавление.
+Code capacity, MWPM, тор $L = 3, 5, 7$ (20 000 испытаний при $p = 0{,}03$ и 8000 при $p = 0{,}05$; ячейка ниже): при $p = 0{,}03$ $p_L = 2{,}04\cdot10^{-2},\ 6{,}70\cdot10^{-3},\ 1{,}45\cdot10^{-3}$, т. е. $\Lambda\approx3{,}1$ и $4{,}6$; при $p = 0{,}05$ $\Lambda\approx2{,}3$ и $1{,}6$. Порядок величины согласуется с $\Lambda\approx p_{\text{th}}/p\approx3$ и 2; чем дальше от порога, тем сильнее подавление.
 
-**Ресурсная оценка** (ЛР14, задание 6). Возьмём для оценки $A = 0{,}1$, $p_{\text{th}} = 1\,\%$ (порядок величины для схемной модели) и $p = 10^{-3}$, т. е. $\Lambda = 10$. Тогда $p_L = 0{,}1\cdot10^{-(d+1)/2}$, и $p_L\le10^{-12}$ требует $d = 21$: по (2.1) это $2\cdot21^2 - 1 = 881$ физический кубит на логический. При $p = 2\cdot10^{-3}$ ($\Lambda = 5$) дистанция и число кубитов заметно растут (задача 8). Для алгоритма Шора нужны тысячи логических кубитов плюс «фабрики» магических состояний — отсюда оценки от $\sim2\cdot10^7$ (Гидни, Экеро, 2019) до менее $10^6$ (Гидни, 2025) физических кубитов для RSA-2048 (I.13, §4.2; подробнее II.8).
+```{python}
+LAM = {}
+for p, shots in ((0.03, 20000), (0.05, 8000)):
+    pls = {}
+    for L in (3, 5, 7):
+        samples, _ = sample_toric_cc(L, p, shots)
+        cache = {}                      # одинаковые наборы дефектов декодируются один раз
+        for df, _ in samples:
+            if tuple(df) not in cache:
+                cache[tuple(df)] = toric_mwpm_mask(L, df)
+        pls[L] = np.mean([cache[tuple(df)] != m for df, m in samples])
+    LAM[p] = pls
+    print(f"p = {p}: p_L(L = 3, 5, 7) = " + ", ".join(f"{pls[L]:.2e}" for L in (3, 5, 7))
+          + f";  Λ_3/5 = {pls[3] / pls[5]:.1f}, Λ_5/7 = {pls[5] / pls[7]:.1f}")
+assert LAM[0.03][3] / LAM[0.03][5] > LAM[0.05][3] / LAM[0.05][5] > 1
+```
+
+
+**Ресурсная оценка** (ЛР14, задание 6). Возьмём для оценки $A = 0{,}1$, $p_{\text{th}} = 1\,\%$ (порядок величины для схемной модели) и $p = 10^{-3}$, т. е. $\Lambda = 10$. Тогда $p_L = 0{,}1\cdot10^{-(d+1)/2}$, и $p_L\le10^{-12}$ требует $d = 21$: по (2.1) это $2\cdot21^2 - 1 = 881$ физический кубит на логический. При $p = 2\cdot10^{-3}$ ($\Lambda = 5$) дистанция и число кубитов заметно растут (задача 8):
+
+```{python}
+A_, pth_ = 0.1, 0.01                                  # предположение для оценки, как в ЛР14
+RES = {}
+for p in (1e-3, 2e-3):
+    d = next(d for d in range(3, 201, 2) if A_ * (p / pth_) ** ((d + 1) / 2) <= 1e-12 * (1 + 1e-9))
+    RES[p] = (d, 2 * d * d - 1)
+    print(f"p = {p:.0e} (Λ = {pth_ / p:.0f}): p_L <= 1e-12 при d = {d}; повёрнутый код — {2 * d * d - 1} физических кубитов")
+```
+ Для алгоритма Шора нужны тысячи логических кубитов плюс «фабрики» магических состояний — отсюда оценки от $\sim2\cdot10^7$ (Гидни, Экеро, 2019) до менее $10^6$ (Гидни, 2025) физических кубитов для RSA-2048 (I.13, §4.2; подробнее II.8).
 
 ---
 
@@ -276,10 +791,29 @@ $$
 11. (••) По таблице §5.1 оцените порог MWPM в модели code capacity по пересечению кривых. Почему пересечения для разных пар $L$ немного различаются?
 12. (•) Объясните, почему порог в схемной модели на порядок ниже, чем в code capacity.
 
-### Ответы и указания
+Численная проверка ответов к задачам 1, 3, 5, 6, 8 (задачи 2, 4, 10 — в ячейках выше; задача 11 — по таблице §5.1):
+
+```{python}
+print("1: 2d² − 1: " + ", ".join(f"d = {d}: {SURF[d][2]}" for d in (3, 5, 7)))
+g5 = toric_graph(5)                                    # задача 3 в дуальной записи: X на v(0, 1), v(0, 2), v(0, 3)
+syn5 = np.zeros(25, int)
+for e in (25 + c for c in (1, 2, 3)):
+    u, w, m = g5.edges[e]
+    syn5[u] ^= 1
+    syn5[w] ^= 1
+assert np.nonzero(syn5)[0].tolist() == [0, 3] and toric_mwpm_mask(5, [0, 3]) == 2
+print("3: дефекты в плакетах (0, 0) и (0, 3); MWPM соединяет их путём из 2 рёбер в обход тора -> логическая ошибка")
+print("5: планарный код, данные / всего: " + ", ".join(f"d = {d}: {SURF[d][0]} / {SURF[d][1]}" for d in (3, 5, 7)))
+print("6: тор 3 x 3, p = 0,1: MWPM {:.4f}, UF {:.4f}, ML {:.4f}".format(*EXACT3[0.1]))
+print("8: p = 1e-3: d = {}, кубитов {}; p = 2e-3: d = {}, кубитов {}".format(*RES[1e-3], *RES[2e-3]))
+assert RES[1e-3] == (21, 881) and RES[2e-3] == (31, 1921)
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** $d^2$ кубитов данных и $d^2 - 1$ проверок, по вспомогательному на проверку: $2d^2 - 1$ = 17, 49, 97.
 - **2.** Ребро звезды лежит в плакете, только если плакет примыкает к вершине; таких рёбер у пары ровно 2 или 0. Каждое ребро входит в две звезды, поэтому в $\prod_vA_v$ каждый $X_e$ встречается дважды. Ранги $L^2 - 1$ (проверено), $k = 2L^2 - 2(L^2-1) = 2$.
-- **3.** Нарушены звёзды в концах цепи — вершины $(0,0)$ и $(0,3)$. Исправление по тем же трём рёбрам даёт тождество; путь из двух рёбер в обход тора вместе с ошибкой образует цикл вокруг тора — логическая ошибка $\bar Z_1$. MWPM выбирает более короткий путь (2 ребра) и ошибается: ошибка веса 3 больше $t = 2$ (проверено в `примеры.py` в дуальной записи).
+- **3.** Нарушены звёзды в концах цепи — вершины $(0,0)$ и $(0,3)$. Исправление по тем же трём рёбрам даёт тождество; путь из двух рёбер в обход тора вместе с ошибкой образует цикл вокруг тора — логическая ошибка $\bar Z_1$. MWPM выбирает более короткий путь (2 ребра) и ошибается: ошибка веса 3 больше $t = 2$ (проверено в ячейке выше в дуальной записи).
 - **4.** Нестягиваемый цикл, обходящий тор по горизонтали, должен пройти через каждый из $L$ столбцов вершин, т. е. содержать не меньше $L$ рёбер; строка из $L$ рёбер этого достигает. Так же для дуальных циклов.
 - **5.** В сетке $(2d-1)^2$ узлов с чётной суммой координат $d^2 + (d-1)^2$; $X$-проверок $d(d-1)$, $Z$-проверок $d(d-1)$, все независимы: $k = d^2 + (d-1)^2 - 2d(d-1) = 1$. Дистанция — кратчайшая струна между противоположными границами, $d$. При $d = 5$: 81 физический кубит против 49 у повёрнутого кода.
 - **6.** Граф: вершины — дефекты, вес ребра — расстояние на торе; ищется совершенное паросочетание минимального веса. $p_L$: MWPM $0{,}2264$, UF $0{,}2573$, ML $0{,}2259$. ML выбирает класс с наибольшей **суммарной** вероятностью всех цепей класса, а MWPM — класс самой короткой цепи.
@@ -287,14 +821,15 @@ $$
 - **8.** $p = 10^{-3}$: $0{,}1\cdot0{,}1^{(d+1)/2}\le10^{-12}\Rightarrow d = 21$, 881 кубит. $p = 2\cdot10^{-3}$: $0{,}1\cdot0{,}2^{(d+1)/2}\le10^{-12}\Rightarrow(d+1)/2\ge15{,}7$, $d = 31$, $2\cdot31^2 - 1 = 1921$ кубит: удвоение $p$ увеличивает число кубитов более чем вдвое.
 - **9.** Для ошибки $E$ (множество рёбер) и подмножества звёзд $V'$ эквивалентная ошибка $E\triangle\partial^*V'$. Положим $\sigma_v = -1$ при $v\in V'$, $J_e = -1$ при $e\in E$, иначе $+1$. Ребро $e = (u, w)$ входит в итоговую ошибку, если $J_e\sigma_u\sigma_w = -1$. Тогда $P\propto\prod_e\bigl(p/(1-p)\bigr)^{(1 - J_e\sigma_u\sigma_w)/2}\propto\exp\bigl(\beta\sum_eJ_e\sigma_u\sigma_w\bigr)$ с $e^{-2\beta} = p/(1-p)$ (линия Нишимори), и сумма по классу — статистическая сумма RBIM с беспорядком $\{J_e\}$ (другой класс — с $J_e$, перевёрнутыми вдоль нестягиваемого цикла).
 - **10.** Раунд 1: каждый кластер растёт на полребра в обе стороны. Раунд 2: соседние рёбра выросли полностью, кластеры $\{1,2,3\}$ и $\{4,5,6\}$ (если дефекты в 2 и 5) — по-прежнему нечётные. Раунд 3: среднее ребро $(3,4)$ дорастает с двух сторон, кластеры сливаются в чётный. Очистка: листья 1 и 6 не дефекты; остаются рёбра $(2,3)$, $(3,4)$, $(4,5)$ — путь между дефектами (проверено).
-- **11.** По таблице §5.1: разность $p_L(L=7) - p_L(L=5)$ меняет знак между $0{,}10$ и $0{,}11$ (интерполяция — $0{,}103$), для $L = 7/9$ — около $0{,}098$. Различие пересечений — статистика ($\sigma\approx0{,}008$ на точку) и поправки конечного размера, которые убывают с ростом $L$.
+- **11.** По таблице §5.1: разность $p_L(L=7) - p_L(L=5)$ меняет знак между $0{,}10$ и $0{,}11$ (интерполяция — $0{,}104$), для $L = 7/9$ — около $0{,}098$. Различие пересечений — статистика ($\sigma\approx0{,}008$ на точку) и поправки конечного размера, которые убывают с ростом $L$.
 - **12.** Больше мест для ошибок на раунд (4 CNOT, подготовка, измерение на каждый стабилизатор), ошибки синдрома (третье измерение — время), распространение через CNOT (крючки: одна ошибка вспомогательного кубита — две ошибки данных) и корреляции. Всё это при той же вероятности на место увеличивает эффективную вероятность ошибки в графе декодирования примерно на порядок.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 2,5 мин; дольше всего Монте-Карло для порогов) проверяет:
+Ячейки на этой странице — короткие версии проверок. Не повторяется одно место: MWPM в Монте-Карло §5.1 (около 1,5 мин) — столбцы MWPM таблицы §5.1 и их пересечения взяты из полной версии. Остальные числа совпадают с `примеры.py`. Полный файл `примеры.py` (около 2,5 мин; дольше всего MWPM в Монте-Карло для порогов) проверяет:
 1. торический код при $L = 3, 4, 5$: коммутацию, соотношения (1.2), ранги и $k = 2$, логические операторы (1.3), дистанцию (кратчайший путь с учётом класса; перебор при $L = 3$), возбуждения на концах струны, стягиваемый цикл как элемент стабилизатора;
 2. планарный и повёрнутый коды при $d = 3, 5, 7$: число кубитов, $k = 1$, дистанции, веса проверок, логические операторы повёрнутого кода и концы $Z$-струн;
 3. декодеры MWPM и UF; точные $p_L$ MWPM, UF и ML на торе $3\times3$;
