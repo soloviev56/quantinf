@@ -1,16 +1,172 @@
-# Лекция II.6. Стабилизаторные коды
+---
+title: "Лекция II.6. Стабилизаторные коды"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.B «Квантовая коррекция ошибок и отказоустойчивость».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.9 (группа Паули и симплектическая запись, §1; группа Клиффорда, §2; стабилизаторы и измерение паули-операторов, §3); лекция I.8 (phase kickback, §2.3; измерения внутри схемы, §3); лекция II.5 (коды на трёх кубитах, §2; код Шора, §3; условия Книлла–Лафламма и дистанция, §5; граница Хэмминга и [[5,1,3]], §6; модель code capacity, §7).
+**Пререквизиты:** [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (группа Паули и симплектическая запись, §1; группа Клиффорда, §2; стабилизаторы и измерение паули-операторов, §3); [лекция I.8](../../Часть_I/I.08_Схемы_и_универсальность/лекция.qmd) (phase kickback, §2.3; измерения внутри схемы, §3); [лекция II.5](../II.05_Основы_QEC/лекция.qmd) (коды на трёх кубитах, §2; код Шора, §3; условия Книлла–Лафламма и дистанция, §5; граница Хэмминга и [[5,1,3]], §6; модель code capacity, §7).
 **Литература:** N&C, §§ 10.4–10.5; Gottesman D. Stabilizer codes and quantum error correction, PhD thesis, Caltech (1997), arXiv:quant-ph/9705052, гл. 3–4; Calderbank A. R., Shor P. W. // PRA 54, 1098 (1996); Steane A. M. // PRL 77, 793 (1996); Knill E., Laflamme R. // PRA 55, 900 (1997); Bacon D. // PRA 73, 012340 (2006).
-**Материалы:** `примеры.py` — численная проверка всех утверждений: параметры и дистанции кодов [[4,2,2]], [[5,1,3]], Стина и Шора, стабилизаторная форма условий Книлла–Лафламма, схема измерения синдрома, таблица против ML-декодера по классам, CSS-конструкция кода Стина и его трансверсальные гейты (включая CNOT между блоками), границы, подсистемный код Бэкона–Шора, схемный шум при извлечении синдрома с одним вспомогательным кубитом; задачи к семинару С4 и к ЛР13 — в § 8.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: параметры и дистанции кодов [[4,2,2]], [[5,1,3]], Стина и Шора, стабилизаторная форма условий Книлла–Лафламма, схема измерения синдрома, таблица против ML-декодера по классам, CSS-конструкция кода Стина и его трансверсальные гейты (включая CNOT между блоками), границы, подсистемный код Бэкона–Шора, схемный шум при извлечении синдрома с одним вспомогательным кубитом; задачи к семинару С4 и к ЛР13 — в § 8. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §7, §18).
 - $\mathcal S = \langle g_1,\dots,g_r\rangle\subset\mathcal P_n$ — стабилизатор кода, $r = n - k$ независимых генераторов; $\mathcal C = V_{\mathcal S}$ — код; $N(\mathcal S)$ — нормализатор (для паули-групп совпадает с централизатором).
 - Проверочная матрица $(H_X\,|\,H_Z)$ размера $r\times2n$ — строки $(\mathbf x|\mathbf z)$ генераторов; синдром ошибки $e = (\mathbf x_e|\mathbf z_e)$: $s_i = \langle g_i, e\rangle$ (симплектическое произведение I.9, (1.3)).
 - Классический линейный код $[n,k,d]$: порождающая матрица $G$, проверочная $H$, дуальный код $C^\perp$. CSS-код $\mathrm{CSS}(C_1, C_2)$ при $C_2\subset C_1$.
 - $\lvert0_L\rangle$, $\lvert1_L\rangle$, $\bar X$, $\bar Z$, $p$, $p_L$ — как в II.5.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты, паули-строки, стабилизаторные коды"
+import itertools
+from functools import reduce
+from math import log2
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import brentq
+
+# генератор нужен только Монте-Карло §6; порядок вызовов — как в примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.array([[1, 0], [0, -1]], dtype=complex)
+H = np.array([[1, 1], [1, -1]], dtype=complex) / np.sqrt(2)
+S = np.diag([1, 1j])
+PAULI = {"I": I2, "X": X, "Y": Y, "Z": Z}
+
+def dag(A):
+    return A.conj().T
+
+def kron(*ops):
+    return reduce(np.kron, ops)
+
+def pauli(s):
+    """Паули-строка 'XZZXI' -> матрица (первый символ — старший множитель)."""
+    return kron(*[PAULI[c] for c in s])
+
+# Симплектическая запись (I.9, §1.2): паули-строка <-> (x|z)
+def sym(s):
+    x = np.array([c in "XY" for c in s], dtype=np.int64)
+    z = np.array([c in "ZY" for c in s], dtype=np.int64)
+    return x, z
+
+def to_str(x, z):
+    return "".join("IXZY"[int(a) + 2 * int(b)] for a, b in zip(x, z))
+
+def sym_inner(x1, z1, x2, z2):
+    return int((np.dot(x1, z2) + np.dot(z1, x2)) % 2)
+
+def gf2_rank(M):
+    """Ранг матрицы над F_2 (метод Гаусса)."""
+    M = (np.array(M, dtype=np.int64) % 2).copy()
+    r = 0
+    rows, cols = M.shape
+    for c in range(cols):
+        piv = [i for i in range(r, rows) if M[i, c]]
+        if not piv:
+            continue
+        M[[r, piv[0]]] = M[[piv[0], r]]
+        for i in range(rows):
+            if i != r and M[i, c]:
+                M[i] ^= M[r]
+        r += 1
+        if r == rows:
+            break
+    return r
+
+def weight(s):
+    return sum(c != "I" for c in s)
+
+class StabCode:
+    """Стабилизаторный код: генераторы и логические X_j, Z_j (списки паули-строк)."""
+
+    def __init__(self, name, gens, XL, ZL):
+        self.name, self.gens, self.XL, self.ZL = name, gens, XL, ZL
+        self.n, self.r, self.k = len(gens[0]), len(gens), len(XL)
+        self.G = np.array([np.concatenate(sym(g)) for g in gens])
+        assert gf2_rank(self.G) == self.r and self.k == self.n - self.r   # генераторы независимы
+        for a, b in itertools.combinations(gens, 2):                      # и коммутируют
+            assert sym_inner(*sym(a), *sym(b)) == 0
+        for L in XL + ZL:                                                 # логические — в N(S)
+            assert all(sym_inner(*sym(L), *sym(g)) == 0 for g in gens)
+        for i in range(self.k):
+            for j in range(self.k):
+                assert sym_inner(*sym(XL[i]), *sym(ZL[j])) == (i == j)
+                assert sym_inner(*sym(XL[i]), *sym(XL[j])) == 0 == sym_inner(*sym(ZL[i]), *sym(ZL[j]))
+        self.Sx = np.array([sym(g)[0] for g in gens]).T
+        self.Sz = np.array([sym(g)[1] for g in gens]).T
+        self._enum = None
+
+    def in_stabilizer(self, s):
+        return gf2_rank(np.vstack([self.G, np.concatenate(sym(s))])) == self.r
+
+    def syndrome(self, s):
+        x, z = sym(s)
+        return tuple(int(v) for v in (x @ self.Sz + z @ self.Sx) % 2)
+
+    def distance(self):
+        """Наименьший вес паули из N(S) \\ S (перебор по весу) и пример такого оператора."""
+        n = self.n
+        for w in range(1, n + 1):
+            for qs in itertools.combinations(range(n), w):
+                for ps in itertools.product("XYZ", repeat=w):
+                    s = ["I"] * n
+                    for q, P in zip(qs, ps):
+                        s[q] = P
+                    s = "".join(s)
+                    if not any(self.syndrome(s)) and not self.in_stabilizer(s):
+                        return w, s
+
+    def enumerate(self):
+        """Все 4^n паули: x, z, вес, синдром (целое), логический класс (2k битов коммутации с X_L, Z_L)."""
+        if self._enum is None:
+            n = self.n
+            idx = np.arange(4 ** n)
+            digits = (idx[:, None] // 4 ** np.arange(n - 1, -1, -1)) % 4  # 0=I, 1=X, 2=Y, 3=Z
+            x = ((digits == 1) | (digits == 2)).astype(np.int64)
+            z = ((digits == 2) | (digits == 3)).astype(np.int64)
+            syn = ((x @ self.Sz + z @ self.Sx) % 2) @ (2 ** np.arange(self.r - 1, -1, -1))
+            cls = np.zeros(len(idx), dtype=np.int64)
+            for L in self.XL + self.ZL:
+                lx, lz = sym(L)
+                cls = 2 * cls + (x @ lz + z @ lx) % 2
+            self._enum = (x, z, (x | z).sum(1), syn, cls)
+        return self._enum
+
+    def table(self):
+        """Таблица синдромов: синдром -> индекс паули минимального веса (первой по порядку)."""
+        x, z, w, syn, cls = self.enumerate()
+        first = {}
+        for i in np.lexsort((np.arange(len(w)), w)):
+            first.setdefault(int(syn[i]), i)
+        return first
+
+    def pL_decoders(self, p):
+        """Точная p_L при деполяризующем шуме: таблица минимального веса и ML по классам (2.1)."""
+        x, z, w, syn, cls = self.enumerate()
+        prob = (p / 3) ** w * (1 - p) ** (self.n - w)
+        P = np.zeros((2 ** self.r, 4 ** self.k))      # P[синдром, логический класс]
+        np.add.at(P, (syn, cls), prob)
+        tab = self.table()
+        ok_table = sum(P[s, cls[tab[s]]] for s in tab)
+        return 1 - ok_table, 1 - P.max(axis=1).sum()
+
+    def fail_counts(self):
+        """N_fail[w] — число паули веса w, которые таблица превращает в логическую ошибку."""
+        x, z, w, syn, cls = self.enumerate()
+        tab = self.table()
+        fail = np.array([cls[tab[int(s)]] for s in syn]) != cls
+        return (np.array([np.sum(fail & (w == k)) for k in range(self.n + 1)]),
+                np.array([np.sum(w == k) for k in range(self.n + 1)]), fail)
+
+    def projector(self):
+        P = np.eye(2 ** self.n, dtype=complex)
+        for g in self.gens:
+            P = P @ (np.eye(2 ** self.n) + pauli(g)) / 2
+        return P
+```
 
 ---
 
@@ -61,7 +217,21 @@ $$
 
 Множество паули-операторов, коммутирующих со всеми элементами $\mathcal S$, — **централизатор**; для подгрупп группы Паули он совпадает с **нормализатором** $N(\mathcal S) = \{E: E\mathcal SE^\dagger = \mathcal S\}$, потому что два паули-оператора либо коммутируют, либо антикоммутируют (задача 2). Логические операторы — $N(\mathcal S)\setminus\mathcal S$, а логически различимые операции — классы смежности $N(\mathcal S)/\mathcal S$.
 
-Счёт (без учёта фаз): $N(\mathcal S)$ — ортогональное дополнение $r$-мерного подпространства в $\mathbb F_2^{2n}$ относительно симплектической формы, т. е. $2^{2n-r} = 2^{n+k}$ элементов. Делённое на $\lvert\mathcal S\rvert = 2^r$, это $4^k$ классов — группа Паули на $k$ логических кубитах. Можно выбрать $\bar X_j$, $\bar Z_j$, $j = 1..k$, с обычными соотношениями коммутации. Для кода Стина (§3) 256 паули-строк с нулевым синдромом делятся на 4 класса по 64 (раздел 1 `примеры.py`).
+Счёт (без учёта фаз): $N(\mathcal S)$ — ортогональное дополнение $r$-мерного подпространства в $\mathbb F_2^{2n}$ относительно симплектической формы, т. е. $2^{2n-r} = 2^{n+k}$ элементов. Делённое на $\lvert\mathcal S\rvert = 2^r$, это $4^k$ классов — группа Паули на $k$ логических кубитах. Можно выбрать $\bar X_j$, $\bar Z_j$, $j = 1..k$, с обычными соотношениями коммутации. Для кода Стина (§3) 256 паули-строк с нулевым синдромом делятся на 4 класса по 64 — проверим перебором всех $4^7$ паули-строк:
+
+```{python}
+hamming = ["0001111", "0110011", "1010101"]          # строки матрицы Хэмминга (3.1)
+steane_gens = ["".join("X" if b == "1" else "I" for b in h) for h in hamming] + \
+              ["".join("Z" if b == "1" else "I" for b in h) for h in hamming]
+STEANE = StabCode("Стина [[7,1,3]]", steane_gens, XL=["XXXXXXX"], ZL=["ZZZZZZZ"])
+x, z, w, syn, cls = STEANE.enumerate()
+nN = int(np.sum(syn == 0))
+sizes = np.bincount(cls[syn == 0])                   # класс — по коммутации с X_L и Z_L
+assert nN == 2 ** (STEANE.n + STEANE.k) and len(sizes) == 4 and np.all(sizes == 2 ** STEANE.r)
+print("генераторы кода Стина:", steane_gens)
+print(f"паули-строк с нулевым синдромом: {nN} = 2^(n+k); по логическим классам: {sizes.tolist()} (|S| = {2 ** STEANE.r})")
+```
+
 
 **Дистанция** — наименьший вес логического оператора:
 $$
@@ -77,7 +247,27 @@ E_a^\dagger E_b\notin N(\mathcal S)\setminus\mathcal S\quad\text{для всех
 $$
 *Доказательство.* Проверим условие II.5, (5.1) для $E = E_a^\dagger E_b$ по трём случаям §1.2: если $E$ антикоммутирует с $g\in\mathcal S$, то $\Pi E\Pi = \Pi Eg\Pi = -\Pi gE\Pi = -\Pi E\Pi$, т. е. $\Pi E\Pi = 0$; если $E\in\pm\mathcal S$, то $\Pi E\Pi = \pm\Pi$; в обоих случаях (5.1) выполнено. Если же $E\in N(\mathcal S)\setminus\mathcal S$, то $\Pi E\Pi = E\Pi$ — нетривиальный логический оператор, не кратный $\Pi$. $\square$
 
-Следствие: код исправляет все ошибки веса $\le\lfloor(d-1)/2\rfloor$ (II.5, §5.2). Код **вырожден**, если среди исправимых ошибок есть пары с $E_a^\dagger E_b\in\mathcal S$, $a\ne b$ (как $Z_1Z_2$ в коде Шора). В `примеры.py` теорема проверена для всех пар ошибок веса $\le1$ кода Стина: $\Pi E\Pi = 0$ вне $N(\mathcal S)$ и $\pm\Pi$ в $\mathcal S$.
+Следствие: код исправляет все ошибки веса $\le\lfloor(d-1)/2\rfloor$ (II.5, §5.2). Код **вырожден**, если среди исправимых ошибок есть пары с $E_a^\dagger E_b\in\mathcal S$, $a\ne b$ (как $Z_1Z_2$ в коде Шора). Проверим теорему для всех пар ошибок веса $\le1$ кода Стина: $\Pi E\Pi = 0$ вне $N(\mathcal S)$ и $\pm\Pi$ в $\mathcal S$.
+
+```{python}
+singles7 = ["I" * 7] + ["I" * q + P + "I" * (6 - q) for q in range(7) for P in "XYZ"]
+Pst = STEANE.projector()
+n_out = n_stab = 0
+for a, b in itertools.combinations_with_replacement(singles7, 2):
+    (xa, za), (xb, zb) = sym(a), sym(b)
+    E = to_str((xa + xb) % 2, (za + zb) % 2)            # E_a^† E_b с точностью до фазы
+    M = Pst @ pauli(E) @ Pst
+    if any(STEANE.syndrome(E)):                          # вне N(S)
+        assert np.allclose(M, 0)
+        n_out += 1
+    else:
+        assert STEANE.in_stabilizer(E)                   # (1.3): не логический оператор
+        assert np.allclose(M, Pst) or np.allclose(M, -Pst)
+        n_stab += 1
+print(f"пар (E_a, E_b) веса <= 1: {n_out + n_stab}; вне N(S), ΠEΠ = 0: {n_out}; "
+      f"в S, ΠEΠ = ±Π: {n_stab} (только E_a = E_b — на весе 1 код Стина невырожден)")
+```
+
 
 ### 1.4. Примеры
 
@@ -88,7 +278,28 @@ $$
 | Стина (§3) | $X$- и $Z$-версии строк матрицы Хэмминга | $X^{\otimes7}$, $Z^{\otimes7}$ | [[7,1,3]] |
 | Шора (II.5, §3) | 6 операторов $ZZ$, 2 оператора $X^{\otimes6}$ | $Z_1Z_4Z_7$, $X_1X_2X_3$ | [[9,1,3]] |
 
-Дистанции найдены перебором по весу (раздел 1 `примеры.py`). Код [[4,2,2]] кодирует два кубита, но с $d = 2$ только **обнаруживает** одну ошибку: 12 однокубитных паули дают лишь 3 ненулевых синдрома. Такие коды используют для пост-селекции и как строительные блоки.
+Дистанции найдены перебором по весу (ячейка ниже). Код [[4,2,2]] кодирует два кубита, но с $d = 2$ только **обнаруживает** одну ошибку: 12 однокубитных паули дают лишь 3 ненулевых синдрома. Такие коды используют для пост-селекции и как строительные блоки.
+
+```{python}
+C422 = StabCode("[[4,2,2]]", ["XXXX", "ZZZZ"], XL=["XXII", "XIXI"], ZL=["ZIZI", "ZZII"])
+FIVE = StabCode("[[5,1,3]]", ["XZZXI", "IXZZX", "XIXZZ", "ZXIXZ"], XL=["XXXXX"], ZL=["ZZZZZ"])
+SHOR = StabCode("Шора [[9,1,3]]",
+                ["ZZIIIIIII", "IZZIIIIII", "IIIZZIIII", "IIIIZZIII", "IIIIIIZZI", "IIIIIIIZZ",
+                 "XXXXXXIII", "IIIXXXXXX"], XL=["ZIIZIIZII"], ZL=["XXXIIIIII"])
+DIST = {}
+for code in (C422, FIVE, STEANE, SHOR):
+    d, wit = code.distance()
+    DIST[code.name] = d
+    dimC = np.trace(code.projector()).real
+    assert np.isclose(dimC, 2 ** code.k)
+    print(f"{code.name:15s} n = {code.n}, r = {code.r}, k = {code.k}, dim C = {dimC:.0f}, d = {d}; "
+          f"логический оператор веса d: {wit}")
+assert list(DIST.values()) == [2, 3, 3, 3]
+syn422 = {C422.syndrome("I" * q + P + "I" * (3 - q)) for q in range(4) for P in "XYZ"}
+assert (0, 0) not in syn422 and len(syn422) == 3
+print(f"[[4,2,2]]: 12 однокубитных паули дают синдромы {sorted(syn422)} — все ненулевые, но их только 3")
+```
+
 
 ---
 
@@ -100,7 +311,26 @@ $$
 - **$Z$-тип** ($g = Z_{j_1}\cdots Z_{j_w}$): вспомогательный в $\lvert0\rangle$, CNOT с каждого кубита данных носителя на вспомогательный, измерение в базисе $Z$ (как в II.5, §2.1);
 - **$X$-тип**: вспомогательный в $\lvert{+}\rangle$, CNOT со вспомогательного на каждый кубит носителя, измерение в базисе $X$.
 
-В `примеры.py` (раздел 2) схема промоделирована для кода [[5,1,3]] и ошибок $Y_3$, $X_1$, $Z_5$: исходы совпали с симплектическими произведениями. Синдром — линейная функция ошибки: $s = (H_X\mathbf z_e + H_Z\mathbf x_e)\bmod2$.
+Промоделируем схему для кода [[5,1,3]] и ошибок $Y_3$, $X_1$, $Z_5$: исходы совпадают с симплектическими произведениями (ячейка ниже). Синдром — линейная функция ошибки: $s = (H_X\mathbf z_e + H_Z\mathbf x_e)\bmod2$.
+
+```{python}
+def measure_pauli_circuit(g, psi):
+    """Вспомогательный кубит |0>, H, controlled-g, H, измерение: вероятности исходов 0 и 1."""
+    n = len(g)
+    CG = np.kron(np.diag([1, 0]), np.eye(2 ** n)) + np.kron(np.diag([0, 1]), pauli(g))
+    Hn = np.kron(H, np.eye(2 ** n))
+    out = (Hn @ CG @ Hn @ np.kron([1, 0], psi)).reshape(2, -1)
+    return np.sum(np.abs(out[0]) ** 2), np.sum(np.abs(out[1]) ** 2)
+
+code_vec = np.linalg.eigh(FIVE.projector())[1][:, -1]       # некоторое кодовое состояние [[5,1,3]]
+print("генераторы:", FIVE.gens)
+for e in ("IIYII", "XIIII", "IIIIZ"):
+    p1 = [measure_pauli_circuit(g, pauli(e) @ code_vec)[1] for g in FIVE.gens]
+    syn_c = tuple(int(round(v)) for v in p1)
+    assert np.allclose(p1, syn_c) and syn_c == FIVE.syndrome(e)
+    print(f"ошибка {e}: P(исход 1) = {', '.join(f'{v:.3f}' for v in p1)} -> синдром {syn_c} = симплектические произведения")
+```
+
 
 ### 2.2. Декодирование
 
@@ -110,13 +340,27 @@ $$
 $$
 P(\bar L\mid s)\propto\sum_{g\in\mathcal S}P\bigl(E_s\bar Lg\bigr) , \tag{2.1}
 $$
-где $E_s$ — любая ошибка с синдромом $s$. Самая вероятная **отдельная** ошибка может лежать в менее вероятном классе. Для рассмотренных малых кодов этого не происходит: при деполяризующем шуме таблица минимального веса и ML по классам дают одинаковую $p_L$ (разница $<10^{-12}$ при $p\le0{,}25$; раздел 2 `примеры.py`):
+где $E_s$ — любая ошибка с синдромом $s$. Самая вероятная **отдельная** ошибка может лежать в менее вероятном классе. Для рассмотренных малых кодов этого не происходит: при деполяризующем шуме таблица минимального веса и ML по классам дают одинаковую $p_L$ (разница $<10^{-12}$ при $p\le0{,}25$; проверка — в ячейке после таблицы):
 
 | $p$ | Шор | Стин | [[5,1,3]] |
 |---:|---:|---:|---:|
 | 0,01 | 0,001263 | 0,001578 | 0,000978 |
 | 0,05 | 0,028071 | 0,034361 | 0,022332 |
 | 0,10 | 0,096755 | 0,115422 | 0,079508 |
+
+```{python}
+print(f"строк в таблице синдромов: Стин — {2 ** STEANE.r}, Шор — {2 ** SHOR.r}, [[5,1,3]] — {2 ** FIVE.r}")
+print("код                p      таблица     ML по классам")
+for code in (SHOR, STEANE, FIVE):
+    for p in (0.01, 0.05, 0.1):
+        pt, pm = code.pL_decoders(p)
+        assert abs(pt - pm) < 1e-12
+        print(f"{code.name:15s}  {p:4.2f}   {pt:.6f}    {pm:.6f}")
+diff = max(abs(np.subtract(*code.pL_decoders(p))) for code in (SHOR, STEANE, FIVE) for p in (0.15, 0.2, 0.25))
+assert diff < 1e-12
+print(f"при p = 0,15; 0,2; 0,25 наибольшая разница таблица − ML: {diff:.1e}")
+```
+
 
 У больших вырожденных кодов разница существенна: для поверхностного кода (II.7) ML-декодер соответствует порогу модели случайных связей, а паросочетание — приближение к нему.
 
@@ -132,7 +376,29 @@ $$
 $$
 H = \begin{pmatrix}0&0&0&1&1&1&1\\0&1&1&0&0&1&1\\1&0&1&0&1&0&1\end{pmatrix} . \tag{3.1}
 $$
-Синдром одиночной ошибки на позиции $j$ — двоичная запись $j$: декодирование тривиально. Дуальный код $[7,3,4]$ (симплекс-код) состоит из 8 слов весов 0 и 4 и содержится в коде Хэмминга (раздел 3 `примеры.py`).
+Синдром одиночной ошибки на позиции $j$ — двоичная запись $j$: декодирование тривиально. Дуальный код $[7,3,4]$ (симплекс-код) состоит из 8 слов весов 0 и 4 и содержится в коде Хэмминга. Проверим:
+
+```{python}
+Hm = np.array([[int(b) for b in h] for h in hamming])                       # (3.1)
+words = np.array(list(itertools.product((0, 1), repeat=7)))
+C1 = words[np.all(words @ Hm.T % 2 == 0, axis=1)]                           # код Хэмминга = ker H
+C2 = np.unique(words[:8, 4:] @ Hm % 2, axis=0)                              # C1^⊥: все комбинации строк H
+assert len(C1) == 16 and min(c.sum() for c in C1 if c.any()) == 3
+assert len(C2) == 8 and set(C2.sum(1).tolist()) == {0, 4}
+assert all((c == C1).all(1).any() for c in C2)                              # C1^⊥ ⊂ C1
+assert all(int("".join(map(str, Hm[:, j])), 2) == j + 1 for j in range(7))  # столбец j — двоичная запись j
+print(f"код Хэмминга: {len(C1)} слов, d = 3; симплекс-код: {len(C2)} слов весов "
+      f"{sorted(set(C2.sum(1).tolist()))}, все лежат в коде Хэмминга")
+
+def hamming_correct(v):
+    """Декодирование кода Хэмминга по строкам v: синдром — номер позиции ошибки."""
+    pos = (v @ Hm.T % 2) @ np.array([4, 2, 1])
+    out = v.copy()
+    rows = np.where(pos > 0)[0]
+    out[rows, pos[rows] - 1] ^= 1
+    return out
+```
+
 
 ### 3.2. Конструкция Калдербанка–Шора–Стина
 
@@ -162,16 +428,106 @@ $$
 $$
 $\lvert0_L\rangle$ — 8 слов весов 0 и 4, $\lvert1_L\rangle$ — 8 слов весов 3 и 7. Логические операторы $\bar X = X^{\otimes7}$, $\bar Z = Z^{\otimes7}$; представители минимального веса 3 — $X$ на носителях семи слов веса 3 кода Хэмминга (например, $X_3X_5X_6$).
 
-**Синдромы.** $Z$-проверки дают двоичную запись позиции $X$-ошибки, $X$-проверки — позиции $Z$-ошибки, $Y$ даёт обе. 22 паули веса $\le1$ дают 22 различных синдрома из 64. В модели code capacity логическую ошибку дают 147 из 189 паули веса 2 — все, кроме 42 пар $X_aZ_b$ ($a\ne b$), которые независимое декодирование исправляет. Отсюда $p_L\approx\frac{147}9p^2 = 16{,}3\,p^2$, псевдопорог $0{,}0811$ — хуже, чем у [[5,1,3]] (0,138) и кода Шора (0,105): на 7 кубитах больше мест для двух ошибок. Независимое декодирование $X$- и $Z$-частей кодом Хэмминга даёт в точности те же отказы, что и общая таблица (раздел 3 `примеры.py`; ЛР13, задание 4).
+```{python}
+assert np.all(Hm @ Hm.T % 2 == 0)                          # (3.3): H_X H_Z^T = 0, т. е. C1^⊥ ⊂ C1
+
+def css_state(shift):
+    """(3.2): равная суперпозиция слов класса shift + C2."""
+    v = np.zeros(128, dtype=complex)
+    for c in C2:
+        v[int("".join(map(str, (c + shift) % 2)), 2)] += 1
+    return v / np.linalg.norm(v)
+
+st0, st1 = css_state(np.zeros(7, int)), css_state(np.ones(7, int))      # (3.5)
+V7 = np.stack([st0, st1], axis=1)
+assert np.allclose(STEANE.projector() @ V7, V7)                         # оба слова в коде
+assert np.allclose(pauli("XXXXXXX") @ st0, st1)
+assert np.allclose(pauli("ZZZZZZZ") @ st0, st0) and np.allclose(pauli("ZZZZZZZ") @ st1, -st1)
+for name, v in (("|0_L>", st0), ("|1_L>", st1)):
+    sup = np.nonzero(np.abs(v) > 1e-12)[0]
+    print(f"{name}: {len(sup)} слов, веса {sorted({bin(i).count('1') for i in sup})}")
+x, z, w, syn, cls = STEANE.enumerate()
+minXL = [s for s in (to_str(x[i], z[i]) for i in np.where((syn == 0) & (w == 3))[0]) if set(s) <= {"I", "X"}]
+assert len(minXL) == 7 and not any(STEANE.in_stabilizer(s) for s in minXL)
+print("логические X веса 3:", ", ".join(minXL))
+```
+
+
+**Синдромы.** $Z$-проверки дают двоичную запись позиции $X$-ошибки, $X$-проверки — позиции $Z$-ошибки, $Y$ даёт обе. 22 паули веса $\le1$ дают 22 различных синдрома из 64. В модели code capacity логическую ошибку дают 147 из 189 паули веса 2 — все, кроме 42 пар $X_aZ_b$ ($a\ne b$), которые независимое декодирование исправляет. Отсюда $p_L\approx\frac{147}9p^2 = 16{,}3\,p^2$, псевдопорог $0{,}0811$ — хуже, чем у [[5,1,3]] (0,138) и кода Шора (0,105): на 7 кубитах больше мест для двух ошибок. Независимое декодирование $X$- и $Z$-частей кодом Хэмминга даёт столько же отказов каждого веса, что и общая таблица, и ту же $p_L$ (сами ошибки, которые исправляются, при равных по весу исправлениях могут быть другими; ЛР13, задание 4; проверка ниже).
+
+```{python}
+n_distinct = len({STEANE.syndrome(s) for s in singles7})
+nf7, tot7, fail7 = STEANE.fail_counts()
+assert n_distinct == 22 and nf7[1] == 0 and nf7[2] == 147
+print(f"22 паули веса <= 1 дают {n_distinct} различных синдромов из {2 ** STEANE.r}")
+print(f"таблица: N_fail по весам 0..7 = {nf7.tolist()} из {tot7.tolist()}")
+PTH = {c.name: brentq(lambda p: c.pL_decoders(p)[0] - p, 1e-3, 0.3) for c in (STEANE, SHOR, FIVE)}
+print(f"A = 147/9 = {nf7[2] / 9:.2f}; псевдопороги: " + ", ".join(f"{k} {v:.4f}" for k, v in PTH.items()))
+# независимое декодирование X- и Z-частей кодом Хэмминга: остаток в C1, логическая ошибка — нечётный вес
+rx, rz = hamming_correct(x), hamming_correct(z)
+fail_css = (rx.sum(1) % 2 == 1) | (rz.sum(1) % 2 == 1)
+nf_css = np.array([np.sum(fail_css & (w == k)) for k in range(8)])
+ok2 = [to_str(x[i], z[i]) for i in np.where((w == 2) & ~fail_css)[0]]   # исправимые ошибки веса 2
+assert np.array_equal(nf_css, nf7)
+assert len(ok2) == 42 and all(sorted(set(s) - {"I"}) == ["X", "Z"] for s in ok2)
+print(f"CSS-декодирование: N_fail = {nf_css.tolist()} — как у таблицы; исправимые ошибки веса 2 — "
+      f"{len(ok2)} пары X_a Z_b (a ≠ b), например {ok2[0]}")
+print(f"сами множества отказов различаются у {np.sum(fail_css != fail7)} паули (разный выбор среди равных по весу исправлений)")
+```
+
 
 ### 3.4. Трансверсальные гейты
 
 Логический гейт **трансверсален**, если реализуется гейтами, каждый из которых действует не более чем на один кубит каждого блока кода (например, $U^{\otimes n}$ или CNOT между $j$-ми кубитами двух блоков). Трансверсальный гейт не размножает ошибку внутри блока: одна ошибка до гейта остаётся одной ошибкой после — это простейший способ отказоустойчивой логики (II.8).
 
-Для кода Стина (раздел 3 `примеры.py`):
+Для кода Стина (проверка — в ячейке ниже):
 - $H^{\otimes7} = \bar H$: $H$ меняет местами $X$- и $Z$-генераторы (3.4), которые одинаковы по носителям, и $\bar X\leftrightarrow\bar Z$;
 - $S^{\otimes7} = \bar S^\dagger$: на слове веса $w$ получается фаза $i^w$; веса 0 и 4 в $\lvert0_L\rangle$ дают 1, веса 3 и 7 в $\lvert1_L\rangle$ — $i^3 = i^7 = -i$. Поэтому $(S^\dagger)^{\otimes7} = \bar S$;
 - **CNOT$^{\otimes7}$** между двумя блоками $=\overline{\mathrm{CNOT}}$ (так для любого CSS-кода: $\lvert\mathbf x + C_2\rangle\lvert\mathbf x' + C_2\rangle\mapsto\lvert\mathbf x + C_2\rangle\lvert\mathbf x\oplus\mathbf x' + C_2\rangle$; проверено на 14 кубитах).
+
+```{python}
+def logical_action(U):
+    """V^† U V на коде; если U сохраняет код, это унитарная матрица 2 x 2."""
+    M = dag(V7) @ U @ V7
+    assert np.allclose(M @ dag(M), np.eye(2), atol=1e-10), "не сохраняет кодовое пространство"
+    return M
+
+def cfmt(v):
+    v = complex(np.round(v, 3)) + 0
+    if abs(v.imag) < 1e-9:
+        return f"{v.real + 0:g}"
+    if abs(v.real) < 1e-9:
+        return f"{v.imag:g}i".replace("1i", "i")
+    return f"{v.real:g}{v.imag:+g}i"
+
+def eq_phase(A, B):
+    k = np.argmax(np.abs(B))
+    ph = A.flat[k] / B.flat[k]
+    return np.isclose(abs(ph), 1) and np.allclose(A, ph * B)
+
+for name, U1, target, tname in (("H", H, H, "H_L"), ("S", S, dag(S), "S_L^†"), ("(S^†)", dag(S), S, "S_L"),
+                                ("X", X, X, "X_L"), ("Z", Z, Z, "Z_L")):
+    M = logical_action(kron(*[U1] * 7))
+    assert eq_phase(M, target)
+    print(f"{name}^⊗7 = {tname};  V^† U V = [[{cfmt(M[0, 0])}, {cfmt(M[0, 1])}], [{cfmt(M[1, 0])}, {cfmt(M[1, 1])}]]")
+
+# трансверсальный CNOT между двумя блоками (14 кубитов) как перестановка базисных векторов
+idx = np.arange(2 ** 14)
+a_bits, b_bits = idx >> 7, idx & 127
+perm = (a_bits << 7) | (b_bits ^ a_bits)
+for a in (0, 1):
+    for b in (0, 1):
+        out = np.zeros(2 ** 14, dtype=complex)
+        out[perm] = np.kron((st0, st1)[a], (st0, st1)[b])
+        assert np.allclose(out, np.kron((st0, st1)[a], (st0, st1)[a ^ b]))
+print("CNOT^⊗7 между блоками: |a_L>|b_L> -> |a_L>|a⊕b_L> для всех a, b")
+
+T = np.diag([1, np.exp(1j * np.pi / 4)])
+Mt = dag(V7) @ kron(*[T] * 7) @ V7
+leak = 1 - np.linalg.norm(Mt @ np.array([1, 1]) / np.sqrt(2)) ** 2
+print(f"T^⊗7: из (|0_L> + |1_L>)/√2 выходит из кода доля {leak:.4f}")
+```
+
 
 $H$, $S$, CNOT порождают группу Клиффорда (I.9, §2): **в коде Стина трансверсальна вся группа Клиффорда**. Но не $T$: $T^{\otimes7}$ даже не сохраняет кодовое пространство — из $(\lvert0_L\rangle + \lvert1_L\rangle)/\sqrt2$ выходит доля $0{,}4375$. Это не случайность: по теореме Истина–Книлла никакой код, обнаруживающий ошибки, не имеет универсального трансверсального набора (II.8). Универсальность восстанавливают магические состояния (I.9, §5; II.8).
 
@@ -195,13 +551,44 @@ $$
 $$
 \frac kn\ge1 - 2h\Bigl(\frac{2t}n\Bigr) . \tag{4.3}
 $$
-Значит, **хорошие квантовые коды существуют**: скорость $k/n$ и относительная дистанция $d/n$ одновременно отделены от нуля. Сравнение (раздел 4 `примеры.py`; $\delta = d/n\approx2t/n$):
+Значит, **хорошие квантовые коды существуют**: скорость $k/n$ и относительная дистанция $d/n$ одновременно отделены от нуля. Сравнение ($\delta = d/n\approx2t/n$; ячейка и рисунок после таблицы):
 
 | $\delta$ | Синглтон $1-2\delta$ | Хэмминг | ГВ (4.2) | CSS-ГВ (4.3) |
 |---:|---:|---:|---:|---:|
 | 0,02 | 0,960 | 0,903 | 0,827 | 0,717 |
 | 0,05 | 0,900 | 0,792 | 0,634 | 0,427 |
 | 0,10 | 0,800 | 0,634 | 0,373 | 0,062 |
+
+```{python}
+#| fig-cap: "Границы скорости $k/n$ квантовых кодов: верхние (Синглтон, Хэмминг) и нижние — существование кодов (ГВ, CSS-ГВ); $\\delta = d/n$"
+def h2(t):
+    return 0.0 if t <= 0 or t >= 1 else -t * log2(t) - (1 - t) * log2(1 - t)
+
+for name, n, k, d in (("[[4,2,2]]", 4, 2, 2), ("[[5,1,3]]", 5, 1, 3), ("[[7,1,3]]", 7, 1, 3), ("[[9,1,3]]", 9, 1, 3)):
+    assert n - k >= 2 * (d - 1)
+    print(f"{name}: n − k = {n - k}, 2(d − 1) = {2 * (d - 1)} — {'равенство' if n - k == 2 * (d - 1) else 'выполнена'}")
+
+RATE = {"Синглтон": lambda dl: 1 - 2 * dl,
+        "Хэмминг": lambda dl: 1 - dl / 2 * log2(3) - h2(dl / 2),
+        "ГВ (4.2)": lambda dl: 1 - dl * log2(3) - h2(dl),
+        "CSS-ГВ (4.3)": lambda dl: 1 - 2 * h2(dl)}
+print("\n delta  " + "  ".join(f"{k:>12s}" for k in RATE))
+for dl in (0.02, 0.05, 0.10):
+    print(f"  {dl:4.2f}  " + "  ".join(f"{f(dl):12.3f}" for f in RATE.values()))
+z_gv = brentq(RATE["ГВ (4.2)"], 1e-6, 0.3)
+z_css = brentq(RATE["CSS-ГВ (4.3)"], 1e-6, 0.3)
+print(f"положительная скорость: (4.2) при delta < {z_gv:.4f}, (4.3) при delta < {z_css:.4f}")
+
+dls = np.linspace(0, 0.5, 501)
+fig, ax = plt.subplots(figsize=(6.4, 3.8))
+for (name, f), ls in zip(RATE.items(), ("-", "-", "--", "--")):
+    ax.plot(dls, [max(f(d), 0) for d in dls], ls, label=name)
+ax.set_xlim(0, 0.5); ax.set_ylim(0, 1.02)
+ax.set_xlabel("относительная дистанция $\\delta = d/n$"); ax.set_ylabel("скорость $k/n$")
+ax.legend()
+plt.show()
+```
+
 
 (4.2) даёт положительную скорость при $\delta<0{,}1893$, (4.3) — при $\delta<0{,}1100$. Между нижними (существование) и верхними (невозможность) границами остаётся зазор, как и в классической теории. Отдельный вопрос — хорошие коды с **проверками малого веса** (qLDPC), которые можно измерять локальными схемами; их существование доказано лишь недавно (Пантелеев, Калачёв, 2022), и они активно изучаются как альтернатива поверхностному коду.
 
@@ -216,15 +603,85 @@ $$
 - Стабилизаторы — 4 оператора веса 6: $X$ на двух соседних строках и $Z$ на двух соседних столбцах. Калибровочных кубитов $(12 - 4)/2 = 4$, $k = 9 - 4 - 4 = 1$.
 - Логические операторы: $\bar X$ — $X$ на строке, $\bar Z$ — $Z$ на столбце; вес 3.
 
-Главное преимущество: стабилизатор $X$-типа — произведение трёх вертикальных пар $XX$, поэтому его значение получается как **чётность исходов трёх измерений веса 2** (раздел 5 `примеры.py`). Операторы веса 2 измеряются короткими схемами, в которых ошибки распространяются слабее. Код Шора — это код Бэкона–Шора, в котором калибровочные операторы $ZZ$ добавлены к стабилизатору (состояние калибровочных кубитов зафиксировано); блоки кода Шора — строки решётки, а логические операторы там названы наоборот ($\bar Z = X_1X_2X_3$). У семейства кодов Бэкона–Шора на решётках $L\times L$ при независимом шуме нет порога: стабилизаторы растут вместе с $L$, и при больших $L$ ошибка снова растёт. Поэтому используют коды умеренного размера (обзорно).
+Главное преимущество: стабилизатор $X$-типа — произведение трёх вертикальных пар $XX$, поэтому его значение получается как **чётность исходов трёх измерений веса 2** (проверка — в ячейке в конце раздела). Операторы веса 2 измеряются короткими схемами, в которых ошибки распространяются слабее. Код Шора — это код Бэкона–Шора, в котором калибровочные операторы $ZZ$ добавлены к стабилизатору (состояние калибровочных кубитов зафиксировано); блоки кода Шора — строки решётки, а логические операторы там названы наоборот ($\bar Z = X_1X_2X_3$). У семейства кодов Бэкона–Шора на решётках $L\times L$ при независимом шуме нет порога: стабилизаторы растут вместе с $L$, и при больших $L$ ошибка снова растёт. Поэтому используют коды умеренного размера (обзорно).
+
+```{python}
+def q(r, c):                    # кубит в узле (строка r, столбец c)
+    return 3 * r + c
+
+def pstr(ops):
+    s = ["I"] * 9
+    for qq, P in ops:
+        s[qq] = P
+    return "".join(s)
+
+gauge = [pstr([(q(r, c), "X"), (q(r + 1, c), "X")]) for r in range(2) for c in range(3)] + \
+        [pstr([(q(r, c), "Z"), (q(r, c + 1), "Z")]) for r in range(3) for c in range(2)]
+Gm = np.array([np.concatenate(sym(g)) for g in gauge])
+rank_G = gf2_rank(Gm)
+stabs_bs = [pstr([(q(r, c), "X") for c in range(3)] + [(q(r + 1, c), "X") for c in range(3)]) for r in range(2)] + \
+           [pstr([(q(r, c), "Z") for r in range(3)] + [(q(r, c + 1), "Z") for r in range(3)]) for c in range(2)]
+for s_ in stabs_bs:             # центр: коммутируют со всей калибровочной группой и лежат в ней
+    assert all(sym_inner(*sym(s_), *sym(g)) == 0 for g in gauge)
+    assert gf2_rank(np.vstack([Gm, np.concatenate(sym(s_))])) == rank_G
+XL_bs, ZL_bs = pstr([(q(0, c), "X") for c in range(3)]), pstr([(q(r, 0), "Z") for r in range(3)])
+assert all(sym_inner(*sym(L), *sym(g)) == 0 for L in (XL_bs, ZL_bs) for g in gauge)
+assert sym_inner(*sym(XL_bs), *sym(ZL_bs)) == 1
+n_s = gf2_rank(np.array([np.concatenate(sym(s_)) for s_ in stabs_bs]))
+n_g = (rank_G - n_s) // 2
+assert (rank_G, n_s, n_g, 9 - n_s - n_g) == (12, 4, 4, 1)
+print(f"ранг калибровочной группы {rank_G}, стабилизаторов {n_s}, калибровочных кубитов {n_g}, k = {9 - n_s - n_g}")
+print("стабилизаторы:", ", ".join(stabs_bs))
+print(f"X_L = {XL_bs}, Z_L = {ZL_bs}")
+# X-стабилизатор строк 1–2 — произведение трёх вертикальных пар XX
+assert np.array_equal(sum(np.concatenate(sym(g)) for g in gauge[:3]) % 2, np.concatenate(sym(stabs_bs[0])))
+# на кодовом состоянии с зафиксированной калибровкой (код Шора) отдельные пары XX случайны, их произведение = +1
+psi = np.linalg.eigh(SHOR.projector())[1][:, -1]
+ev = [np.vdot(psi, pauli(g) @ psi).real for g in gauge[:3]]
+ev6 = np.vdot(psi, pauli(stabs_bs[0]) @ psi).real
+assert np.allclose(ev, 0) and np.isclose(ev6, 1)
+print(f"<XX> трёх вертикальных пар на состоянии кода Шора: {np.round(ev, 12).tolist()}; <их произведение> = {ev6:.3f}")
+```
+
 
 ---
 
 ## 6. Схемный шум: почему важна схема синдрома
 
-До сих пор измерение синдрома было идеальным (модель code capacity). Посмотрим, что делает шум самой схемы (ЛР13, задание 5). Извлечём синдром кода Стина простейшим способом: **по одному вспомогательному кубиту на генератор**, 4 CNOT на генератор, всего 24 CNOT. Шум — двухкубитная деполяризация с вероятностью $p$ (15 паули по $p/15$) после каждого CNOT. Чтобы отделить распространение ошибок от ошибок самого синдрома, после зашумлённого раунда проведём идеальный и будем декодировать по нему. Раздел 6 `примеры.py`: распространение паули-ошибок через CNOT ($X$ с управляющего на целевой, $Z$ с целевого на управляющий; I.9, (2.3)).
+До сих пор измерение синдрома было идеальным (модель code capacity). Посмотрим, что делает шум самой схемы (ЛР13, задание 5). Извлечём синдром кода Стина простейшим способом: **по одному вспомогательному кубиту на генератор**, 4 CNOT на генератор, всего 24 CNOT. Шум — двухкубитная деполяризация с вероятностью $p$ (15 паули по $p/15$) после каждого CNOT. Чтобы отделить распространение ошибок от ошибок самого синдрома, после зашумлённого раунда проведём идеальный и будем декодировать по нему. В ячейках ниже паули-ошибки распространяются через CNOT по правилам I.9, (2.3): $X$ — с управляющего кубита на целевой, $Z$ — с целевого на управляющий.
 
 **Крючковая ошибка.** Пусть при измерении $X_4X_5X_6X_7$ на вспомогательном кубите после двух CNOT возникла $X$. Следующие два CNOT (управление — вспомогательный кубит) копируют её на кубиты 6 и 7: на данных возникает $X_6X_7$ — ошибка **веса 2** от **одного** отказа. Для кода с $d = 3$ это логическая ошибка: синдром $X_6X_7$ совпадает с синдромом $X_1$ (сумма столбцов 6 и 7 матрицы Хэмминга — столбец 1), декодер применяет $X_1$, и остаётся $X_1X_6X_7$ — логический оператор веса 3.
+
+```{python}
+# кубиты 0..6 — данные, 7..9 — вспомогательные X-проверок, 10..12 — Z-проверок
+supports = [[j for j in range(7) if h[j] == "1"] for h in hamming]
+circuit = [(7 + i, j) for i, sup in enumerate(supports) for j in sup] + \
+          [(j, 10 + i) for i, sup in enumerate(supports) for j in sup]     # CNOT (управляющий, целевой)
+NQ = 13
+
+def propagate(xf, zf, start):
+    """Паули-рамка (массивы shots x NQ) через CNOT circuit[start:]."""
+    for c, t in circuit[start:]:
+        xf[:, t] ^= xf[:, c]
+        zf[:, c] ^= zf[:, t]
+    return xf, zf
+
+def data_fail(xf, zf):
+    """После идеального раунда: исправление кодом Хэмминга; отказ, если остаток нечётного веса."""
+    rx, rz = hamming_correct(xf[:, :7].astype(int)), hamming_correct(zf[:, :7].astype(int))
+    return (rx.sum(1) % 2 == 1) | (rz.sum(1) % 2 == 1)
+
+xf, zf = np.zeros((1, NQ), bool), np.zeros((1, NQ), bool)
+xf[0, 7] = True                       # X на вспомогательном кубите X4X5X6X7 после двух CNOT
+propagate(xf, zf, 2)
+hook_err = to_str(xf[0, :7].astype(int), zf[0, :7].astype(int))
+syn_hook = tuple(int(v) for v in Hm @ xf[0, :7].astype(int) % 2)
+residual = hamming_correct(xf[:, :7].astype(int))[0]
+assert weight(hook_err) == 2 and syn_hook == (0, 0, 1) and data_fail(xf, zf)[0]
+print(f"{len(circuit)} CNOT; X на вспомогательном кубите после 2-го CNOT -> ошибка данных {hook_err}")
+print(f"синдром {syn_hook} = столбец 1 -> исправление X1 -> остаток {to_str(residual, np.zeros(7))} (логический X веса 3)")
+```
+
 
 Перебор всех одиночных отказов (24 места × 15 паули) даёт **48** отказов, ведущих к логической ошибке; все они — ошибки на данных веса $\ge2$, возникшие из-за распространения через вспомогательный кубит. Значит, $p_L = A_1p + O(p^2)$ с $A_1 = 48/15 = 3{,}2$ — **первый порядок** по $p$, хотя код исправляет любую одну ошибку. Монте-Карло ($4\cdot10^5$ испытаний):
 
@@ -233,6 +690,62 @@ $$
 | $10^{-3}$ | $3{,}32\cdot10^{-3}$ | $3{,}20\cdot10^{-3}$ | 3,32 |
 | $3\cdot10^{-3}$ | $1{,}05\cdot10^{-2}$ | $9{,}60\cdot10^{-3}$ | 3,50 |
 | $10^{-2}$ | $3{,}78\cdot10^{-2}$ | $3{,}20\cdot10^{-2}$ | 3,78 |
+
+```{python}
+#| fig-cap: "Код Стина с наивной схемой синдрома (один вспомогательный кубит на генератор): $p_L$ растёт линейно по $p$ и превышает $p$ — кодирование хуже, чем его отсутствие"
+PAULI2 = [(a, b) for a in range(4) for b in range(4) if (a, b) != (0, 0)]   # 0=I, 1=X, 2=Y, 3=Z
+
+def bits(pc):
+    return pc in (1, 2), pc in (2, 3)
+
+fails1 = hook = 0                     # точный первый порядок: все одиночные отказы
+for loc, (c, t) in enumerate(circuit):
+    for a, b in PAULI2:
+        xf, zf = np.zeros((1, NQ), bool), np.zeros((1, NQ), bool)
+        (xf[0, c], zf[0, c]), (xf[0, t], zf[0, t]) = bits(a), bits(b)
+        propagate(xf, zf, loc + 1)
+        if data_fail(xf, zf)[0]:
+            fails1 += 1
+            hook += (xf[0, :7] | zf[0, :7]).sum() >= 2
+A1 = fails1 / 15
+assert fails1 == 48 and hook == fails1
+print(f"одиночных отказов, ведущих к логической ошибке: {fails1} из {15 * len(circuit)}, "
+      f"у всех вес ошибки данных >= 2; A1 = {fails1}/15 = {A1:.2f}")
+
+PA, PB = np.array(PAULI2).T
+def monte_carlo(p, shots):
+    xf, zf = np.zeros((shots, NQ), bool), np.zeros((shots, NQ), bool)
+    for c, t in circuit:
+        hit = rng.random(shots) < p
+        kind = rng.integers(15, size=shots)
+        pa, pb = PA[kind], PB[kind]
+        xf[:, c] ^= hit & ((pa == 1) | (pa == 2)); zf[:, c] ^= hit & ((pa == 2) | (pa == 3))
+        xf[:, t] ^= hit & ((pb == 1) | (pb == 2)); zf[:, t] ^= hit & ((pb == 2) | (pb == 3))
+        xf[:, t] ^= xf[:, c]
+        zf[:, c] ^= zf[:, t]
+    return data_fail(xf, zf).mean()
+
+print("    p       p_L (4·10^5)   A1·p        p_L/p")
+MC = {}
+for p in (1e-3, 3e-3, 1e-2):
+    MC[p] = monte_carlo(p, 400_000)
+    print(f"  {p:.0e}    {MC[p]:.3e}      {A1 * p:.3e}   {MC[p] / p:.2f}")
+slope = np.polyfit(np.log(list(MC)), np.log(list(MC.values())), 1)[0]
+assert 0.85 < slope < 1.15 and abs(MC[1e-3] / (A1 * 1e-3) - 1) < 0.1
+print(f"наклон log p_L от log p: {slope:.2f}")
+
+ps = np.array(list(MC))
+fig, ax = plt.subplots(figsize=(6.0, 3.8))
+pp = np.logspace(-3.2, -1.8, 50)
+ax.loglog(pp, pp, "k:", label="$p_L = p$ (без кода)")
+ax.loglog(pp, A1 * pp, "--", label="$A_1 p$, $A_1 = " + f"{A1:.1f}".replace(".", "{,}") + "$")
+ax.errorbar(ps, [MC[p] for p in ps], yerr=[np.sqrt(MC[p] * (1 - MC[p]) / 400_000) for p in ps],
+            fmt="o", label="Монте-Карло, $4\\cdot10^5$ испытаний")
+ax.set_xlabel("вероятность отказа CNOT $p$"); ax.set_ylabel("логическая ошибка $p_L$")
+ax.legend()
+plt.show()
+```
+
 
 Наклон $\log p_L$ от $\log p$ равен $1{,}06$, и $p_L>p$ во всём диапазоне: такое кодирование **хуже, чем отсутствие кода**. Схема извлечения синдрома должна быть **отказоустойчивой**: одиночный отказ не должен приводить к неисправимой ошибке данных. Способы — извлечение по Шору (кошачьи состояния), по Стину (закодированные вспомогательные блоки), по Книллу (телепортация) и **флаговые кубиты**, сигнализирующие о крючке; с ними наклон становится равным 2 (II.8; ЛР13, задание 5б). Кроме того, сам синдром может быть ошибочным, поэтому его измеряют многократно (II.7).
 
@@ -281,7 +794,20 @@ $$
 11. (••) Для кода Бэкона–Шора проверьте, что стабилизаторы коммутируют со всей калибровочной группой, найдите число калибровочных кубитов и $k$. Почему для синдрома достаточно измерять операторы веса 2?
 12. (••) Код Стина в модели code capacity: найдите $N_{\text{fail}}(2)$ (какие ошибки веса 2 исправляются?), коэффициент $A$ в $p_L\approx Ap^2$ и сравните псевдопорог с [[5,1,3]] и кодом Шора.
 
-### Ответы и указания
+Численная проверка ответов к задачам 3, 5, 7, 8, 10, 12 (задачи 1, 9, 11 — в ячейках выше):
+
+```{python}
+print(f"3: [[4,2,2]]: k = {C422.k}, d = {DIST['[[4,2,2]]']}; синдромы однокубитных ошибок {sorted(syn422)}")
+print(f"5: веса слов |1_L> — {sorted({bin(i).count('1') for i in np.nonzero(np.abs(st1) > 1e-12)[0]})}; S^⊗7 = S_L^†")
+print("7: n − k против 2(d − 1): [[4,2,2]] 2 = 2, [[5,1,3]] 4 = 4, [[7,1,3]] 6 > 4, [[9,1,3]] 8 > 4")
+print(f"8: 1 − 2h(0,02) = {1 - 2 * h2(0.02):.3f}; 1 − 2h(0,1) = {1 - 2 * h2(0.1):.3f}")
+print(f"10: Шор, p = 0,1: таблица {SHOR.pL_decoders(0.1)[0]:.6f}, ML по классам {SHOR.pL_decoders(0.1)[1]:.6f}")
+print(f"12: N_fail(2) = {nf7[2]} = 189 − 42, A = {nf7[2] / 9:.1f}; псевдопороги: " +
+      ", ".join(f"{k} {v:.4f}" for k, v in PTH.items()))
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** (3.4); $\bar X = X^{\otimes7}$, $\bar Z = Z^{\otimes7}$. Носители любых двух строк $H$ пересекаются по 2 позициям (чётно), $X^{\otimes7}$ и $Z^{\otimes7}$ пересекаются по 7.
 - **2.** Для паули $E$ и $g$: $EgE^\dagger = \pm g$. Если $E$ нормализует $\mathcal S$ и $EgE^\dagger = -g$, то $-g\in\mathcal S$ и $-I = (-g)g\in\mathcal S$ — противоречие. Число — $2^{2n-r} = 2^{n+k}$ (для кода Стина 256).
 - **3.** $k = 2$; логические — §1.4; $d = 2$ ($XXII$). Однокубитные ошибки дают синдромы $(0,1)$ ($X$-тип: антикоммутирует с $ZZZZ$), $(1,0)$ ($Z$-тип), $(1,1)$ ($Y$) — по 4 ошибки на синдром; синдром не указывает кубит.
@@ -292,14 +818,15 @@ $$
 - **8.** $1 - 2h(0{,}02) = 0{,}717$; $1 - 2h(0{,}1) = 0{,}062$.
 - **9.** $X_6X_7$; её синдром — сумма столбцов 6 и 7 матрицы (3.1), т. е. $(0,0,1)$ = столбец 1; исправление $X_1$ даёт $X_1X_6X_7$ — слово веса 3 кода Хэмминга, не принадлежащее $C_1^\perp$: логический $\bar X$.
 - **10.** $P(\bar L\mid s) = \sum_{g\in\mathcal S}P(E_s\bar Lg)/P(s)$. Пример: класс с одной ошибкой веса $w$ и класс с многими ошибками веса $w+1$ (при не слишком малом $p$ второй вероятнее). Для кода Шора при деполяризующем шуме оба декодера дают $p_L = 0{,}096755$.
-- **11.** Раздел 5 `примеры.py`: ранг калибровочной группы 12, $s = 4$, $g = 4$, $k = 1$. Стабилизатор $X$ на строках 1–2 — произведение трёх вертикальных пар $XX$. Каждая пара антикоммутирует с некоторыми горизонтальными $ZZ$, поэтому исходы отдельных пар случайны; но их произведение коммутирует со всей калибровочной группой и на кодовом состоянии (без ошибок) равно $+1$ детерминированно.
-- **12.** Исправляются только 42 пары $X_aZ_b$, $a\ne b$; $N_{\text{fail}}(2) = 189 - 42 = 147$, $A = 16{,}3$; псевдопорог $0{,}0811$ (Шор $0{,}1049$, [[5,1,3]] $0{,}1376$).
+- **11.** Ячейка в конце §5: ранг калибровочной группы 12, $s = 4$, $g = 4$, $k = 1$. Стабилизатор $X$ на строках 1–2 — произведение трёх вертикальных пар $XX$. Каждая пара антикоммутирует с некоторыми горизонтальными $ZZ$, поэтому исходы отдельных пар случайны; но их произведение коммутирует со всей калибровочной группой и на кодовом состоянии (без ошибок) равно $+1$ детерминированно.
+- **12.** При независимом декодировании исправляются только 42 пары $X_aZ_b$, $a\ne b$; $N_{\text{fail}}(2) = 189 - 42 = 147$, $A = 16{,}3$; псевдопорог $0{,}0811$ (Шор $0{,}1049$, [[5,1,3]] $0{,}1376$).
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 4 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, все числа совпадают с `примеры.py`. Полный файл `примеры.py` (около 4 с) проверяет:
 1. параметры и дистанции (перебором) кодов [[4,2,2]], [[5,1,3]], Стина, Шора; размер нормализатора и число классов; логические операторы веса 3 кода Стина; теорему 1.2 для всех пар ошибок веса $\le1$; синдромы [[4,2,2]];
 2. схему «$H$ — controlled-$g$ — $H$»; число синдромов; точную $p_L$ таблицы и ML-декодера по классам при деполяризующем шуме;
 3. коды Хэмминга и симплекс, условие (3.3); кодовые слова (3.5); трансверсальные $H$, $S$, $X$, $Z$, CNOT (14 кубитов); утечку из кода под $T^{\otimes7}$; $N_{\text{fail}}$, $A$, псевдопорог; совпадение независимого CSS-декодирования с таблицей;
