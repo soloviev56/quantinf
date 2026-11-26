@@ -1,16 +1,107 @@
-# Лекция II.8. Отказоустойчивые вычисления
+---
+title: "Лекция II.8. Отказоустойчивые вычисления"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.B «Квантовая коррекция ошибок и отказоустойчивость».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.9 (распространение паули через клиффорды, §2; $T$ через магическое состояние, §5.1); лекция I.13 (оценки ресурсов для RSA-2048, §4.2); лекция II.5 (условия Книлла–Лафламма, §5; псевдопорог, §7); лекция II.6 (код Стина и трансверсальные гейты, §3.3–§3.4; крючковые ошибки, §6); лекция II.7 (поверхностный код, §2; порог и $\Lambda$, §5).
+**Пререквизиты:** [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (распространение паули через клиффорды, §2; $T$ через магическое состояние, §5.1); [лекция I.13](../../Часть_I/I.13_Алгоритм_Шора/лекция.qmd) (оценки ресурсов для RSA-2048, §4.2); [лекция II.5](../II.05_Основы_QEC/лекция.qmd) (условия Книлла–Лафламма, §5; псевдопорог, §7); [лекция II.6](../II.06_Стабилизаторные_коды/лекция.qmd) (код Стина и трансверсальные гейты, §3.3–§3.4; крючковые ошибки, §6); [лекция II.7](../II.07_Топологические_коды/лекция.qmd) (поверхностный код, §2; порог и $\Lambda$, §5).
 **Литература:** Aharonov D., Ben-Or M. // Proc. STOC 1997; SIAM J. Comput. 38, 1207 (2008); Aliferis P., Gottesman D., Preskill J. Quantum accuracy threshold for concatenated distance-3 codes // Quantum Inf. Comput. 6, 97 (2006); Chao R., Reichardt B. W. Quantum error correction with only two extra qubits // PRL 121, 050502 (2018); Eastin B., Knill E. // PRL 102, 110502 (2009); Bravyi S., Kitaev A. // PRA 71, 022316 (2005); Google Quantum AI and collaborators // Nature 638, 920 (2025); Gottesman D. An introduction to quantum error correction and fault-tolerant quantum computation // arXiv:0904.2557.
-**Материалы:** `примеры.py` — численная проверка всех утверждений: распространение ошибок через гейты, извлечение синдрома кода Стина без флагов и с флагами (точный перебор одиночных и парных отказов, Монте-Карло), рекурсия конкатенации, трансверсальные гейты кода Стина и кода [[15,1,3]], дискретность трансверсальных логических гейтов, твирлинг магического состояния, дистилляция 15 → 1 (точный перебор $2^{15}$ конфигураций и проверка вектором состояния), ресурсная оценка; задачи к семинару С5 и к ЛР14 — в § 9.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: распространение ошибок через гейты, извлечение синдрома кода Стина без флагов и с флагами (точный перебор одиночных и парных отказов, Монте-Карло), рекурсия конкатенации, трансверсальные гейты кода Стина и кода [[15,1,3]], дискретность трансверсальных логических гейтов, твирлинг магического состояния, дистилляция 15 → 1 (точный перебор $2^{15}$ конфигураций и проверка вектором состояния), ресурсная оценка; задачи к семинару С5 и к ЛР14 — в § 9. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §18–§20).
 - **Место** (location) — элемент схемы, в котором может произойти отказ: подготовка, гейт, измерение, ожидание. **Отказ** (fault) — нарушение работы одного места; в модели этой лекции — случайный паули после CNOT (двухкубитная деполяризация с вероятностью $p$, 15 паули по $p/15$, как в II.6, §6).
 - $p_L = A_1p + A_2p^2 + O(p^3)$ — разложение логической ошибки по числу отказов; $A_s$ — число фатальных комбинаций из $s$ отказов с весами вероятностей.
 - $p^{(k)}$ — ошибка на $k$-м уровне конкатенации; $p_{\text{th}}$ — порог.
 - $\varepsilon$ — ошибка магического состояния: $\rho = (1-\varepsilon)\lvert T\rangle\langle T\rvert + \varepsilon Z\lvert T\rangle\langle T\rvert Z$; $\varepsilon_{\text{out}}$ — ошибка после дистилляции.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты, гейты, кодовые слова CSS-кодов"
+import itertools
+from functools import reduce
+from math import comb, log
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import brentq
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+I2 = np.eye(2, dtype=complex)
+X = np.array([[0, 1], [1, 0]], dtype=complex)
+Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+Z = np.diag([1, -1]).astype(complex)
+H = np.array([[1, 1], [1, -1]], dtype=complex) / np.sqrt(2)
+S = np.diag([1, 1j])
+T = np.diag([1, np.exp(1j * np.pi / 4)])
+CNOT = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=complex)
+
+def dag(A):
+    return A.conj().T
+
+def kron(*ops):
+    return reduce(np.kron, ops)
+
+def conj(U, P):
+    return U @ P @ dag(U)
+
+def cfmt(v, nd=4):
+    """Комплексное число для печати: 0.7071-0.7071i, без «-0»."""
+    v = complex(round(v.real, nd) + 0.0, round(v.imag, nd) + 0.0)
+    if v.imag == 0:
+        return f"{v.real:g}"
+    if v.real == 0:
+        return f"{v.imag:g}i"
+    return f"{v.real:g}{v.imag:+g}i"
+
+def cm(M, nd=4):
+    return "[" + ", ".join("[" + ", ".join(cfmt(x, nd) for x in row) + "]" for row in np.asarray(M)) + "]"
+
+def eq_phase(A, B):
+    """A = e^{iφ} B?"""
+    k = np.argmax(np.abs(B))
+    ph = A.flat[k] / B.flat[k]
+    return abs(abs(ph) - 1) < 1e-9 and np.allclose(A, ph * B, atol=1e-9)
+
+def apply_1q(U, psi, n, q):
+    """U на кубите q (кубит 0 — старший)."""
+    t = np.moveaxis(np.tensordot(U, psi.reshape([2] * n), axes=([1], [q])), 0, q)
+    return t.reshape(-1)
+
+def apply_1q_all(U, psi, n):
+    """U^{⊗n} |psi>."""
+    for q in range(n):
+        psi = apply_1q(U, psi, n, q)
+    return psi
+
+def css_codewords(gx_rows, n):
+    """|0_L> — равная суперпозиция линейной оболочки X-генераторов, |1_L> — она же со сдвигом на 1…1."""
+    words = set()
+    for coef in itertools.product((0, 1), repeat=len(gx_rows)):
+        w = np.zeros(n, dtype=np.uint8)
+        for c, row in zip(coef, gx_rows):
+            if c:
+                w ^= row
+        words.add(tuple(int(b) for b in w))
+    v0, v1 = np.zeros(2 ** n, dtype=complex), np.zeros(2 ** n, dtype=complex)
+    pw = 1 << np.arange(n - 1, -1, -1)
+    for w in words:
+        v0[int(np.dot(w, pw))] += 1
+        v1[int(np.dot(np.array(w) ^ 1, pw))] += 1
+    return v0 / np.linalg.norm(v0), v1 / np.linalg.norm(v1), words
+
+def logical_matrix(U, c0, c1, n):
+    """Матрица U^{⊗n} в базисе кода и доля, вышедшая из кода (максимум по |0_L>, |1_L>, |+_L>)."""
+    B = np.array([c0, c1]).T
+    M, leak = np.zeros((2, 2), dtype=complex), 0.0
+    for i, v in enumerate([c0, c1, (c0 + c1) / np.sqrt(2)]):
+        proj = dag(B) @ apply_1q_all(U, v, n)
+        leak = max(leak, 1 - np.linalg.norm(proj) ** 2)
+        if i < 2:
+            M[:, i] = proj
+    return M, leak
+```
 
 ---
 
@@ -52,7 +143,7 @@
 
 ### 1.1. Как ошибки проходят через гейты
 
-Паули-ошибка перед клиффордовым гейтом $U$ эквивалентна паули-ошибке $UPU^\dagger$ после него (I.9, §2). Для CNOT (раздел 1 `примеры.py`)
+Паули-ошибка перед клиффордовым гейтом $U$ эквивалентна паули-ошибке $UPU^\dagger$ после него (I.9, §2). Для CNOT (проверка — в ячейке ниже)
 $$
 X_c\mapsto X_cX_t,\qquad Z_t\mapsto Z_cZ_t,\qquad X_t\mapsto X_t,\qquad Z_c\mapsto Z_c ; \tag{1.1}
 $$
@@ -61,6 +152,17 @@ $$
 TXT^\dagger = \frac{X + Y}{\sqrt2} = e^{-i\pi/4}SX , \tag{1.2}
 $$
 это уже не паули, а клиффорд. Поэтому гейты $T$ требуют особого обращения (§5).
+
+```{python}
+assert np.allclose(conj(CNOT, kron(X, I2)), kron(X, X)) and np.allclose(conj(CNOT, kron(I2, X)), kron(I2, X))
+assert np.allclose(conj(CNOT, kron(I2, Z)), kron(Z, Z)) and np.allclose(conj(CNOT, kron(Z, I2)), kron(Z, I2))
+assert np.allclose(conj(H, X), Z) and np.allclose(conj(S, X), Y)
+TXT = conj(T, X)
+assert np.allclose(TXT, (X + Y) / np.sqrt(2)) and np.allclose(TXT, np.exp(-1j * np.pi / 4) * S @ X)   # (1.2)
+print("(1.1): CNOT X_c CNOT = X_c X_t, CNOT Z_t CNOT = Z_c Z_t, X_t и Z_c не меняются")
+print(f"(1.2): T X T^† = {cm(TXT)} = (X + Y)/√2 = e^(−iπ/4) S X — не паули")
+```
+
 
 Опасны именно двухкубитные гейты: CNOT между кубитами **одного** блока кода размножает одну ошибку в две, и код с $d = 3$ уже не справляется.
 
@@ -101,12 +203,143 @@ $$
 
 Без ошибок два CNOT на флаг компенсируют друг друга, и флаг даёт 0. $X$-ошибка вспомогательного кубита между двумя CNOT на флаг (именно она порождает опасный «крючок» $X_cX_d$) копируется на флаг вторым из них, и флаг срабатывает. Для $Z$-проверок — зеркально: флаг в $\lvert+\rangle$, CNOT флаг → вспомогательный, измерение флага в базисе $X$. **Декодер учитывает флаги**: если флаг сработал, исправление выбирают по отдельной таблице «(флаги, синдром) → исправление», составленной по ошибкам, которые может дать один отказ в этом гаджете.
 
-**Проверка перебором** (раздел 2 `примеры.py`). Модель как в II.6, §6: код Стина, шесть проверок подряд, двухкубитная деполяризация после каждого CNOT, затем идеальный раунд, по которому и декодируют (так мы изолируем распространение ошибок от ошибок синдрома). Паули-рамка распространяется через клиффордову схему линейно, поэтому исход любой пары отказов — сумма исходов одиночных, и $p_L$ до второго порядка вычисляется **точно**:
+**Проверка перебором** (код схем и декодера — в свёрнутой ячейке ниже). Модель как в II.6, §6: код Стина, шесть проверок подряд, двухкубитная деполяризация после каждого CNOT, затем идеальный раунд, по которому и декодируют (так мы изолируем распространение ошибок от ошибок синдрома). Паули-рамка распространяется через клиффордову схему линейно, поэтому исход любой пары отказов — сумма исходов одиночных, и $p_L$ до второго порядка вычисляется **точно**:
+
+```{python}
+#| code-fold: true
+#| code-summary: "Схемы извлечения синдрома, паули-рамка и декодер с флагами (код)"
+HAM = np.array([[(j >> (2 - r)) & 1 for j in range(1, 8)] for r in range(3)], dtype=np.uint8)  # II.6, (3.1)
+SUPP = [list(np.nonzero(HAM[r])[0]) for r in range(3)]       # носители проверок (кубиты с 0)
+POW = np.array([4, 2, 1])
+
+def build_circuit(flags):
+    """X-проверки (вспомогательный |+>, CNOT вспом. -> данные), затем Z-проверки (|0>, CNOT данные -> вспом.).
+    С флагами: после 1-го и перед 4-м CNOT — CNOT вспом. -> флаг (X-проверка, флаг |0>, измерение Z)
+    или флаг -> вспом. (Z-проверка, флаг |+>, измерение X). Возвращает CNOT, флаги, число кубитов."""
+    ops, flag_meas, q = [], [], 7
+    for typ in ("X", "Z"):
+        for sup in SUPP:
+            a, f = q, (q + 1 if flags else None)
+            q += 2 if flags else 1
+            for i, j in enumerate(sup):
+                ops.append((a, j) if typ == "X" else (j, a))
+                if flags and i in (0, 2):
+                    ops.append((a, f) if typ == "X" else (f, a))
+            if flags:
+                flag_meas.append((f, "Z" if typ == "X" else "X"))
+    return ops, flag_meas, q
+
+PAULI2 = [(a, b) for a in range(4) for b in range(4) if (a, b) != (0, 0)]   # 0=I, 1=X, 2=Y, 3=Z
+PA, PB = np.array(PAULI2).T
+XB = lambda c: (c == 1) | (c == 2)
+ZB = lambda c: (c == 2) | (c == 3)
+
+def outcome(xf, zf, flag_meas):
+    """Исход раунда: (флаги, x-часть ошибки данных, z-часть) — линейная функция отказов."""
+    fl = (np.array([xf[:, f] if b == "Z" else zf[:, f] for f, b in flag_meas]).T if flag_meas
+          else np.zeros((xf.shape[0], 0), dtype=bool))
+    return np.hstack([fl, xf[:, :7], zf[:, :7]])
+
+def single_faults(ops, flag_meas, nq):
+    """Все одиночные отказы (место x 15 паули после CNOT): исходы и номера мест."""
+    nf = len(ops) * 15
+    xf, zf = np.zeros((nf, nq), dtype=bool), np.zeros((nf, nq), dtype=bool)
+    loc, kind = np.repeat(np.arange(len(ops)), 15), np.tile(np.arange(15), len(ops))
+    for l, (c, t) in enumerate(ops):
+        xf[:, t] ^= xf[:, c]
+        zf[:, c] ^= zf[:, t]
+        m = loc == l
+        xf[m, c] ^= XB(PA[kind[m]]); zf[m, c] ^= ZB(PA[kind[m]])
+        xf[m, t] ^= XB(PB[kind[m]]); zf[m, t] ^= ZB(PB[kind[m]])
+    return outcome(xf, zf, flag_meas), loc
+
+def syn(v):
+    """Синдром кода Хэмминга (номер позиции) для строк длины 7."""
+    return ((v.astype(np.int64) @ HAM.T.astype(np.int64)) % 2) @ POW
+
+def ham_corr(s):
+    c = np.zeros((len(s), 7), dtype=bool)
+    nz = s > 0
+    c[np.nonzero(nz)[0], s[nz] - 1] = True
+    return c
+
+class Decoder:
+    """Без флагов — независимая коррекция X и Z кодом Хэмминга (II.6, §3.3). С флагами: если флаги сработали,
+    исправление берётся из таблицы (флаги, синдром) -> ошибка, построенной по одиночным отказам."""
+
+    def __init__(self, O1, nflag):
+        self.nflag, self.table, self.consistent = nflag, {}, True
+        if nflag:
+            fl, ex, ez = O1[:, :nflag], O1[:, nflag:nflag + 7], O1[:, nflag + 7:]
+            keys = self.keys(fl, ex, ez)
+            for i in np.nonzero(fl.any(1))[0]:
+                if keys[i] not in self.table:
+                    self.table[keys[i]] = (ex[i].copy(), ez[i].copy())
+                else:   # все ошибки в одной ячейке должны совпадать с точностью до стабилизатора (чётная разность)
+                    dx, dz = ex[i] ^ self.table[keys[i]][0], ez[i] ^ self.table[keys[i]][1]
+                    if dx.sum() % 2 or dz.sum() % 2:
+                        self.consistent = False
+
+    def keys(self, fl, ex, ez):
+        fint = fl.astype(np.int64) @ (1 << np.arange(fl.shape[1], dtype=np.int64))
+        return (fint * 64 + syn(ex) * 8 + syn(ez)).tolist()
+
+    def fails(self, O):
+        nfl = self.nflag
+        fl, ex, ez = O[:, :nfl], O[:, nfl:nfl + 7], O[:, nfl + 7:]
+        cx, cz = ham_corr(syn(ex)), ham_corr(syn(ez))
+        if nfl:
+            flagged = np.nonzero(fl.any(1))[0]
+            if len(flagged):
+                for i, k in zip(flagged, self.keys(fl[flagged], ex[flagged], ez[flagged])):
+                    if k in self.table:
+                        cx[i], cz[i] = self.table[k]
+        rx, rz = ex ^ cx, ez ^ cz
+        assert not syn(rx).any() and not syn(rz).any()
+        return (rx.sum(1) % 2 == 1) | (rz.sum(1) % 2 == 1)   # остаток нечётного веса — логическая ошибка
+
+def monte_carlo(ops, fm, nq, dec, p, shots):
+    xf, zf = np.zeros((shots, nq), dtype=bool), np.zeros((shots, nq), dtype=bool)
+    for c, t in ops:
+        xf[:, t] ^= xf[:, c]
+        zf[:, c] ^= zf[:, t]
+        hit = rng.random(shots) < p
+        k = rng.integers(15, size=shots)
+        xf[:, c] ^= hit & XB(PA[k]); zf[:, c] ^= hit & ZB(PA[k])
+        xf[:, t] ^= hit & XB(PB[k]); zf[:, t] ^= hit & ZB(PB[k])
+    return dec.fails(outcome(xf, zf, fm)).mean()
+```
 
 | схема | CNOT | кубитов | фатальных одиночных отказов | фатальных пар | $A_1$ | $A_2$ |
 |---|---:|---:|---:|---:|---:|---:|
 | без флагов (II.6, §6) | 24 | 13 | 48 из 360 | 32 400 из 62 100 | 3,2 | 144,0 |
 | с флагами | 36 | 19 | **0** из 540 | 48 864 из 141 750 | **0** | 217,2 |
+
+```{python}
+RES = {}
+for flags in (False, True):
+    ops, fm, nq = build_circuit(flags)
+    O1, loc = single_faults(ops, fm, nq)
+    dec = Decoder(O1, len(fm))
+    f1 = dec.fails(O1)
+    f2 = sum(dec.fails(O1[i + 1:][loc[i + 1:] != loc[i]] ^ O1[i]).sum()   # пары на разных местах: XOR исходов
+             for i in range(len(O1) - 1))
+    npairs = len(O1) * (len(O1) - 15) // 2
+    RES[flags] = dict(ops=ops, fm=fm, nq=nq, dec=dec, O1=O1, loc=loc, f1=int(f1.sum()), f2=int(f2),
+                      npairs=npairs, A1=f1.sum() / 15, A2=f2 / 225)
+    print(f"{'с флагами ' if flags else 'без флагов'}: {len(ops)} CNOT, {nq} кубитов; фатальных одиночных "
+          f"{int(f1.sum())} из {len(O1)}, пар {int(f2)} из {npairs}; A1 = {f1.sum() / 15:.1f}, A2 = {f2 / 225:.1f}")
+nb, nfl = RES[False], RES[True]
+assert nb["f1"] == 48 and nfl["f1"] == 0 and nfl["dec"].consistent
+print(f"таблица флагов: {len(nfl['dec'].table)} пар (флаги, синдром), ошибки в каждой ячейке эквивалентны: {nfl['dec'].consistent}")
+O1, loc = nfl["O1"], nfl["loc"]
+hooks = sorted({tuple(int(j) + 1 for j in np.nonzero(O1[i, 6:13])[0])        # первая проверка — места 0..5
+                for i in range(len(O1)) if loc[i] < 6 and O1[i, 0] and not O1[i, 13:].any()})
+assert (6, 7) in hooks
+print("X-ошибки данных при сработавшем флаге первой проверки (кубиты с 1):",
+      ", ".join("I" if not h else "".join(f"X{j}" for j in h) for h in hooks))
+```
+
 
 Таблица флагов содержит 48 пар «(флаги, синдром)», и в каждой все ошибки от одиночных отказов эквивалентны с точностью до стабилизатора — схема с флагами отказоустойчива при $t = 1$. Например, при сработавшем флаге первой проверки ($X_4X_5X_6X_7$) одиночный отказ даёт на данных одну из ошибок $I$, $X_5X_6X_7$, $X_6X_7$, $X_7$ — их синдромы различны, и таблица исправляет каждую. Монте-Карло ($3\cdot10^5$ испытаний с флагами, $10^5$ без):
 
@@ -115,6 +348,34 @@ $$
 | $2\cdot10^{-3}$ | $8{,}80\cdot10^{-4}$ | $8{,}69\cdot10^{-4}$ | $6{,}60\cdot10^{-3}$ |
 | $4\cdot10^{-3}$ | $3{,}30\cdot10^{-3}$ | $3{,}48\cdot10^{-3}$ | $1{,}40\cdot10^{-2}$ |
 | $8\cdot10^{-3}$ | $1{,}21\cdot10^{-2}$ | $1{,}39\cdot10^{-2}$ | $3{,}02\cdot10^{-2}$ |
+
+```{python}
+#| fig-cap: "Код Стина, один раунд извлечения синдрома: без флагов $p_L\\propto p$ (крючки), с флагами $p_L\\approx A_2p^2$. Точки — Монте-Карло, линии — точные коэффициенты $A_1$, $A_2$"
+MC = {}
+for p in (2e-3, 4e-3, 8e-3):
+    MC[p] = (monte_carlo(nfl["ops"], nfl["fm"], nfl["nq"], nfl["dec"], p, 300_000),
+             monte_carlo(nb["ops"], nb["fm"], nb["nq"], nb["dec"], p, 100_000))
+print("    p      с флагами (3e5)   A2 p²       без флагов (1e5)")
+for p, (pl, plb) in MC.items():
+    print(f"  {p:.0e}   {pl:.3e}         {nfl['A2'] * p * p:.3e}   {plb:.3e}")
+ps = np.array(list(MC))
+slope_f = np.polyfit(np.log(ps), np.log([v[0] for v in MC.values()]), 1)[0]
+slope_b = np.polyfit(np.log(ps), np.log([v[1] for v in MC.values()]), 1)[0]
+assert 1.75 < slope_f < 2.25 and 0.85 < slope_b < 1.2
+print(f"наклоны: с флагами {slope_f:.2f}, без флагов {slope_b:.2f}; p_L < p при p < 1/A2 = {1 / nfl['A2']:.2e}")
+
+pp = np.logspace(-3.1, -1.9, 50)
+fig, ax = plt.subplots(figsize=(6.0, 3.8))
+ax.loglog(pp, pp, "k:", label="$p_L = p$ (без кода)")
+l1, = ax.loglog(pp, nb["A1"] * pp, "--", label="$A_1p$ (без флагов)")
+l2, = ax.loglog(pp, nfl["A2"] * pp ** 2, "--", label="$A_2p^2$ (с флагами)")
+ax.loglog(ps, [v[1] for v in MC.values()], "o", color=l1.get_color(), label="Монте-Карло без флагов")
+ax.loglog(ps, [v[0] for v in MC.values()], "s", color=l2.get_color(), label="Монте-Карло с флагами")
+ax.set_xlabel("вероятность отказа CNOT $p$"); ax.set_ylabel("логическая ошибка $p_L$")
+ax.legend(fontsize=8)
+plt.show()
+```
+
 
 Наклоны $\log p_L$ от $\log p$: $1{,}89$ с флагами и $1{,}10$ без. С флагами логическая ошибка квадратична по $p$, и при малых $p$ выигрыш огромен, хотя мест для отказов стало в полтора раза больше. В этой упрощённой модели и в приближении $p_L\approx A_2p^2$ код выгоден ($p_L<p$) при $p<1/A_2\approx4{,}6\cdot10^{-3}$ (ЛР13, задание 5).
 
@@ -138,7 +399,7 @@ p^{(k)} = A\,\bigl(p^{(k-1)}\bigr)^2\quad\Longrightarrow\quad p^{(k)} = p_{\text
 $$
 Ниже порога ошибка убывает **дважды экспоненциально** с числом уровней, а размер блока растёт лишь экспоненциально: $7^k$ физических кубитов на логический.
 
-**Игрушечная оценка порога** (раздел 3 `примеры.py`). Возьмём $A = A_2 = 217{,}2$ из §2.4. Тогда $p_{\text{th}}\approx4{,}6\cdot10^{-3}$, и при $p = 0{,}1\,p_{\text{th}}$:
+**Игрушечная оценка порога** (ячейка и рисунок ниже). Возьмём $A = A_2 = 217{,}2$ из §2.4. Тогда $p_{\text{th}}\approx4{,}6\cdot10^{-3}$, и при $p = 0{,}1\,p_{\text{th}}$:
 
 | уровень $k$ | 1 | 2 | 3 | 4 |
 |---|---:|---:|---:|---:|
@@ -148,6 +409,37 @@ $$
 Для $p^{(k)}\le10^{-15}$ нужно $k = 4$ уровня (2401 кубит на логический); при $p = 0{,}5\,p_{\text{th}}$ — уже $k = 6$ ($117\,649$ кубитов). Близость к порогу обходится дорого.
 
 Самая грубая оценка «фатальна любая пара мест» даёт $p_{\text{th}}\ge1/\binom{N}{2}$; при $N = 36$ местах это $1/630\approx1{,}6\cdot10^{-3}$. Точный перебор показывает, что фатальны лишь около трети пар отказов, отсюда и более высокий $p_{\text{th}}$. Наша оценка оптимистична: учтены только отказы CNOT в одном гаджете коррекции, нет ошибок подготовки, измерения и ожидания, ошибок синдрома и логических гейтов. Строгие оценки для конкатенированного кода Стина с полным учётом всех мест (Алиферис, Готтесман, Прескилл, 2006) на один-два порядка ниже. Для поверхностного кода порог в схемной модели $\sim1\,\%$ (II.7, §3.1).
+
+```{python}
+#| fig-cap: "Конкатенация кода Стина в игрушечной модели $p^{(k)} = A\\,(p^{(k-1)})^2$, $A = A_2$: все кривые проходят через порог $p_{\\text{th}} = 1/A$; ниже него ошибка падает дважды экспоненциально с числом уровней"
+A2 = nfl["A2"]
+pth = 1 / A2
+row = [pth * 0.1 ** (2 ** k) for k in range(1, 5)]                 # (3.1) при p = 0,1 p_th
+pk = 0.1 * pth
+for k in range(4):
+    pk = A2 * pk * pk
+    assert np.isclose(pk, row[k])
+print(f"A = A2 = {A2:.1f}, p_th = 1/A = {pth:.2e}")
+print("p = 0,1 p_th: " + ", ".join(f"p({k + 1}) = {v:.1e}" for k, v in enumerate(row)))
+def levels(ratio, target=1e-15):
+    return next(k for k in range(20) if pth * ratio ** (2 ** k) <= target)
+for r in (0.1, 0.5):
+    print(f"p = {str(r).replace('.', ',')} p_th: для 1e-15 нужно k = {levels(r)} уровней, 7^k = {7 ** levels(r)} кубитов на логический")
+assert levels(0.1) == 4 and levels(0.5) == 6
+frac = nfl["f2"] / nfl["npairs"]
+print(f"грубо: 1/C(36, 2) = {1 / comb(36, 2):.2e}; фатальна лишь доля {frac:.2f} пар отказов")
+
+pp = np.logspace(-4, -1.6, 200)
+fig, ax = plt.subplots(figsize=(6.0, 3.8))
+for k in range(4):
+    ax.loglog(pp, pth * (pp / pth) ** (2 ** k), label=f"$k = {k}$")
+ax.axvline(pth, color="gray", ls=":")
+ax.set_ylim(1e-20, 1)
+ax.set_xlabel("физическая ошибка $p$"); ax.set_ylabel("ошибка на уровне $k$, $p^{(k)}$")
+ax.legend()
+plt.show()
+```
+
 
 ### 3.2. Формулировка и оверхед
 
@@ -187,7 +479,26 @@ $$
 $$
 потому что код обнаруживает однокубитные ошибки: по условиям Книлла–Лафламма $\Pi E\Pi = c_E\Pi$ для любого однокубитного $E$ (II.5, §5). Значит, на коде $e^{i\theta K}$ — лишь глобальная фаза, и вся связная компонента единицы действует тривиально. Логические гейты нумеруются компонентами, их конечное число. Конечное множество не может быть плотным в $SU(2^k)$. $\square$
 
-Для кода Стина (раздел 4 `примеры.py`): $\Pi P_j\Pi = 0$ для всех однокубитных паули, поэтому $\Pi h_j\Pi = \frac{\operatorname{Tr}h_j}2\Pi$ для любой эрмитовой $h_j$. Однопараметрическое семейство $(e^{i\theta Z})^{\otimes7}$ при $\theta$ от 0 до $2\pi$ с шагом $\pi/64$ сохраняет код **только** при $\theta = k\pi/4$, $k = 0,\dots,7$ — это степени трансверсального $S$.
+Для кода Стина (проверка — в ячейке ниже): $\Pi P_j\Pi = 0$ для всех однокубитных паули, поэтому $\Pi h_j\Pi = \frac{\operatorname{Tr}h_j}2\Pi$ для любой эрмитовой $h_j$. Однопараметрическое семейство $(e^{i\theta Z})^{\otimes7}$ при $\theta$ от 0 до $2\pi$ с шагом $\pi/64$ сохраняет код **только** при $\theta = k\pi/4$, $k = 0,\dots,7$ — это степени трансверсального $S$.
+
+```{python}
+c0s, c1s, _ = css_codewords(HAM, 7)
+B7 = np.array([c0s, c1s]).T
+for q in range(7):                                    # Π P_j Π = 0 для всех однокубитных паули
+    for P in (X, Y, Z):
+        assert np.allclose(dag(B7) @ np.array([apply_1q(P, v, 7, q) for v in (c0s, c1s)]).T, 0)
+hrand = rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2))
+hrand = hrand + dag(hrand)                            # случайная эрмитова h на кубите 4
+blk = dag(B7) @ np.array([apply_1q(hrand, v, 7, 3) for v in (c0s, c1s)]).T
+assert np.allclose(blk, np.trace(hrand) / 2 * np.eye(2))
+print(f"Π h Π для случайной эрмитовой h: {cm(blk, 6)} = (Tr h / 2) Π, Tr h / 2 = {np.trace(hrand).real / 2:.6f}")
+thetas = np.arange(128) * np.pi / 64
+ok = [th for th in thetas if logical_matrix(np.diag([np.exp(1j * th), np.exp(-1j * th)]), c0s, c1s, 7)[1] < 1e-10]
+ok_k = [th / (np.pi / 4) for th in ok]
+assert np.allclose(ok_k, np.round(ok_k)) and np.round(ok_k).astype(int).tolist() == list(range(8))
+print("(e^{iθZ})^⊗7 сохраняет код при θ/(π/4) =", np.round(ok_k).astype(int).tolist(), "из 128 значений θ")
+```
+
 
 ### 4.3. Примеры: Стин и Рид–Маллер
 
@@ -197,6 +508,41 @@ $$
 T^{\otimes15} = \bar T^\dagger,\qquad (T^\dagger)^{\otimes15} = \bar T \tag{4.2}
 $$
   (проверено вектором состояния на 15 кубитах). Зато $H^{\otimes15}$ выводит из кода долю $0{,}9844$: $H$ здесь не трансверсален.
+
+```{python}
+cliff, frontier = [I2], [I2]                          # группа Клиффорда одного кубита по модулю фазы
+while frontier:
+    new = []
+    for A in frontier:
+        for g in (H, S):
+            if not any(eq_phase(g @ A, C) for C in cliff):
+                cliff.append(g @ A)
+                new.append(g @ A)
+    frontier = new
+assert len(cliff) == 24 and all(logical_matrix(U, c0s, c1s, 7)[1] < 1e-12 for U in cliff)
+lkT7 = logical_matrix(T, c0s, c1s, 7)[1]
+print(f"Стин: все {len(cliff)} однокубитных клиффорда трансверсальны; T^⊗7 выводит из кода долю {lkT7:.4f}")
+
+H4 = np.array([[(j >> (3 - r)) & 1 for j in range(1, 16)] for r in range(4)], dtype=np.uint8)
+GZ = [H4[r] for r in range(4)] + [H4[a] & H4[b] for a in range(4) for b in range(a + 1, 4)]
+c0r, c1r, words_rm = css_codewords(H4, 15)
+idx = np.arange(2 ** 15)
+bits15 = ((idx[:, None] >> np.arange(14, -1, -1)) & 1).astype(np.uint8)
+PW15 = 1 << np.arange(14, -1, -1)
+for v in (c0r, c1r):                                  # 10 Z-генераторов и 4 X-генератора стабилизируют слова
+    assert all(np.allclose((-1.0) ** (bits15 @ g % 2) * v, v) for g in GZ)
+    assert all(np.allclose(v[idx ^ int(g @ PW15)], v) for g in H4)
+wts0, wts1 = sorted({sum(w) for w in words_rm}), sorted({15 - sum(w) for w in words_rm})
+assert (wts0, wts1) == ([0, 8], [7, 15])
+M, lk = logical_matrix(T, c0r, c1r, 15)
+assert lk < 1e-12 and eq_phase(M, dag(T))             # (4.2)
+Mt, lk2 = logical_matrix(dag(T), c0r, c1r, 15)
+assert lk2 < 1e-12 and eq_phase(Mt, T)
+lkH = logical_matrix(H, c0r, c1r, 15)[1]
+print(f"[[15,1,3]]: веса слов |0_L> {wts0}, |1_L> {wts1}; T^⊗15 на коде = {cm(M / M[0, 0])} = T_L^†")
+print(f"(T^†)^⊗15 = T_L; H^⊗15 выводит из кода долю {lkH:.4f}")
+```
+
 
 У Стина трансверсальны клиффорды, у Рида–Маллера — $T$; вместе они дают универсальный набор. Отсюда один из способов обойти теорему — **переключение кодов** (code switching) между этими двумя кодами, которые оба вкладываются в одно семейство. Другие способы — **магические состояния** (§5), **фиксация калибровки** (gauge fixing) в подсистемных кодах и трёхмерные цветовые коды, а также нетрансверсальные, но отказоустойчивые гаджеты.
 
@@ -214,7 +560,23 @@ $$
 $$
 \rho = (1-\varepsilon)\lvert T\rangle\langle T\rvert + \varepsilon\,Z\lvert T\rangle\langle T\rvert Z , \tag{5.1}
 $$
-т. е. ошибка магического состояния — это $Z$ с вероятностью $\varepsilon$ (раздел 5 `примеры.py`).
+т. е. ошибка магического состояния — это $Z$ с вероятностью $\varepsilon$. Проверим на случайном шумном состоянии:
+
+```{python}
+Wt = np.exp(-1j * np.pi / 4) * S @ X
+Tket = np.array([1, np.exp(1j * np.pi / 4)]) / np.sqrt(2)
+Tperp = Z @ Tket
+assert np.allclose(Wt @ Wt, I2) and np.allclose(Wt @ Tket, Tket) and np.allclose(Wt @ Tperp, -Tperp)
+G = rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2))
+rho_noisy = 0.9 * np.outer(Tket, Tket.conj()) + 0.1 * (G @ dag(G)) / np.trace(G @ dag(G))
+rho_tw = (rho_noisy + Wt @ rho_noisy @ dag(Wt)) / 2   # твирлинг: W с вероятностью 1/2
+Bt = np.array([Tket, Tperp]).T
+print("шумное состояние в базисе (|T>, Z|T>):", cm(dag(Bt) @ rho_noisy @ Bt))
+rt = dag(Bt) @ rho_tw @ Bt
+assert abs(rt[0, 1]) < 1e-12
+print("после твирлинга:", cm(rt), f"— вид (5.1) с ε = {rt[1, 1].real:.4f}")
+```
+
 
 ### 5.2. Протокол 15 → 1
 
@@ -227,7 +589,7 @@ $$
 $$
 P_{\text{acc}} = 1 - 15\varepsilon + O(\varepsilon^2),\qquad \varepsilon_{\text{out}} = \frac{35\varepsilon^3 + O(\varepsilon^4)}{P_{\text{acc}}}\approx35\varepsilon^3 . \tag{5.2}
 $$
-Точный перебор $2^{15}$ конфигураций (раздел 5 `примеры.py`):
+Точный перебор $2^{15}$ конфигураций (ячейка после таблицы):
 
 | $\varepsilon$ | $P_{\text{acc}}$ | $\varepsilon_{\text{out}}$ | $35\varepsilon^3$ |
 |---:|---:|---:|---:|
@@ -237,9 +599,64 @@ $$
 
 Протокол улучшает состояние при $\varepsilon<\varepsilon^* = 0{,}1415$ (решение $\varepsilon_{\text{out}} = \varepsilon$). Вектором состояния проверено: ошибка веса 1 выводит блок из кода (обнаружена), слово Хэмминга веса 3 оставляет блок в коде, но даёт ортогональное логическое состояние (необнаруженная логическая ошибка), а $Z$-генератор веса 4 не меняет состояние.
 
+```{python}
+#| fig-cap: "Дистилляция 15 → 1: ошибка на выходе против ошибки на входе. Протокол выгоден левее пересечения с диагональю ($\\varepsilon^*\\approx0{,}14$)"
+in_ham = ~(bits15 @ H4.T % 2).any(1)                  # e в коде Хэмминга [15,11]
+wt = bits15.sum(1)
+Wspec = np.bincount(wt[in_ham], minlength=16)
+Wodd = np.where(np.arange(16) % 2 == 1, Wspec, 0)
+assert in_ham.sum() == 2 ** 11 and Wspec[3] == 35
+print("весовой спектр кода Хэмминга [15,11]:", {w: int(c) for w, c in enumerate(Wspec) if c})
+
+def distill(eps):
+    pw = eps ** np.arange(16) * (1 - eps) ** (15 - np.arange(16))
+    acc = (Wspec * pw).sum()
+    return acc, (Wodd * pw).sum() / acc
+
+print("   ε       P_acc      ε_out       35ε³")
+for eps in (1e-2, 1e-3, 1e-4):
+    acc, eout = distill(eps)
+    print(f"  {eps:.0e}  {acc:.6f}  {eout:.3e}   {35 * eps ** 3:.3e}")
+eps_th = brentq(lambda e: distill(e)[1] - e, 0.01, 0.4)
+print(f"порог протокола: ε* = {eps_th:.4f}")
+
+plusL = (c0r + c1r) / np.sqrt(2)                      # вектор состояния: |+_L> -> T^⊗15 -> Z^e
+target = (c0r + np.exp(-1j * np.pi / 4) * c1r) / np.sqrt(2)
+base = apply_1q_all(T, plusL, 15)
+assert np.isclose(abs(np.vdot(target, base)), 1)
+BR = np.array([c0r, c1r]).T
+e3 = bits15[np.nonzero(in_ham & (wt == 3))[0][0]]
+examples = {"вес 1": np.eye(15, dtype=np.uint8)[4], "вес 3, слово Хэмминга": e3, "Z-генератор веса 4": GZ[4]}
+for name, e in examples.items():
+    w = base * (-1.0) ** (bits15 @ e % 2)
+    print(f"{name}: доля в коде {np.linalg.norm(dag(BR) @ w) ** 2:.3f}, верность с T_L^†|+_L> {abs(np.vdot(target, w)) ** 2:.3f}")
+
+ee = np.logspace(-4, np.log10(0.3), 200)
+fig, ax = plt.subplots(figsize=(5.8, 3.8))
+ax.loglog(ee, [distill(e)[1] for e in ee], label="$\\varepsilon_{\\text{out}}$ (точно)")
+ax.loglog(ee, 35 * ee ** 3, "--", label="$35\\varepsilon^3$")
+ax.loglog(ee, ee, "k:", label="$\\varepsilon_{\\text{out}} = \\varepsilon$")
+ax.axvline(eps_th, color="gray", ls=":", lw=0.8)
+ax.set_xlabel("ошибка входных состояний $\\varepsilon$"); ax.set_ylabel("ошибка на выходе")
+ax.legend()
+plt.show()
+```
+
+
 ### 5.3. Каскад и стоимость
 
 Протоколы можно соединять последовательно: выходы первого уровня — входы второго. Из $\varepsilon = 10^{-3}$ первый уровень даёт $3{,}5\cdot10^{-8}$ (15 входов на выход), второй — $1{,}5\cdot10^{-21}$ (228 входов на выход с учётом отбраковки). Ошибка падает как $\varepsilon\mapsto35\varepsilon^3$ — кубически за уровень, а стоимость растёт в 15 раз за уровень.
+
+```{python}
+LEV, e, n_in = [], 1e-3, 1.0
+while e > 1e-15:
+    acc, e = distill(e)
+    n_in *= 15 / acc                                  # с учётом отбраковки
+    LEV.append((e, n_in))
+assert len(LEV) == 2 and LEV[1][0] < 1e-20
+print("каскад от ε = 1e-3: " + "; ".join(f"уровень {k + 1}: ε = {v[0]:.1e}, входов на выход {v[1]:.0f}" for k, v in enumerate(LEV)))
+```
+
 
 Отдельный блок, производящий магические состояния, называют **фабрикой**. Стоимость фабрик долго доминировала в оценках ресурсов. Её снизили оптимизированные схемы дистилляции (Литински, 2019), дистилляция сразу более сложных состояний (например, $\lvert CCZ\rangle$ для Toffoli) и **«выращивание» магических состояний** (magic state cultivation; Гидни, Шатти, Джонс, 2024), при котором состояние постепенно проверяют внутри растущего поверхностного кода (обзорно).
 
@@ -247,11 +664,29 @@ $$
 
 ## 6. Оверхед: сколько нужно физических кубитов
 
-Сведём всё вместе на примере, связанном с I.13, §4.2. Возьмём параметры Гидни–Экеро для RSA-2048: около 6200 логических кубитов, около $2{,}6\cdot10^9$ гейтов Toffoli, время около 8 часов. Предположим: цикл коррекции 1 мкс, физическая ошибка $p = 10^{-3}$, поверхностный код с $p_L = 0{,}1\,(p/0{,}01)^{(d+1)/2}$ (II.7, (5.1); $A = 0{,}1$, $p_{\text{th}} = 1\,\%$ — предположения для оценки). Раздел 6 `примеры.py`:
+Сведём всё вместе на примере, связанном с I.13, §4.2. Возьмём параметры Гидни–Экеро для RSA-2048: около 6200 логических кубитов, около $2{,}6\cdot10^9$ гейтов Toffoli, время около 8 часов. Предположим: цикл коррекции 1 мкс, физическая ошибка $p = 10^{-3}$, поверхностный код с $p_L = 0{,}1\,(p/0{,}01)^{(d+1)/2}$ (II.7, (5.1); $A = 0{,}1$, $p_{\text{th}} = 1\,\%$ — предположения для оценки). Расчёт — в ячейке после списка:
 
 1. Циклов $8\cdot3600/10^{-6}\approx2{,}9\cdot10^{10}$. Если суммарная вероятность отказа не должна превышать $1/3$, то на один логический кубит за цикл допустимо $\frac{1/3}{6200\cdot2{,}9\cdot10^{10}}\approx1{,}9\cdot10^{-15}$.
 2. Для этого нужна дистанция $d = 27$, т. е. $2\cdot27^2 - 1 = 1457$ физических кубитов на логический и около $9{,}0\cdot10^6$ всего — **без учёта фабрик**.
 3. Магических состояний нужно $\sim4\times2{,}6\cdot10^9\approx10^{10}$ (по 4 $T$ на Toffoli), т. е. $3{,}6\cdot10^5$ в секунду, около $0{,}36$ за цикл. Ошибка каждого должна быть $\lesssim3\cdot10^{-11}$; двух уровней 15 → 1 из $\varepsilon = 10^{-3}$ для этого хватает.
+
+```{python}
+A_, pth_ = 0.1, 1e-2                                  # II.7, (5.1) — предположение для оценки
+def d_for(p, target):
+    return next(d for d in range(3, 301, 2) if A_ * (p / pth_) ** ((d + 1) / 2) <= target * (1 + 1e-12))
+nL, hours, cycle = 6200, 8.0, 1e-6
+rounds = hours * 3600 / cycle
+target = (1 / 3) / (nL * rounds)
+dR = d_for(1e-3, target)
+total = nL * (2 * dR ** 2 - 1)
+nT = 4 * 2.6e9
+print(f"циклов {rounds:.2e}; допустимая ошибка на логический кубит за цикл {target:.1e}")
+print(f"d = {dR}: {2 * dR ** 2 - 1} физических на логический, всего {total:.2e} (без фабрик)")
+print(f"T-состояний {nT:.1e}: {nT / (hours * 3600):.1e} в секунду = {nT / (hours * 3600) * cycle:.2f} за цикл; "
+      f"ошибка каждого <= {1 / 3 / nT:.1e}, два уровня 15 → 1 дают {LEV[1][0]:.1e}")
+assert dR == 27 and 8e6 < total < 1e7
+```
+
 
 Наша грубая оценка $\sim10^7$ кубитов по порядку согласуется с оценкой Гидни и Экеро ($\sim2\cdot10^7$, с фабриками и маршрутизацией). В работе Гидни (2025) оценка снижена до менее чем $10^6$ кубитов ценой большего времени — за счёт приближённой арифметики, более плотного хранения логических кубитов и выращивания магических состояний (I.13, §4.2). Такие оценки быстро меняются, их надо перепроверять по свежим работам.
 
@@ -309,7 +744,36 @@ $$
 11. (••) Приведите пример коррелированного шума, при котором конкатенированный код Стина не даёт подавления ошибки при сколь угодно малой вероятности одиночного отказа. Почему пороговой теореме нужен сброс кубитов?
 12. (•) Повёрнутый поверхностный код имеет $p_L(d = 3) = 3\cdot10^{-3}$ за цикл и $\Lambda = 2$. Какая дистанция нужна для $p_L\le10^{-6}$? А при $\Lambda = 4$?
 
-### Ответы и указания
+Численная проверка ответов к задачам 3, 4, 7, 8, 9, 12 (задачи 1, 2, 5, 6 — в ячейках выше):
+
+```{python}
+print("3: p(1..4) = " + ", ".join(f"{v:.1e}" for v in row) + f"; уровней для 1e-15: {levels(0.1)}, 7^4 = {7 ** 4}")
+print(f"4: 1/C(36,2) = {1 / comb(36, 2):.2e}; 1/A2 = {pth:.2e}")
+acc3, eo3 = distill(1e-3)
+print(f"7: ε = 1e-3: ε_out = {eo3:.2e}, P_acc = {acc3:.4f}; второй уровень {LEV[1][0]:.1e}, {LEV[1][1]:.0f} входов на выход")
+
+def gadget(U, psi):
+    """|psi> ⊗ U|+>, CNOT (управляет кубит 2), измерение кубита 1 в Z: состояния кубита 2 при исходах 0 и 1."""
+    C21 = np.array([[1, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0]])
+    st = C21 @ np.kron(psi, U @ np.array([1, 1]) / np.sqrt(2))
+    return [st[2 * m:2 * m + 2] / np.linalg.norm(st[2 * m:2 * m + 2]) for m in (0, 1)]
+
+psi = rng.normal(size=2) + 1j * rng.normal(size=2)
+psi /= np.linalg.norm(psi)
+o0, o1 = gadget(T, psi)
+assert np.isclose(abs(np.vdot(T @ psi, o0)), 1) and np.isclose(abs(np.vdot(T @ psi, S @ X @ o1)), 1)
+sqT = np.diag([1, np.exp(1j * np.pi / 8)])
+assert np.isclose(abs(np.vdot(sqT @ psi, T @ X @ gadget(sqT, psi)[1])), 1)
+print("8: исход 1: поправка SX для T (клиффорд), TX для √T (не клиффорд) — проверено на случайном |ψ>")
+dR2 = d_for(2e-3, target)
+print(f"9: p = 2e-3: d = {dR2}, {2 * dR2 ** 2 - 1} на логический, всего {nL * (2 * dR2 ** 2 - 1):.2e}")
+d12 = {Lam: next(d for d in range(3, 101, 2) if 3e-3 / Lam ** ((d - 3) / 2) <= 1e-6) for Lam in (2, 4)}
+print(f"12: Λ = 2: d = {d12[2]} ({2 * d12[2] ** 2 - 1} кубитов); Λ = 4: d = {d12[4]}")
+assert dR2 == 39 and d12 == {2: 27, 4: 15}
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** $X\otimes I\mapsto X\otimes X$, $I\otimes X\mapsto I\otimes X$, $Z\otimes I\mapsto Z\otimes I$, $I\otimes Z\mapsto Z\otimes Z$; $TXT^\dagger = (X + Y)/\sqrt2 = e^{-i\pi/4}SX$, $TZT^\dagger = Z$. После $T$ паули-ошибка $X$ становится клиффордом $SX$ (с точностью до фазы), и паули-рамка не сохраняется — нужна активная поправка $S$ (так и в гаджете телепортации).
 - **2.** После CNOT на кубит 4: $X_5X_6X_7$ (эквивалентна $X_4$ с точностью до стабилизатора — неопасна); после кубита 5: $X_6X_7$ (синдром как у $X_1$ — логическая ошибка после исправления); после кубита 6: $X_7$ (одиночная); после кубита 7: ничего. CNOT на флаг ставят после первого и перед последним CNOT на данные: тогда флаг срабатывает на $X_5X_6X_7$, $X_6X_7$ и $X_7$, и таблица флагов различает их по синдрому (§2.4, проверено).
 - **3.** $p^{(k)} = p_{\text{th}}\cdot10^{-2^k}$: $4{,}6\cdot10^{-5}$, $4{,}6\cdot10^{-7}$, $4{,}6\cdot10^{-11}$, $4{,}6\cdot10^{-19}$ при $p_{\text{th}} = 4{,}6\cdot10^{-3}$; нужно $k = 4$, $7^4 = 2401$ кубит (без вспомогательных).
@@ -317,17 +781,18 @@ $$
 - **5.** Для однокубитных паули $P$ на любом кубите $\Pi P\Pi = 0$ (код Стина обнаруживает их, $d = 3$, а слабые ошибки не являются стабилизаторами). Любая эрмитова $h = \frac{\operatorname{Tr}h}2I + \sum_Pc_PP$, отсюда утверждение (проверено для случайной $h$). Если $(e^{i\theta Z})^{\otimes7}$ сохраняет код при всех малых $\theta$, то его генератор $\sum_jZ_j$ на коде равен $\sum_j\Pi Z_j\Pi = 0$ — гейт тривиален. Численно код сохраняется только при $\theta = k\pi/4$.
 - **6.** Веса $\lvert0_L\rangle$: 0 и 8 (16 слов), $\lvert1_L\rangle$: 7 и 15; фазы $e^{i\pi w/4}$ равны $1$ и $e^{-i\pi/4}$ соответственно. У кода Стина веса 0, 4 и 3, 7: $e^{i\pi\cdot4/4} = -1\ne1$, т. е. разные слова $\lvert0_L\rangle$ получают разные фазы, и состояние выходит из кода (доля $0{,}4375$).
 - **7.** Принятие: $\mathbf e$ в коде Хэмминга $[15,11]$; вероятность $\sum_wA_w\varepsilon^w(1-\varepsilon)^{15-w} = 1 - 15\varepsilon + O(\varepsilon^2)$ (вклад только $w = 0$ в первом порядке). Ошибка выхода: нечётные слова, наименьший вес 3, их 35. Два уровня: $3{,}5\cdot10^{-8}$, затем $1{,}5\cdot10^{-21}$; около 228 входных состояний на выходное.
-- **8.** При исходе 1 на втором кубите $XT^\dagger\lvert\psi\rangle$ (с точностью до фазы). Поправка $V$ должна дать $VXT^\dagger = T$, т. е. $V = T^2X = SX$ — клиффорд: $SX\cdot XT^\dagger\lvert\psi\rangle = ST^\dagger\lvert\psi\rangle = T\lvert\psi\rangle$. Для $\sqrt T = \operatorname{diag}(1, e^{i\pi/8})$ исход 1 даёт $X\sqrt T^\dagger\lvert\psi\rangle$, и поправка $V = (\sqrt T)^2X = TX$ уже не клиффорд — её саму придётся телепортировать (иерархия Клиффорда, I.9, §2.3). Проверено в `примеры.py`.
-- **9.** При $p = 2\cdot10^{-3}$, $\Lambda = 5$: $0{,}1\cdot0{,}2^{(d+1)/2}\le1{,}9\cdot10^{-15}$ даёт $(d+1)/2\ge19{,}6$, $d = 39$, $2\cdot39^2 - 1 = 3041$ кубит на логический, около $1{,}9\cdot10^7$ всего (проверено в разделе 6 `примеры.py`).
+- **8.** При исходе 1 на втором кубите $XT^\dagger\lvert\psi\rangle$ (с точностью до фазы). Поправка $V$ должна дать $VXT^\dagger = T$, т. е. $V = T^2X = SX$ — клиффорд: $SX\cdot XT^\dagger\lvert\psi\rangle = ST^\dagger\lvert\psi\rangle = T\lvert\psi\rangle$. Для $\sqrt T = \operatorname{diag}(1, e^{i\pi/8})$ исход 1 даёт $X\sqrt T^\dagger\lvert\psi\rangle$, и поправка $V = (\sqrt T)^2X = TX$ уже не клиффорд — её саму придётся телепортировать (иерархия Клиффорда, I.9, §2.3). Проверено в ячейке выше.
+- **9.** При $p = 2\cdot10^{-3}$, $\Lambda = 5$: $0{,}1\cdot0{,}2^{(d+1)/2}\le1{,}9\cdot10^{-15}$ даёт $(d+1)/2\ge19{,}6$, $d = 39$, $2\cdot39^2 - 1 = 3041$ кубит на логический, около $1{,}9\cdot10^7$ всего (проверено в ячейке выше).
 - **10.** Компактная группа Ли — компактное многообразие, связные компоненты открыты и покрывают её, поэтому их конечное число. Если $e^{i\theta K}\Pi = \Pi e^{i\theta K}\Pi$ при всех $\theta$, дифференцируем при $\theta = 0$: $K\Pi = \Pi K\Pi$, т. е. $K$ сохраняет код. Далее — (4.1).
 - **11.** Например, с вероятностью $p$ одновременная $X$-ошибка на всех кубитах блока (логическая $\bar X$ для Стина): $p_L\ge p$ на любом уровне. Без сброса энтропия, вносимая шумом, остаётся в системе: состояние за время $O(1/p)$ становится близким к максимально смешанному, никакая унитарная схема этого не исправит.
 - **12.** $p_L(d) = 3\cdot10^{-3}/\Lambda^{(d-3)/2}$. При $\Lambda = 2$: $2^{(d-3)/2}\ge3000$, $(d-3)/2\ge12$, $d = 27$ (1457 кубитов). При $\Lambda = 4$: $d = 15$.
+:::
 
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 4 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, все числа совпадают с `примеры.py`. Полный файл `примеры.py` (около 4 с) проверяет:
 1. правила распространения (1.1) и (1.2);
 2. извлечение синдрома кода Стина без флагов и с флагами: точный перебор одиночных (360 и 540) и всех парных отказов на разных местах, таблицу флагов и её согласованность, ошибки при сработавшем флаге, Монте-Карло и наклоны;
 3. рекурсию (3.1), число уровней, грубую оценку $1/\binom N2$;
