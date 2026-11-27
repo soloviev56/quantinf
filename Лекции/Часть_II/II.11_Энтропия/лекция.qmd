@@ -1,16 +1,122 @@
-# Лекция II.11. Энтропия
+---
+title: "Лекция II.11. Энтропия"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.D «Квантовая теория информации и криптография».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.1 (спектральная теорема, §5; функции от операторов, §6); лекция I.3 (матрица плотности и неединственность разложения, §1.5; расстояние следа, §4.1); лекция I.4 (частичный след, §2; разложение Шмидта и энтропия запутанности, §3; очищение, §4); лекция I.7 (изотропные состояния, дистиллируемая запутанность, §6.2, §7); лекция II.1 (каналы и представление Стайнспринга, §2, §4; сжатие расстояния следа, теорема 6.1); лекция II.2 (гамильтониан кубита $H_S = -\frac\omega2Z$ и тепловое состояние, шапка и §1.1); лекция II.6 (квантовая граница Синглтона, §4 — там использована субаддитивность, доказанная здесь).
+**Пререквизиты:** [лекция I.1](../../Часть_I/I.01_Линейная_алгебра/лекция.qmd) (спектральная теорема, §5; функции от операторов, §6); [лекция I.3](../../Часть_I/I.03_Матрица_плотности_POVM/лекция.qmd) (матрица плотности и неединственность разложения, §1.5; расстояние следа, §4.1); [лекция I.4](../../Часть_I/I.04_Составные_системы/лекция.qmd) (частичный след, §2; разложение Шмидта и энтропия запутанности, §3; очищение, §4); [лекция I.7](../../Часть_I/I.07_Меры_запутанности/лекция.qmd) (изотропные состояния, дистиллируемая запутанность, §6.2, §7); [лекция II.1](../II.01_Квантовые_каналы/лекция.qmd) (каналы и представление Стайнспринга, §2, §4; сжатие расстояния следа, теорема 6.1); [лекция II.2](../II.02_Уравнение_Линдблада/лекция.qmd) (гамильтониан кубита $H_S = -\frac\omega2Z$ и тепловое состояние, шапка и §1.1); [лекция II.6](../II.06_Стабилизаторные_коды/лекция.qmd) (квантовая граница Синглтона, §4 — там использована субаддитивность, доказанная здесь).
 **Литература:** N&C, гл. 11 (и § 12.2 о сжатии Шумахера); Wilde M. M. Quantum Information Theory, гл. 10–11, 18; Watrous J. The Theory of Quantum Information, гл. 5; Холево А. С. Квантовые системы, каналы, информация, гл. 5–7; Schumacher B. Quantum coding // PRA 51, 2738 (1995); Lieb E. H., Ruskai M. B. Proof of the strong subadditivity of quantum-mechanical entropy // J. Math. Phys. 14, 1938 (1973).
-**Материалы:** `примеры.py` — численная проверка всех утверждений: типичные последовательности; свойства энтропии фон Неймана (границы, вогнутость, смеси, разложения на чистые состояния, дефазировка); условная энтропия и взаимная информация (состояние Белла, сепарабельные и изотропные состояния, GHZ, W); относительная энтропия (Клейн, Пинскер, монотонность при 300 случайных каналах, свободная энергия); субаддитивность, Араки–Либ и сильная субаддитивность на $10^4$ случайных трёхкубитных состояниях; неравенство Фаннеса–Ауденарта; сжатие Шумахера (комбинаторный вес типичного подпространства до $n = 1000$ и прямой расчёт верности при $n = 8$); задачи к семинару С7 и к ЛР16 — в § 8.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: типичные последовательности; свойства энтропии фон Неймана (границы, вогнутость, смеси, разложения на чистые состояния, дефазировка); условная энтропия и взаимная информация (состояние Белла, сепарабельные и изотропные состояния, GHZ, W); относительная энтропия (Клейн, Пинскер, монотонность при 300 случайных каналах, свободная энергия); субаддитивность, Араки–Либ и сильная субаддитивность на $10^4$ случайных трёхкубитных состояниях; неравенство Фаннеса–Ауденарта; сжатие Шумахера (комбинаторный вес типичного подпространства до $n = 1000$ и прямой расчёт верности при $n = 8$); задачи к семинару С7 и к ЛР16 — в § 8. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §1, §6, §23).
 - $\log\equiv\log_2$, энтропии — в битах; $h(p)$ — двоичная энтропия; $H(X) = H(\mathbf p) = -\sum_xp_x\log p_x$ — энтропия Шеннона случайной величины (распределения).
 - $S(\rho) = -\operatorname{Tr}\rho\log\rho$; для состояния $\rho_{AB}$ пишем $S(A) = S(\rho_A)$, $S(AB) = S(\rho_{AB})$ (состояние ясно из контекста, иначе $S(A)_\rho$).
 - **Условная энтропия** $S(A|B) = S(AB) - S(B)$; **взаимная информация** $I(A:B) = S(A) + S(B) - S(AB)$; условная взаимная информация $I(A:C|B) = S(AB) + S(BC) - S(ABC) - S(B)$.
 - **Относительная энтропия** $S(\rho\|\sigma) = \operatorname{Tr}\rho(\log\rho - \log\sigma)$ (как в N&C; буква $D$ занята расстоянием следа $D(\rho,\sigma) = \frac12\|\rho - \sigma\|_1$).
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты, энтропии и случайные состояния"
+from math import comb, log2, log, sqrt
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import expm
+from scipy.optimize import brentq
+from scipy.special import gammaln, logsumexp
+
+# порядок вызовов генератора в ячейках повторяет примеры.py
+rng = np.random.default_rng(2026)
+
+def H(p):
+    """Энтропия Шеннона распределения, биты."""
+    p = np.asarray(p, float).ravel()
+    p = p[p > 1e-15]
+    return float(-(p * np.log2(p)).sum())
+
+def h(x):
+    return H([x, 1 - x])
+
+def S(rho):
+    """Энтропия фон Неймана, биты."""
+    return H(np.clip(np.linalg.eigvalsh((rho + rho.conj().T) / 2), 0, None))
+
+def S_batch(rhos):
+    ev = np.clip(np.linalg.eigvalsh(rhos), 1e-300, None)
+    return -(ev * np.log2(ev)).sum(-1)
+
+def rel_ent(rho, sigma):
+    """S(ρ‖σ) в битах; ∞, если носитель ρ не лежит в носителе σ."""
+    wr, Vr = np.linalg.eigh(rho)
+    ws, Vs = np.linalg.eigh(sigma)
+    ker = Vs[:, ws < 1e-13]
+    if ker.shape[1] and np.real(np.trace(ker.conj().T @ rho @ ker)) > 1e-12:
+        return np.inf
+    t1 = float(np.sum(wr * np.log2(np.clip(wr, 1e-300, None)) * (wr > 1e-15)))
+    logsig = (Vs * np.log2(np.where(ws > 1e-13, ws, 1.0))) @ Vs.conj().T
+    return t1 - float(np.real(np.trace(rho @ logsig)))
+
+def trdist(a, b):
+    return 0.5 * np.abs(np.linalg.eigvalsh(a - b)).sum()
+
+def ptrace(rho, dims, keep):
+    """Частичный след: оставить подсистемы keep (первая подсистема — старшая)."""
+    n, L = len(dims), "abcdefghijklmnop"
+    r = rho.reshape(dims + dims)
+    sub = "".join(L[i] for i in range(n)) + "".join(L[i].upper() if i in keep else L[i] for i in range(n))
+    out = "".join(L[i] for i in keep) + "".join(L[i].upper() for i in keep)
+    d = int(np.prod([dims[i] for i in keep]))
+    return np.einsum(sub + "->" + out, r).reshape(d, d)
+
+def ptrace_batch(rhos, dims, keep):
+    n, L = len(dims), "abcdefghijklmnop"
+    r = rhos.reshape((rhos.shape[0],) + tuple(dims) * 2)
+    sub = "z" + "".join(L[i] for i in range(n)) + "".join(L[i].upper() if i in keep else L[i] for i in range(n))
+    out = "z" + "".join(L[i] for i in keep) + "".join(L[i].upper() for i in keep)
+    d = int(np.prod([dims[i] for i in keep]))
+    return np.einsum(sub + "->" + out, r).reshape(rhos.shape[0], d, d)
+
+def rand_rho(d, rank=None):
+    rank = d if rank is None else rank
+    G = rng.normal(size=(d, rank)) + 1j * rng.normal(size=(d, rank))
+    r = G @ G.conj().T
+    return r / np.trace(r).real
+
+def rand_rho_batch(N, d, rank):
+    G = rng.normal(size=(N, d, rank)) + 1j * rng.normal(size=(N, d, rank))
+    r = G @ np.conj(np.swapaxes(G, 1, 2))
+    return r / np.trace(r, axis1=1, axis2=2).real[:, None, None]
+
+def rand_unitary(d):
+    Zm = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    Q, R = np.linalg.qr(Zm)
+    return Q * (np.diag(R) / np.abs(np.diag(R)))
+
+def rand_channel_kraus(din, dout, nk):
+    """Случайный канал C^din → C^dout: случайная изометрия din → dout·nk, нарезанная на nk операторов Крауса."""
+    nk = max(nk, -(-din // dout))
+    G = rng.normal(size=(dout * nk, din)) + 1j * rng.normal(size=(dout * nk, din))
+    Q, _ = np.linalg.qr(G)
+    return [Q[k * dout:(k + 1) * dout, :] for k in range(nk)]
+
+def apply(Ks, rho):
+    return sum(K @ rho @ K.conj().T for K in Ks)
+
+def ket(*bits):
+    v = np.zeros(2 ** len(bits)); v[int("".join(map(str, bits)), 2)] = 1
+    return v
+
+def info_quantities(rho, dA, dB):
+    SAB, SA, SB = S(rho), S(ptrace(rho, [dA, dB], [0])), S(ptrace(rho, [dA, dB], [1]))
+    return dict(SAB=SAB, SA=SA, SB=SB, cond=SAB - SB, I=SA + SB - SAB)
+
+Z = np.diag([1.0, -1.0]).astype(complex)
+phi_plus = (ket(0, 0) + ket(1, 1)) / sqrt(2)
+BELL = np.outer(phi_plus, phi_plus)
+plus = np.array([1, 1]) / sqrt(2)
+rho_0p = 0.5 * np.diag([1.0, 0.0]) + 0.5 * np.outer(plus, plus)     # (|0><0| + |+><+|)/2
+dims3 = [2, 2, 2]
+```
 
 ---
 
@@ -60,7 +166,25 @@ $$
 
 **Теорема Шеннона о сжатии.** Источник можно сжать до $R>H(X)$ бит на символ с вероятностью ошибки $\to0$ (кодируем номер типичной последовательности, остальные — «ошибка»); при $R<H(X)$ вероятность успеха $\to0$.
 
-Пример (раздел 1 `примеры.py`): монета с $p = 0{,}11$, $h(p) = 0{,}4999$ бита. При $\varepsilon = 0{,}05$ вес типичного множества — $0{,}368$ при $n = 100$, $0{,}905$ при $n = 1000$ и $1{,}0000$ при $n = 10^4$, а его размер $2^{0{,}547n}$ — в пределах $2^{n(H\pm\varepsilon)}$. Сходимость медленная: на практике используют другие коды (Хаффман, арифметическое кодирование), но предел один и тот же.
+Пример (проверка — в ячейке ниже): монета с $p = 0{,}11$, $h(p) = 0{,}4999$ бита. При $\varepsilon = 0{,}05$ вес типичного множества — $0{,}368$ при $n = 100$, $0{,}905$ при $n = 1000$ и $1{,}0000$ при $n = 10^4$, а его размер $2^{0{,}547n}$ — в пределах $2^{n(H\pm\varepsilon)}$. Сходимость медленная: на практике используют другие коды (Хаффман, арифметическое кодирование), но предел один и тот же.
+
+```{python}
+p, eps = 0.11, 0.05
+Hp = h(p)
+TYP = {}
+for n in (100, 1000, 10_000):                     # число единиц k определяет вероятность последовательности
+    ks = np.arange(n + 1)
+    lncomb = gammaln(n + 1) - gammaln(ks + 1) - gammaln(n - ks + 1)
+    typ = np.abs(-(ks * np.log2(p) + (n - ks) * np.log2(1 - p)) / n - Hp) <= eps
+    weight = np.exp(lncomb[typ] + ks[typ] * np.log(p) + (n - ks[typ]) * np.log(1 - p)).sum()
+    rate = logsumexp(lncomb[typ]) / np.log(2) / n
+    TYP[n] = (weight, rate)
+    assert rate <= Hp + eps + 1e-12
+    print(f"n = {n:5d}: вес ε-типичного множества {weight:.4f}, log2(размер)/n = {rate:.4f}")
+assert TYP[10_000][0] > 0.99 and TYP[10_000][1] > Hp - eps
+print(f"h({p}) = {Hp:.4f}; границы H ∓ ε: {Hp - eps:.4f} … {Hp + eps:.4f}")
+```
+
 
 ---
 
@@ -72,7 +196,7 @@ S(\rho) = -\operatorname{Tr}\rho\log\rho = H(\boldsymbol\lambda) = -\sum_k\lambd
 $$
 (функция от оператора, I.1, §6; $0\log0 = 0$). Это энтропия Шеннона исхода измерения в собственном базисе $\rho$.
 
-**Свойства** (раздел 2 `примеры.py`):
+**Свойства** (численная проверка — после списка):
 1. $0\le S(\rho)\le\log d$; $S = 0$ $\iff$ $\rho$ чистое; $S = \log d$ $\iff$ $\rho = I/d$.
 2. Унитарная инвариантность $S(U\rho U^\dagger) = S(\rho)$.
 3. **Вогнутость и оценка для смесей:**
@@ -83,11 +207,52 @@ $$
 4. **Разложения на чистые состояния.** Для любого разложения $\rho = \sum_ip_i\lvert\psi_i\rangle\langle\psi_i\rvert$ (I.3, §1.5) $S(\rho)\le H(\mathbf p)$ (частный случай (2.2) при $S(\rho_x) = 0$), равенство — для спектрального разложения. Численно: 300 разложений случайной $\rho$ ($d = 3$) на 5 чистых состояний — $H(\mathbf p) - S(\rho)\ge0{,}69$. Неортогональные состояния «перекрываются», и квантовая энтропия меньше классической энтропии способа приготовления.
 5. **Дефазировка повышает энтропию:** $S(\sum_jP_j\rho P_j)\ge S(\rho)$ для проективного измерения без отбора; в частности $H(\operatorname{diag}\rho)\ge S(\rho)$ — диагональ мажорируется спектром (теорема Шура, ср. I.7, §5.3).
 
+```{python}
+for d in (2, 3, 4):                               # границы и унитарная инвариантность
+    r, U = rand_rho(d), rand_unitary(d)
+    assert 0 <= S(r) <= log2(d) + 1e-12 and abs(S(U @ r @ U.conj().T) - S(r)) < 1e-10
+assert abs(S(np.eye(4) / 4) - 2) < 1e-12 and S(BELL) < 1e-10
+worst_conc, worst_mix = 1.0, 1.0                  # (2.2) на 500 смесях
+for _ in range(500):
+    ps = rng.dirichlet(np.ones(3))
+    rs = [rand_rho(3, rank=rng.integers(1, 4)) for _ in range(3)]
+    mix = sum(pi * ri for pi, ri in zip(ps, rs))
+    lo = sum(pi * S(ri) for pi, ri in zip(ps, rs))
+    worst_conc, worst_mix = min(worst_conc, S(mix) - lo), min(worst_mix, H(ps) + lo - S(mix))
+assert worst_conc > -1e-10 and worst_mix > -1e-10
+rA, rB = np.zeros((4, 4)), np.zeros((4, 4))       # ортогональные носители: равенство справа
+rA[:2, :2], rB[2:, 2:] = np.diag([0.7, 0.3]), np.diag([0.5, 0.5])
+rand_rho(2)                                       # лишний вызов: сохраняет порядок генератора, как в примеры.py
+assert abs(S(0.4 * rA + 0.6 * rB) - (H([0.4, 0.6]) + 0.4 * S(rA) + 0.6 * S(rB))) < 1e-12
+print(f"500 смесей: min[S(Σpρ) − Σp S(ρ)] = {worst_conc:.2e}, min[H(p) + Σp S(ρ) − S(Σpρ)] = {worst_mix:.2e}")
+r = rand_rho(3)                                   # разложения на 5 чистых состояний (I.3, §1.5)
+w, V = np.linalg.eigh(r)
+worst = 1.0
+for _ in range(300):
+    vecs = (rand_unitary(5)[:, :3] * np.sqrt(w)) @ V.T       # строки — √p_i |ψ_i>
+    ps = (np.abs(vecs) ** 2).sum(1)
+    assert np.allclose(sum(np.outer(v, v.conj()) for v in vecs), r)
+    worst = min(worst, H(ps) - S(r))
+assert worst > -1e-10
+print(f"300 разложений ρ (d = 3) на 5 чистых состояний: min[H(p) − S(ρ)] = {worst:.2f}")
+worst = min(H(np.diag(r).real) - S(r) for r in (rand_rho(4) for _ in range(300)))
+assert worst > -1e-10
+print(f"300 случайных ρ (d = 4): min[H(diag ρ) − S(ρ)] = {worst:.2e} ≥ 0")
+```
+
+
 **Пример.** $\rho = \frac12(\lvert0\rangle\langle0\rvert + \lvert+\rangle\langle+\rvert)$ имеет собственные значения $\cos^2\frac\pi8 = 0{,}8536$ и $\sin^2\frac\pi8 = 0{,}1464$, так что
 $$
 S(\rho) = h(\cos^2\tfrac\pi8) = 0{,}6009\ \text{бита}<H(\tfrac12,\tfrac12) = 1 . \tag{2.3}
 $$
 Это состояние ещё вернётся: в §6 как источник для сжатия, в II.12 как ансамбль с информацией Холево $0{,}6009$ бита.
+
+```{python}
+S_0p = S(rho_0p)
+assert abs(S_0p - h(np.cos(np.pi / 8) ** 2)) < 1e-12
+print(f"собственные значения {np.round(np.linalg.eigvalsh(rho_0p)[::-1], 4)}, cos²(π/8) = {np.cos(np.pi / 8) ** 2:.4f}; S(ρ) = {S_0p:.4f} бита")
+```
+
 
 ---
 
@@ -105,6 +270,16 @@ $$
 | $\frac12(\lvert00\rangle\langle00\rvert + \lvert11\rangle\langle11\rvert)$ | 1 | 1 | 1 | 0 | 1 |
 | $I/4$ | 2 | 1 | 1 | 1 | 0 |
 
+```{python}
+cl = 0.5 * (np.outer(ket(0, 0), ket(0, 0)) + np.outer(ket(1, 1), ket(1, 1)))
+q_bell, q_cl, q_prod = info_quantities(BELL, 2, 2), info_quantities(cl, 2, 2), info_quantities(np.eye(4) / 4, 2, 2)
+print("состояние              S(AB)  S(A)  S(B)  S(A|B)  I(A:B)")
+for name, q in (("|Φ+>", q_bell), ("(|00><00|+|11><11|)/2", q_cl), ("I/4", q_prod)):
+    print(f"{name:22s} {q['SAB']:5.2f} {q['SA']:5.2f} {q['SB']:5.2f} {q['cond']:6.2f}  {q['I']:5.2f}")
+assert abs(q_bell["cond"] + 1) < 1e-10 and abs(q_bell["I"] - 2) < 1e-10 and abs(q_cl["cond"]) < 1e-10 and abs(q_cl["I"] - 1) < 1e-10
+```
+
+
 **Условная энтропия может быть отрицательной.** Для чистого $\rho_{AB}$ $S(AB) = 0$, а $S(A) = S(B) = E(\psi)$ (разложение Шмидта, I.4, §3), поэтому $S(A|B) = -E(\psi)\le0$. «Целое известно лучше, чем часть» — классически невозможно: $H(XY)\ge H(Y)$. Взаимная информация пары Белла — 2 бита, вдвое больше, чем у классически коррелированных битов.
 
 **Отрицательность означает запутанность.** Для сепарабельного $\rho_{AB} = \sum_ip_i\rho^A_i\otimes\rho^B_i$ выполнено $S(A|B)\ge0$ (вывод — из вогнутости условной энтропии, следствие ССА в §5; проверено на 400 случайных сепарабельных состояниях $2\times3$). Обратное неверно. Для изотропных состояний $\rho_p = p\lvert\Phi^+\rangle\langle\Phi^+\rvert + (1-p)I/4$ (I.7, §7)
@@ -112,6 +287,23 @@ $$
 S(A|B)_{\rho_p} = H\Bigl(\frac{1+3p}4, \frac{1-p}4, \frac{1-p}4, \frac{1-p}4\Bigr) - 1<0\iff p>0{,}7476 , \tag{3.2}
 $$
 а запутаны они уже при $p>1/3$.
+
+```{python}
+worst = 10
+for _ in range(400):                              # сепарабельные состояния 2×3
+    ps = rng.dirichlet(np.ones(rng.integers(1, 6)))
+    rho = sum(pi * np.kron(rand_rho(2, 1 + rng.integers(2)), rand_rho(3, 1 + rng.integers(3))) for pi in ps)
+    worst = min(worst, info_quantities(rho, 2, 3)["cond"], S(rho) - S(ptrace(rho, [2, 3], [0])))
+assert worst > -1e-10
+print(f"400 сепарабельных состояний 2×3: min(S(A|B), S(B|A)) = {worst:.1e} ≥ 0")
+iso = lambda pp: pp * BELL + (1 - pp) * np.eye(4) / 4
+cond_iso = lambda pp: H([(1 + 3 * pp) / 4] + [(1 - pp) / 4] * 3) - 1          # (3.2)
+p_star = brentq(cond_iso, 0.5, 0.99)
+for pp in (0.5, p_star, 0.9):
+    assert abs(info_quantities(iso(pp), 2, 2)["cond"] - cond_iso(pp)) < 1e-10
+print(f"изотропные ρ_p: S(A|B) < 0 при p > {p_star:.4f}; хэш-граница для ρ_0,9: −S(A|B) = {-cond_iso(0.9):.4f} эбита")
+```
+
 
 **Операциональный смысл** (обзорно).
 - **Слияние состояний** (Городецкий, Оппенгейм, Винтер, 2005): $S(A|B)$ — сколько эбитов нужно, чтобы передать Бобу $A$-часть состояния при известной ему $B$-части. Если $S(A|B)<0$, Боб не только получает состояние, но и остаётся с $-S(A|B)$ эбитами «в прибыли».
@@ -127,7 +319,7 @@ S(\rho\|\sigma) = \operatorname{Tr}\rho\log\rho - \operatorname{Tr}\rho\log\sigm
 $$
 $S(\rho\|\sigma) = +\infty$, если носитель $\rho$ не содержится в носителе $\sigma$. Классический аналог — расхождение Кульбака–Лейблера. Это не расстояние: $S(\lvert0\rangle\langle0\rvert\,\|\,I/2) = 1$, а $S(I/2\,\|\,\lvert0\rangle\langle0\rvert) = \infty$. Операциональный смысл (лемма Штейна, Хиаи–Петц, 1991): при проверке гипотезы «$\rho$» против «$\sigma$» на $n$ копиях с ограниченной ошибкой первого рода ошибка второго рода убывает как $2^{-nS(\rho\|\sigma)}$.
 
-Остальные величины выражаются через неё (раздел 4 `примеры.py`):
+Остальные величины выражаются через неё (проверка — в ячейке после неравенства Пинскера):
 $$
 S(\rho\|I/d) = \log d - S(\rho),\qquad I(A:B) = S(\rho_{AB}\|\rho_A\otimes\rho_B),\qquad S(A|B) = -S(\rho_{AB}\|I_A\otimes\rho_B) . \tag{4.2}
 $$
@@ -148,17 +340,74 @@ S(\rho\|\sigma)\ \ge\ \frac2{\ln2}\,D(\rho,\sigma)^2 . \tag{4.3}
 $$
 Проверено на 500 случайных парах (минимальный запас $1{,}9\cdot10^{-3}$); например, для $\operatorname{diag}(0{,}8;0{,}2)$ и $\operatorname{diag}(0{,}6;0{,}4)$: $0{,}1320\ge0{,}1154$.
 
+```{python}
+worst_klein, worst_pinsker = 1.0, 1.0
+for _ in range(500):
+    d = rng.integers(2, 5)
+    a, b = rand_rho(d), rand_rho(d)
+    worst_klein = min(worst_klein, rel_ent(a, b))
+    worst_pinsker = min(worst_pinsker, rel_ent(a, b) - 2 / log(2) * trdist(a, b) ** 2)
+assert worst_klein > 0 and worst_pinsker > -1e-12 and abs(rel_ent(rho_0p, rho_0p)) < 1e-10
+print(f"500 пар: min S(ρ‖σ) = {worst_klein:.3f} > 0 (Клейн); min[S(ρ‖σ) − (2/ln2)D²] = {worst_pinsker:.1e} ≥ 0 (Пинскер)")
+a2, b2 = np.diag([0.8, 0.2]), np.diag([0.6, 0.4])
+print(f"diag(0,8; 0,2) и diag(0,6; 0,4): S = {rel_ent(a2, b2):.4f} ≥ (2/ln2)·0,2² = {2 / log(2) * 0.04:.4f}")
+s10, s01 = rel_ent(np.diag([1.0, 0.0]), np.eye(2) / 2), rel_ent(np.eye(2) / 2, np.diag([1.0, 0.0]))
+assert abs(s10 - 1) < 1e-12 and s01 == np.inf
+print(f"S(|0><0| ‖ I/2) = {s10:.4f}, S(I/2 ‖ |0><0|) = {s01}")
+r = rand_rho(3)                                   # тождества (4.2)
+assert abs(rel_ent(r, np.eye(3) / 3) - (log2(3) - S(r))) < 1e-10
+r = rand_rho(6)
+rA, rB = ptrace(r, [2, 3], [0]), ptrace(r, [2, 3], [1])
+q = info_quantities(r, 2, 3)
+assert abs(rel_ent(r, np.kron(rA, rB)) - q["I"]) < 1e-10 and abs(-rel_ent(r, np.kron(np.eye(2), rB)) - q["cond"]) < 1e-10
+print(f"(4.2) для случайного ρ_AB (2×3): I(A:B) = {q['I']:.4f} = S(ρ_AB‖ρ_A⊗ρ_B), S(A|B) = {q['cond']:.4f} = −S(ρ_AB‖I⊗ρ_B)")
+```
+
+
 **Теорема 4.2 (монотонность; Линдблад, 1975; Ульман, 1977).** Для любого канала $\Phi$
 $$
 S\bigl(\Phi(\rho)\,\|\,\Phi(\sigma)\bigr)\le S(\rho\|\sigma) . \tag{4.4}
 $$
-Это энтропийный аналог теоремы 6.1 из II.1: никакая обработка не делает состояния различимее. Доказательство нетривиально: оно эквивалентно сильной субаддитивности (§5) и опирается на теорему Либа о вогнутости $\operatorname{Tr}e^{\log A + \log B}$ или на операторную выпуклость; мы его принимаем. Частный случай $\Phi = \operatorname{Tr}_B$ — монотонность при частичном следе. Численно: 300 случайных каналов $\mathbb C^3\to\mathbb C^d$ ($d = 2, 3$; минимальный запас — ноль с точностью округления, $-1{,}6\cdot10^{-14}$: среди случайных каналов есть унитарные, с одним оператором Крауса, для них (4.4) — равенство) и 300 частичных следов. Для $\Delta_{1/2}$ относительная энтропия из предыдущего примера падает с $0{,}1320$ до $0{,}0298$.
+Это энтропийный аналог теоремы 6.1 из II.1: никакая обработка не делает состояния различимее. Доказательство нетривиально: оно эквивалентно сильной субаддитивности (§5) и опирается на теорему Либа о вогнутости $\operatorname{Tr}e^{\log A + \log B}$ или на операторную выпуклость; мы его принимаем. Частный случай $\Phi = \operatorname{Tr}_B$ — монотонность при частичном следе. Численно: 300 случайных каналов $\mathbb C^3\to\mathbb C^d$ ($d = 2, 3$; минимальный запас — ноль с точностью округления, порядка $-10^{-14}$: среди случайных каналов есть унитарные, с одним оператором Крауса, для них (4.4) — равенство) и 300 частичных следов. Для $\Delta_{1/2}$ относительная энтропия из предыдущего примера падает с $0{,}1320$ до $0{,}0298$.
+
+```{python}
+worst = 1.0
+for _ in range(300):
+    din, dout = 3, int(rng.integers(2, 4))
+    Ks = rand_channel_kraus(din, dout, int(rng.integers(1, 5)))
+    assert np.allclose(sum(K.conj().T @ K for K in Ks), np.eye(din))
+    a, b = rand_rho(din), rand_rho(din)
+    worst = min(worst, rel_ent(a, b) - rel_ent(apply(Ks, a), apply(Ks, b)))
+assert worst > -1e-10
+print(f"300 случайных каналов C³ → C^d: min[S(ρ‖σ) − S(Φρ‖Φσ)] = {worst:.1e} (ноль с точностью округления)")
+worst_pt = 1.0
+for _ in range(300):
+    a, b = rand_rho(8), rand_rho(8)
+    worst_pt = min(worst_pt, rel_ent(a, b) - rel_ent(ptrace(a, [2, 4], [0]), ptrace(b, [2, 4], [0])))
+assert worst_pt > -1e-10
+print(f"300 частичных следов C²⊗C⁴ → C²: min запас = {worst_pt:.3e}")
+dep = lambda r_: 0.5 * r_ + 0.5 * np.eye(2) / 2  # Δ_{1/2}
+print(f"Δ_1/2: S = {rel_ent(a2, b2):.4f} → {rel_ent(dep(a2), dep(b2)):.4f}")
+```
+
 
 **Физический смысл: свободная энергия.** Для теплового состояния $\gamma_\beta = e^{-\beta H}/Z$
 $$
 S(\rho\|\gamma_\beta) = \frac{\beta}{\ln2}\bigl(F(\rho) - F_{\text{eq}}\bigr),\qquad F(\rho) = \operatorname{Tr}\rho H - \beta^{-1}S_{\ln}(\rho),\quad F_{\text{eq}} = -\beta^{-1}\ln Z , \tag{4.5}
 $$
 где $S_{\ln} = S\ln2$ — энтропия в натуральных единицах (проверено для кубита II.2 с $\omega = 1$, $\beta = 2$). Монотонность (4.4) для каналов, оставляющих $\gamma_\beta$ неподвижным (термализация, II.2), — второй закон термодинамики: свободная энергия не растёт.
+
+```{python}
+om, beta = 1.0, 2.0
+Hs = -om / 2 * Z
+gam = expm(-beta * Hs); gam /= np.trace(gam).real
+r = rand_rho(2)
+F_r = np.trace(r @ Hs).real - S(r) * log(2) / beta
+F_eq = -np.log(np.trace(expm(-beta * Hs)).real) / beta
+assert abs(rel_ent(r, gam) - beta * (F_r - F_eq) / log(2)) < 1e-10
+print(f"ω = 1, β = 2, случайное ρ: S(ρ‖γ_β) = {rel_ent(r, gam):.4f} = β(F(ρ) − F_eq)/ln2, F(ρ) = {F_r:.4f}, F_eq = {F_eq:.4f}")
+```
+
 
 ---
 
@@ -182,7 +431,7 @@ $$
 $$
 *Араки–Либ* — из субаддитивности для очищения: пусть $\rho_{ABR}$ чистое (I.4, §4); тогда $S(AB) = S(R)$, $S(A) = S(BR)\le S(B) + S(R)$, т. е. $S(R)\ge S(A) - S(B)$. *Слабая монотонность* — из ССА для очищения $\rho_{ABCR}$: (5.1) для тройки $(R, C, B)$ даёт $S(RC) + S(CB)\ge S(RCB) + S(C)$, а $S(RC) = S(AB)$, $S(RCB) = S(A)$; получаем $S(AB) + S(BC)\ge S(A) + S(C)$, т. е. $S(B|A) + S(B|C)\ge0$ (в (5.2) — то же с переименованием $A\leftrightarrow B$). Слабая монотонность — замена классического неравенства $H(X|Y)\ge0$: отрицательной может быть одна из условных энтропий $S(A|B)$, $S(A|C)$, но не обе — **моногамия**: $A$ не может быть максимально запутан одновременно с $B$ и с $C$.
 
-**Проверка на $10^4$ случайных трёхкубитных состояниях** (ранги 1–8; ЛР16, задание 1; раздел 5 `примеры.py`):
+**Проверка на $10^4$ случайных трёхкубитных состояниях** (ранги 1–8; ЛР16, задание 1; ячейка и рисунок — после таблицы):
 
 | неравенство | минимальный запас |
 |---|---:|
@@ -191,15 +440,81 @@ $$
 | ССА $S(AB) + S(BC) - S(ABC) - S(B)$ | $0{,}106$ |
 | слабая монотонность $S(AB) + S(BC) - S(A) - S(C)$ | $\approx0$ (равенство для чистых $\rho_{ABC}$) |
 
+```{python}
+#| fig-cap: "Моногамия: условные энтропии $S(A|B)$ и $S(A|C)$ для $10^4$ случайных трёхкубитных состояний. Каждая из них может быть отрицательной, но не обе сразу: все точки лежат не ниже прямой $S(A|B) + S(A|C) = 0$ (слабая монотонность); на ней — чистые состояния. Цвет — ранг $\\rho_{ABC}$ (тёмные точки — ранг 1, светлые — ранг 8)"
+NST = 10_000
+ranks = rng.integers(1, 9, NST)
+rhos = np.empty((NST, 8, 8), complex)
+for rk in range(1, 9):
+    sel = ranks == rk
+    rhos[sel] = rand_rho_batch(int(sel.sum()), 8, rk)
+Sabc = S_batch(rhos)
+SA, SB, SC, SAB, SBC, SAC = (S_batch(ptrace_batch(rhos, dims3, k)) for k in ([0], [1], [2], [0, 1], [1, 2], [0, 2]))
+checks = {"субаддитивность S(A)+S(B)−S(AB)": SA + SB - SAB,
+          "Араки–Либ S(AB)−|S(A)−S(B)|": SAB - np.abs(SA - SB),
+          "ССА S(AB)+S(BC)−S(ABC)−S(B)": SAB + SBC - Sabc - SB,
+          "слабая монотонность": SAB + SBC - SA - SC,
+          "S(A|B) − S(A|BC)": (SAB - SB) - (Sabc - SBC)}
+for name, v in checks.items():
+    assert v.min() > -1e-9
+    print(f"{name:34s} min = {v.min():.3e}")
+frac = np.mean(SAB - SA < -1e-9)
+assert frac > 0.05
+print(f"доля состояний с S(AB) < S(A): {frac:.3f}")
+
+fig, ax = plt.subplots(figsize=(5.2, 4.4))
+ax.scatter(SAB - SB, SAC - SC, s=2, c=ranks, cmap="viridis", alpha=0.5)
+lim = np.array([-1.05, 1.05])
+ax.plot(lim, -lim, "k--", lw=1, label="$S(A|B) + S(A|C) = 0$")
+ax.set_xlim(lim); ax.set_ylim(lim)
+ax.set_xlabel("$S(A|B)$, бит"); ax.set_ylabel("$S(A|C)$, бит")
+ax.legend(loc="upper right", fontsize=8)
+plt.show()
+```
+
+
 У 6 % состояний $S(AB)<S(A)$ — классически невозможно. Равенство в ССА достигается на квантовых **марковских цепочках** (например, классической цепочке $A\to B\to C$: $I(A:C|B) = 0$); структура состояний с равенством описана Хейденом, Йожей, Пецем и Винтером (2004). Равенство в Араки–Либе — для чистых $\rho_{AB}$.
 
 **Пример: условие уменьшает энтропию до отрицательных значений.** Для GHZ: $S(A|B) = 0$, $S(A|BC) = -1$. Для W-состояния: $S(A) = S(AB) = h(1/3) = 0{,}9183$, $S(A|B) = 0$, $S(A|BC) = -0{,}9183$.
+
+```{python}
+pa, Tba, Tcb = rng.dirichlet(np.ones(2)), rng.dirichlet(np.ones(2), size=2), rng.dirichlet(np.ones(2), size=2)
+rho_m = np.diag(np.einsum("a,ab,bc->abc", pa, Tba, Tcb).ravel())       # классическая цепочка A → B → C
+gap = S(ptrace(rho_m, dims3, [0, 1])) + S(ptrace(rho_m, dims3, [1, 2])) - S(rho_m) - S(ptrace(rho_m, dims3, [1]))
+psi = rng.normal(size=8) + 1j * rng.normal(size=8); psi /= np.linalg.norm(psi)
+rp = np.outer(psi, psi.conj())
+assert abs(gap) < 1e-12 and abs(S(ptrace(rp, [2, 4], [0])) - S(ptrace(rp, [2, 4], [1]))) < 1e-10
+print(f"марковская цепочка: I(A:C|B) = {gap:.1e}; чистое ρ_AB (2×4): S(A) = S(B), S(AB) = 0 — равенство в Араки–Либе")
+for name, v in (("GHZ", (ket(0, 0, 0) + ket(1, 1, 1)) / sqrt(2)), ("W", (ket(0, 0, 1) + ket(0, 1, 0) + ket(1, 0, 0)) / sqrt(3))):
+    r = np.outer(v, v)
+    sA, sB, sAB, sBC = (S(ptrace(r, dims3, k)) for k in ([0], [1], [0, 1], [1, 2]))
+    print(f"{name}: S(A) = {sA:.4f}, S(AB) = {sAB:.4f}, S(A|B) = {sAB - sB:.4f}, S(A|BC) = {S(r) - sBC:.4f}")
+```
+
 
 **Непрерывность (Фаннес, 1973; Ауденарт, 2007).** Если $T = D(\rho,\sigma)$, то
 $$
 \lvert S(\rho) - S(\sigma)\rvert\le T\log(d - 1) + h(T) . \tag{5.3}
 $$
 Граница точна ($\rho = \lvert0\rangle\langle0\rvert$, $\sigma = (1-T)\lvert0\rangle\langle0\rvert + \frac T{d-1}\sum_{k>0}\lvert k\rangle\langle k\rvert$) и проверена на 2000 случайных парах. Множитель $\log d$ важен: в больших системах малые возмущения меняют энтропию на величину, пропорциональную числу кубитов, — поэтому асимптотические утверждения формулируют для энтропии на копию.
+
+```{python}
+worst = 10
+for _ in range(2000):
+    d = int(rng.integers(2, 6))
+    a = rand_rho(d, int(rng.integers(1, d + 1)))
+    b = (1 - rng.uniform(0, 0.5)) * a + rng.uniform(0, 0.5) * rand_rho(d)
+    b /= np.trace(b).real
+    T = trdist(a, b)
+    bound = T * log2(d - 1) + h(min(T, 1 - 1e-15)) if d > 2 else h(T)
+    worst = min(worst, bound - abs(S(a) - S(b)))
+assert worst > -1e-10
+d, T = 4, 0.2                                     # пример, на котором граница достигается
+a, b = np.diag([1.0, 0, 0, 0]), np.diag([1 - T] + [T / (d - 1)] * (d - 1))
+assert abs(abs(S(a) - S(b)) - (T * log2(d - 1) + h(T))) < 1e-12
+print(f"2000 пар: min[T log(d−1) + h(T) − |S(ρ) − S(σ)|] = {worst:.1e} ≥ 0; при d = 4, T = 0,2 граница {T * log2(3) + h(T):.4f} достигается")
+```
+
 
 **Где используется ССА.** Граница Холево (II.12) — монотонность взаимной информации; неравенство обработки данных для когерентной информации (II.13); доказательства безопасности QKD (II.14) и энтропийные соотношения неопределённости; квантовая граница Синглтона (II.6, §4); площадные законы и энтропия запутанности в многочастичных системах.
 
@@ -222,7 +537,7 @@ $$
 и обе оценки стремятся к 1.
 *Обратная часть.* Если выход декодера лежит в подпространстве размерности $2^{nR}$ с проектором $Q$, то $\bar F$ с точностью до малой поправки не больше $\operatorname{Tr}(Q\rho^{\otimes n})$ (N&C, гл. 12), а $\operatorname{Tr}(Q\rho^{\otimes n})$ не больше суммы $2^{nR}$ наибольших собственных значений $\rho^{\otimes n}$ (принцип Ки Фана). При $R<S$ эта сумма $\to0$: типичные собственные значения $\approx2^{-nS}$, и $2^{nR}$ штук дают $2^{-n(S-R)}$.
 
-**Расчёт** (ЛР16, задание 3; раздел 7 `примеры.py`). Источник $\{\lvert0\rangle,\lvert+\rangle\}$ с вероятностями $\frac12$, $S(\rho) = 0{,}6009$ (2.3). Собственные значения $\rho^{\otimes n}$ — $\lambda^{n-k}(1-\lambda)^k$ с кратностью $\binom nk$, $\lambda = \cos^2\frac\pi8$, поэтому максимальный вес подпространства размерности $\lfloor2^{nR}\rfloor$ считается комбинаторно:
+**Расчёт** (ЛР16, задание 3; ячейка и рисунок — после таблицы). Источник $\{\lvert0\rangle,\lvert+\rangle\}$ с вероятностями $\frac12$, $S(\rho) = 0{,}6009$ (2.3). Собственные значения $\rho^{\otimes n}$ — $\lambda^{n-k}(1-\lambda)^k$ с кратностью $\binom nk$, $\lambda = \cos^2\frac\pi8$, поэтому максимальный вес подпространства размерности $\lfloor2^{nR}\rfloor$ считается комбинаторно:
 
 | $n$ | $R = 0{,}4$ | $0{,}5$ | $0{,}6$ | $0{,}7$ | $0{,}8$ |
 |---:|---:|---:|---:|---:|---:|
@@ -234,7 +549,70 @@ $$
 
 Порог виден, хотя сходимость медленная (поправки $\sim1/\sqrt n$): скорость $R$, при которой вес равен $\frac12$, — $0{,}528$ при $n = 50$, $0{,}578$ при $n = 200$, $0{,}595$ при $n = 1000$ — стремится к $S(\rho) = 0{,}6009$. Классическое сжатие последовательностей $x^n$ потребовало бы $H(\frac12,\frac12) = 1$ бит на символ: квантовый выигрыш — от перекрытия $\lvert0\rangle$ и $\lvert+\rangle$.
 
+```{python}
+#| fig-cap: "Сжатие Шумахера для источника $\\{\\lvert0\\rangle,\\lvert+\\rangle\\}$: максимальный вес подпространства размерности $2^{nR}$ в зависимости от скорости $R$. С ростом $n$ переход становится резче и сдвигается к $S(\\rho) = 0{,}6009$"
+lam = np.cos(np.pi / 8) ** 2
+S_src = h(lam)
+
+def best_weight(n, R):
+    """Сумма floor(2^{nR}) наибольших собственных значений ρ^{⊗n}: λ^{n−k}(1−λ)^k с кратностью C(n, k)."""
+    left, wsum = int(np.floor(2.0 ** (n * R))), 0.0
+    for k in range(n + 1):
+        take = min(comb(n, k), left)
+        wsum += take * np.exp((n - k) * np.log(lam) + k * np.log(1 - lam))
+        left -= take
+        if left == 0:
+            break
+    return wsum
+
+Rs = (0.4, 0.5, 0.6, 0.7, 0.8)
+SCH = {n: [best_weight(n, R) for R in Rs] for n in (10, 20, 50, 100, 200)}
+print("   n  " + "  ".join(f"R = {R}" for R in Rs))
+for n, row in SCH.items():
+    print(f"{n:4d}  " + "  ".join(f"{x:.4f} " for x in row))
+assert SCH[200][1] < SCH[100][1] < SCH[50][1] and SCH[200][3] > SCH[100][3]
+R_half = {n: brentq(lambda R: best_weight(n, R) - 0.5, 0.3, 1.0, xtol=1e-6) for n in (50, 200, 1000)}
+assert abs(R_half[1000] - S_src) < 0.02
+print("вес 1/2 при R: " + ", ".join(f"n = {n}: {v:.4f}" for n, v in R_half.items()) + f"; S(ρ) = {S_src:.4f}")
+
+Rg = np.linspace(0.3, 0.9, 121)
+fig, ax = plt.subplots(figsize=(6.0, 3.6))
+for n in (10, 50, 200, 1000):
+    ax.plot(Rg, [best_weight(n, R) for R in Rg], label=f"$n = {n}$")
+ax.axvline(S_src, color="gray", ls=":", label=r"$S(\rho)$")
+ax.set_xlabel("скорость $R$, кубитов на символ"); ax.set_ylabel(r"$\max\,\mathrm{Tr}\,(P\rho^{\otimes n})$")
+ax.legend(fontsize=8)
+plt.show()
+```
+
+
 **Прямая проверка при $n = 8$.** Подпространство размерности $2^6 = 64$ из 256 (т. е. $R = 0{,}75$): $\operatorname{Tr}(P\rho^{\otimes8}) = 0{,}9391$, верность сцепленности схемы с проекцией и «ошибочным» состоянием $\lvert0\dots0\rangle$ — $F_e = 0{,}8819\ge0{,}9391^2$, средняя верность по всем $2^8$ последовательностям — $0{,}8880\ge2\cdot0{,}9391 - 1 = 0{,}8782$.
+
+```{python}
+n, Dsub = 8, 2 ** 6
+w1, V1 = np.linalg.eigh(rho_0p)
+w1, V1 = w1[::-1], V1[:, ::-1]                    # по убыванию
+idx = sorted(range(2 ** n), key=lambda i: -np.prod([w1[(i >> (n - 1 - j)) & 1] for j in range(n)]))[:Dsub]
+Vn, rho_n = V1, rho_0p
+for _ in range(n - 1):
+    Vn, rho_n = np.kron(Vn, V1), np.kron(rho_n, rho_0p)
+P = Vn[:, idx] @ Vn[:, idx].conj().T             # проектор на 64 наибольших собственных вектора
+trP = np.trace(P @ rho_n).real
+junk = np.zeros(2 ** n); junk[0] = 1               # «ошибочное» состояние |0…0>
+wc, Vc = np.linalg.eigh(np.eye(2 ** n) - P)
+comp = Vc[:, wc > 0.5]
+Fe = trP ** 2 + sum(abs(np.vdot(comp[:, j], rho_n @ junk)) ** 2 for j in range(comp.shape[1]))
+states, avgF = [np.array([1.0, 0.0]), plus], 0.0
+for bits in range(2 ** n):                         # средняя верность по ансамблю {|0>, |+>}^⊗8
+    v = np.array([1.0])
+    for j in range(n):
+        v = np.kron(v, states[(bits >> (n - 1 - j)) & 1])
+    Pv = P @ v
+    avgF += (np.vdot(v, Pv) ** 2 + (1 - Pv @ Pv) * v[0] ** 2).real / 2 ** n
+assert abs(trP - best_weight(8, 0.75)) < 1e-10 and Fe >= trP ** 2 - 1e-12 and avgF >= 2 * trP - 1 - 1e-12
+print(f"Tr(Pρ^⊗8) = {trP:.4f}; F_e = {Fe:.4f} ≥ {trP ** 2:.4f}; средняя верность {avgF:.4f} ≥ 2·{trP:.4f} − 1 = {2 * trP - 1:.4f}")
+```
+
 
 **Замечания.** (1) Схема не зависит от конкретного ансамбля — только от $\rho$; есть и универсальные схемы, не знающие $\rho$ (Йожа, Городецкие, 1998). (2) Для смешанных состояний источника $\rho_x$ оптимальная скорость меньше $S(\rho)$ и выражается сложнее (Городецкий, 1998; Коаши, Имото, 2001); в курсе — только чистые. (3) Шумахер ввёл в той же работе термин «кубит» как единицу квантовой информации.
 
@@ -281,7 +659,17 @@ $$
 11. (•••) Выведите монотонность (4.4) из совместной выпуклости относительной энтропии $S(\sum_ip_i\rho_i\|\sum_ip_i\sigma_i)\le\sum_ip_iS(\rho_i\|\sigma_i)$. *Указание:* сведите общий канал к частичному следу через представление Стайнспринга.
 12. (•••) Докажите оценку (6.2) $F_e\ge[\operatorname{Tr}(P\rho^{\otimes n})]^2$ для схемы с проекцией на типичное подпространство.
 
-### Ответы и указания
+Численная проверка ответов к задачам 1, 5, 6, 10 (задачи 2, 3, 7, 8, 9 — в ячейках выше):
+
+```{python}
+print(f"1: S(diag(1/2, 1/4, 1/4)) = {S(np.diag([0.5, 0.25, 0.25])):.4f}; S((|0><0| + |+><+|)/2) = {S_0p:.4f}")
+print(f"5: S(ρ‖σ) = {rel_ent(a2, b2):.4f}, S(σ‖ρ) = {rel_ent(b2, a2):.4f}; (2/ln2)D² = {2 / log(2) * 0.2 ** 2:.4f}")
+print(f"6: Δ_1/2: {np.diag(dep(a2)).round(2).tolist()} и {np.diag(dep(b2)).round(2).tolist()}, S = {rel_ent(dep(a2), dep(b2)):.4f}")
+print(f"10: n = 100: R = 0,5 — {SCH[100][1]:.4f}, R = 0,7 — {SCH[100][3]:.4f}")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** $1{,}5$ бита; $h(\cos^2\frac\pi8) = 0{,}6009<1$: состояния $\lvert0\rangle$ и $\lvert+\rangle$ неортогональны.
 - **2.** $\lvert\Phi^+\rangle$: $S(A|B) = -1$, $I = 2$; классически коррелированное: $S(A|B) = 0$, $I = 1$.
 - **3.** $\rho_A = \operatorname{diag}(\frac23,\frac13)$, $S(A) = h(\frac13) = 0{,}9183$; $S(AB) = S(C) = 0{,}9183$; $I(A:B) = 0{,}9183$; $S(A|B) = 0$; $S(A|BC) = S(ABC) - S(BC) = -S(A) = -0{,}9183$.
@@ -295,11 +683,13 @@ $$
 - **11.** (Совместная выпуклость сама выводится из теоремы Либа о вогнутости и равносильна ССА.) Частичный след по $B$ — усреднение по унитарным $U_j$ на $B$, образующим 1-дизайн ($\frac1{d_B^2}\sum_jU_j\rho U_j^\dagger = \rho_A\otimes I/d_B$), и унитарная инвариантность $S(\cdot\|\cdot)$. Общий канал — изометрия Стайнспринга (не меняет $S(\cdot\|\cdot)$) и частичный след.
 - **12.** Схема: операторы Крауса $A_0 = P$ и $A_j = \lvert\text{ошибка}\rangle\langle j\rvert$ для базиса $\{\lvert j\rangle\}$ ортогонального дополнения. $F_e = \sum_k\lvert\operatorname{Tr}(\rho^{\otimes n}A_k)\rvert^2\ge\lvert\operatorname{Tr}(\rho^{\otimes n}P)\rvert^2$. Численно при $n = 8$: $0{,}8819\ge0{,}9391^2$.
 
+:::
+
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 2–3 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений нет, генератор случайных чисел вызывается в том же порядке, что и в `примеры.py`, поэтому совпадают и статистические числа (минимальные запасы неравенств). Полный файл `примеры.py` (около 2–3 с) проверяет:
 1. типичные последовательности для монеты $p = 0{,}11$: вес и размер типичного множества;
 2. свойства $S(\rho)$: границы, унитарная инвариантность, (2.2) на 500 смесях, $S\le H(\mathbf p)$ на 300 разложениях, дефазировку, пример (2.3);
 3. таблицу §3, $S(A|B)\ge0$ на 400 сепарабельных состояниях, порог (3.2), хэш-границу;
