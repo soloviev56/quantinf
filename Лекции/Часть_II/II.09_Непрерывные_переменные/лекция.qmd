@@ -1,10 +1,13 @@
-# Лекция II.9. Квантовые системы с непрерывными переменными
+---
+title: "Лекция II.9. Квантовые системы с непрерывными переменными"
+jupyter: python3
+---
 
 **Курс:** «Квантовая информатика», часть II. **Модуль:** II.C «Непрерывные переменные и бозонные коды».
 **Продолжительность:** 2 академических часа (90 мин).
-**Пререквизиты:** лекция I.3 (матрица плотности, §2); лекция I.4 (разложение Шмидта и энтропия запутанности, §3); лекция I.9 (теорема Готтесмана–Книлла, §4); лекция I.10 (бозонная выборка, §6); лекция II.1 (каналы, представление Крауса, §2); из общего курса физики — гармонический осциллятор, операторы рождения и уничтожения (конспект «Гармонический осциллятор для информатиков» выдаётся к этой лекции).
+**Пререквизиты:** [лекция I.3](../../Часть_I/I.03_Матрица_плотности_POVM/лекция.qmd) (матрица плотности, §2); [лекция I.4](../../Часть_I/I.04_Составные_системы/лекция.qmd) (разложение Шмидта и энтропия запутанности, §3); [лекция I.9](../../Часть_I/I.09_Стабилизаторный_формализм/лекция.qmd) (теорема Готтесмана–Книлла, §4); [лекция I.10](../../Часть_I/I.10_Квантовая_сложность/лекция.qmd) (бозонная выборка, §6); [лекция II.1](../II.01_Квантовые_каналы/лекция.qmd) (каналы, представление Крауса, §2); из общего курса физики — гармонический осциллятор, операторы рождения и уничтожения (конспект «Гармонический осциллятор для информатиков» выдаётся к этой лекции).
 **Литература:** Weedbrook C. et al. Gaussian quantum information // RMP 84, 621 (2012); Serafini A. Quantum Continuous Variables: A Primer of Theoretical Methods. CRC Press, 2017 (2-е изд. 2023), гл. 3–5; Bartlett S. D., Sanders B. C., Braunstein S. L., Nemoto K. Efficient classical simulation of continuous variable quantum information processes // PRL 88, 097904 (2002).
-**Материалы:** `примеры.py` — численная проверка всех утверждений: операторы в обрезанном базисе Фока и функции Эрмита, когерентные, сжатые и тепловые состояния, ковариационные матрицы и симплектические преобразования (светоделитель, двухмодовое сжатие — сверка с расчётом в базисе Фока), теорема Уильямсона и чистота, разложение Блоха–Мессии, функция Вигнера (интегральная формула, формула через смещённую чётность, состояния Фока, кошачьи и гауссовы состояния, объём отрицательной части), гауссовы каналы через операторы Крауса, условие полной положительности, гомодинное измерение; задачи к семинару С6 и к ЛР15 — в § 8.
+**Материалы:** `примеры.py` — численная проверка всех утверждений: операторы в обрезанном базисе Фока и функции Эрмита, когерентные, сжатые и тепловые состояния, ковариационные матрицы и симплектические преобразования (светоделитель, двухмодовое сжатие — сверка с расчётом в базисе Фока), теорема Уильямсона и чистота, разложение Блоха–Мессии, функция Вигнера (интегральная формула, формула через смещённую чётность, состояния Фока, кошачьи и гауссовы состояния, объём отрицательной части), гауссовы каналы через операторы Крауса, условие полной положительности, гомодинное измерение; задачи к семинару С6 и к ЛР15 — в § 8. Ячейки кода на этой странице — короткие наглядные версии этих проверок, их вывод получен при сборке сайта.
 
 **Обозначения** (см. также `Лекции/Обозначения.md`, §21).
 - $\hbar = 1$; $a$, $a^\dagger$ — операторы уничтожения и рождения, $[a, a^\dagger] = 1$; $\hat n = a^\dagger a$; базис Фока $\lvert n\rangle$.
@@ -12,6 +15,131 @@
 - Вектор квадратур $\mathbf r = (x_1, p_1, \dots, x_m, p_m)$ для $m$ мод; вектор средних $\mathbf d = \langle\mathbf r\rangle$; ковариационная матрица $V_{ij} = \frac12\langle\{\Delta r_i,\Delta r_j\}\rangle$; $\Omega = \bigoplus_{k=1}^m\begin{pmatrix}0&1\\-1&0\end{pmatrix}$.
 - $D(\alpha)$ — смещение, $S(r)$ — сжатие, $\lvert\alpha\rangle$ — когерентное состояние, $W(x,p)$ — функция Вигнера.
 - Гауссовы каналы: потери $\Phi^{\text{loss}}_\eta$, усиление $\Phi^{\text{amp}}_G$, классический шум смещений $\Phi^{\text{cl}}_{\sigma^2}$ (буквы $\mathcal A$, $\mathcal D$, $\mathcal L$ заняты — §12, §15 `Обозначения.md`).
+
+```{python}
+#| code-fold: true
+#| code-summary: "Подготовка: импорты и обозначения"
+from math import comb, log10, e as E_
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import expm
+from scipy.sparse import csr_matrix, kron as skron, identity as sid
+from scipy.sparse.linalg import expm_multiply
+from scipy.special import eval_laguerre, gammaln
+from scipy.integrate import quad
+
+def ops(N):
+    """a, a^†, x = (a + a^†)/√2, p = (a − a^†)/(i√2) в базисе Фока, обрезанном до N уровней."""
+    a = np.diag(np.sqrt(np.arange(1, N)), 1).astype(complex)
+    ad = a.conj().T
+    return a, ad, (a + ad) / np.sqrt(2), (a - ad) / (1j * np.sqrt(2))
+
+def expect(O, psi):
+    return np.vdot(psi, O @ psi)
+
+def dm(psi):
+    return np.outer(psi, psi.conj())
+
+def fock(n, N):
+    v = np.zeros(N, complex); v[n] = 1
+    return v
+
+def coh(alpha, N):
+    """Когерентное состояние (2.2) в базисе Фока."""
+    if alpha == 0:
+        return fock(0, N)
+    n = np.arange(N)
+    return np.exp(-abs(alpha) ** 2 / 2 + n * np.log(alpha + 0j) - 0.5 * gammaln(n + 1))
+
+def cat(alpha, sign, N):
+    v = coh(alpha, N) + sign * coh(-alpha, N)
+    return v / np.linalg.norm(v)
+
+NB = 160                                    # D(α) и S(r) считаем с запасом уровней, потом обрезаем
+aB, adB, _, _ = ops(NB)
+def D_op(alpha, N):
+    return expm(alpha * adB - np.conj(alpha) * aB)[:N, :N]
+def S_op(r, N):
+    return expm(r / 2 * (aB @ aB - adB @ adB))[:N, :N]
+
+def hermite_functions(nmax, xs):
+    """φ_n(x) = <x|n>, n = 0..nmax−1 (устойчивая рекурсия)."""
+    xs = np.asarray(xs, dtype=float)
+    out = np.zeros((nmax, xs.size))
+    out[0] = np.pi ** -0.25 * np.exp(-xs ** 2 / 2)
+    out[1] = np.sqrt(2) * xs * out[0]
+    for n in range(1, nmax - 1):
+        out[n + 1] = np.sqrt(2 / (n + 1)) * xs * out[n] - np.sqrt(n / (n + 1)) * out[n - 1]
+    return out
+
+Om1 = np.array([[0, 1], [-1, 0]])
+def Omega(m):
+    return np.kron(np.eye(m), Om1)
+
+def moments(state, quads):
+    """d = <r>, V_ij = <{Δr_i, Δr_j}>/2 для вектора состояния или матрицы плотности."""
+    if state.ndim == 1:
+        qs = [q @ state for q in quads]
+        d = np.array([np.vdot(state, v).real for v in qs])
+        G = np.array([[np.vdot(u, v) for v in qs] for u in qs])          # <r_i r_j>
+    else:
+        d = np.array([np.trace(state @ q).real for q in quads])
+        G = np.array([[np.trace(state @ qi @ qj) for qj in quads] for qi in quads])
+    return d, G.real - np.outer(d, d)
+
+def symp_eigs(V):
+    """Симплектические собственные значения: модули собственных значений iΩV."""
+    ev = np.linalg.eigvals(1j * Omega(V.shape[0] // 2) @ V)
+    return np.sort(np.abs(ev.real))[::2]
+
+def g(n):
+    """Энтропия теплового состояния (3.5), биты."""
+    return (n + 1) * np.log2(n + 1) - (n * np.log2(n) if n > 0 else 0.0)
+
+def dB(var):
+    """Сжатие в дБ относительно вакуумной дисперсии 1/2, (2.5)."""
+    return -10 * log10(2 * var)
+
+def R2(f):
+    return np.array([[np.cos(f), np.sin(f)], [-np.sin(f), np.cos(f)]])
+
+def bs_sym(th):
+    c, s = np.cos(th), np.sin(th)
+    return np.block([[c * np.eye(2), s * np.eye(2)], [-s * np.eye(2), c * np.eye(2)]])
+
+def tms_sym(r):
+    c, s, Zm = np.cosh(r), np.sinh(r), np.diag([1, -1])
+    return np.block([[c * np.eye(2), -s * Zm], [-s * Zm, c * np.eye(2)]])
+
+def rot_sym(f1, f2):
+    return np.block([[R2(f1), np.zeros((2, 2))], [np.zeros((2, 2)), R2(f2)]])
+
+def sq_sym(r1, r2):
+    return np.diag([np.exp(-r1), np.exp(r1), np.exp(-r2), np.exp(r2)])
+
+# функция Вигнера (4.1) на сетке: x + y и x − y пробегают точки с шагом h
+h, K, NW = 0.02, 700, 100
+zgrid = np.arange(-2 * K, 2 * K + 1) * h
+PHIz = hermite_functions(NW, zgrid)
+xi_idx = np.arange(-300, 301, 5)            # x от −6 до 6 с шагом 0,1
+xg, pg = xi_idx * h, np.arange(-6, 6.0001, 0.1)
+dA = 0.1 ** 2
+XX, PP = np.meshgrid(xg, pg, indexing="ij")
+
+def wigner_pure(c, xi=xi_idx, pgrid=pg):
+    """W(x_i, p) для ψ = Σ c_n φ_n по формуле (4.1) (интеграл по y — сумма с шагом h)."""
+    psi = np.pad(c, (0, NW - len(c))) @ PHIz
+    js = np.arange(-K, K + 1)
+    phase = np.exp(-2j * np.outer(pgrid, js * h))
+    W = np.zeros((len(xi), len(pgrid)))
+    for k, i in enumerate(xi):
+        W[k] = (phase @ (psi[2 * K + i + js] * np.conj(psi[2 * K + i - js]))).real * h / np.pi
+    return W, psi
+
+def wigner_rho(rho):
+    w, v = np.linalg.eigh(rho)
+    return sum(lam * wigner_pure(vec)[0] for lam, vec in zip(w, v.T) if lam > 1e-12)
+```
 
 ---
 
@@ -63,7 +191,24 @@ $$
 
 **Конвенция.** В литературе используют $\hat x = \sqrt{\hbar/2}\,(a + a^\dagger)$ с разными $\hbar$: при $\hbar = 1$ (наш выбор, ЛР15) дисперсия квадратуры вакуума равна $1/2$; при $\hbar = 2$ (например, в обзоре Weedbrook et al., 2012) — 1; при $\hbar = 1/2$ — $1/4$. Все формулы с ковариационными матрицами, децибелами и параметрами GKP-кода (II.10) зависят от этого выбора, поэтому **конвенцию надо фиксировать явно** (контрольный вопрос 2 ЛР15). Операторы `position()`, `momentum()` и функция `wigner()` с параметрами по умолчанию в QuTiP соответствуют нашей конвенции.
 
-**Численно** пространство обрезают: $n<N$. Тогда $a$ — матрица $N\times N$, и $[\hat x,\hat p] = i$ выполняется везде, кроме последнего уровня, где появляется артефакт $i(1 - N)$ (раздел 1 `примеры.py`). Поэтому состояния должны иметь пренебрежимую населённость вблизи $n = N - 1$, а сходимость по $N$ надо проверять (ЛР15, задание 1).
+**Численно** пространство обрезают: $n<N$. Тогда $a$ — матрица $N\times N$, и $[\hat x,\hat p] = i$ выполняется везде, кроме последнего уровня, где появляется артефакт $i(1 - N)$ (проверка — в ячейке ниже). Поэтому состояния должны иметь пренебрежимую населённость вблизи $n = N - 1$, а сходимость по $N$ надо проверять (ЛР15, задание 1).
+
+```{python}
+N = 80
+a, ad, x, p = ops(N)
+comm = x @ p - p @ x
+assert np.allclose(comm[:N - 1, :N - 1], 1j * np.eye(N - 1)) and np.isclose(comm[-1, -1], 1j * (1 - N))
+vac = fock(0, N)
+assert np.isclose(expect(x @ x, vac), 0.5) and np.isclose(expect(p @ p, vac), 0.5)
+xs = np.linspace(-16, 16, 6401)
+PHI = hermite_functions(N, xs)
+assert np.allclose(PHI @ PHI.T * (xs[1] - xs[0]), np.eye(N), atol=1e-8)
+assert np.allclose(xs * PHI[5], (np.sqrt(5) * PHI[4] + np.sqrt(6) * PHI[6]) / np.sqrt(2), atol=1e-10)
+print(f"N = {N}: [x, p] = i·I на уровнях n < {N - 1}, в последнем диагональном элементе {comm[-1, -1].imag:.0f}i = i(1 − N)")
+print(f"вакуум: Var x = {expect(x @ x, vac).real:.4f}, Var p = {expect(p @ p, vac).real:.4f}; "
+      f"функции Эрмита φ_0…φ_{N - 1} ортонормированы, x φ_5 = (√5 φ_4 + √6 φ_6)/√2")
+```
+
 
 ---
 
@@ -81,7 +226,30 @@ $D^\dagger(\alpha)\,\hat x\,D(\alpha) = \hat x + x_0$, $D^\dagger(\alpha)\,\hat 
 $$
 \lvert\alpha\rangle = e^{-\lvert\alpha\rvert^2/2}\sum_n\frac{\alpha^n}{\sqrt{n!}}\lvert n\rangle,\qquad a\lvert\alpha\rangle = \alpha\lvert\alpha\rangle,\qquad \lvert\langle\beta|\alpha\rangle\rvert^2 = e^{-\lvert\alpha - \beta\rvert^2} . \tag{2.2}
 $$
-Это смещённый вакуум: $\langle\hat x\rangle = \sqrt2\operatorname{Re}\alpha$, $\langle\hat p\rangle = \sqrt2\operatorname{Im}\alpha$, дисперсии квадратур $1/2$, как у вакуума; число фотонов распределено по Пуассону, $\langle\hat n\rangle = \operatorname{Var}\hat n = \lvert\alpha\rvert^2$. Когерентные состояния не ортогональны, но при $\lvert\alpha - \beta\rvert\gg1$ почти ортогональны. Именно такое состояние даёт лазер. Раздел 2 `примеры.py`: для $\alpha = 1{,}3 - 0{,}7i$ $\langle\hat x\rangle = 1{,}8385$, $\operatorname{Var}\hat x = 0{,}5$, $\langle\hat n\rangle = \operatorname{Var}\hat n = 2{,}18$.
+Это смещённый вакуум: $\langle\hat x\rangle = \sqrt2\operatorname{Re}\alpha$, $\langle\hat p\rangle = \sqrt2\operatorname{Im}\alpha$, дисперсии квадратур $1/2$, как у вакуума; число фотонов распределено по Пуассону, $\langle\hat n\rangle = \operatorname{Var}\hat n = \lvert\alpha\rvert^2$. Когерентные состояния не ортогональны, но при $\lvert\alpha - \beta\rvert\gg1$ почти ортогональны. Именно такое состояние даёт лазер. Проверим численно: для $\alpha = 1{,}3 - 0{,}7i$ $\langle\hat x\rangle = 1{,}8385$, $\operatorname{Var}\hat x = 0{,}5$, $\langle\hat n\rangle = \operatorname{Var}\hat n = 2{,}18$.
+
+```{python}
+alpha, beta = 1.3 - 0.7j, -0.4 + 0.9j
+ca = D_op(alpha, N) @ vac                              # |α> = D(α)|0>
+assert np.allclose(ca, coh(alpha, N), atol=1e-10) and np.allclose(a @ ca, alpha * ca, atol=1e-8)
+mx, mp = expect(x, ca).real, expect(p, ca).real
+vx = expect(x @ x, ca).real - mx ** 2
+nn = np.arange(N)
+pn = np.abs(ca) ** 2
+nbar, varn = pn @ nn, pn @ nn ** 2 - (pn @ nn) ** 2
+ov = abs(np.vdot(coh(beta, N), ca)) ** 2
+assert np.isclose(mx, np.sqrt(2) * alpha.real) and np.isclose(mp, np.sqrt(2) * alpha.imag) and np.isclose(vx, 0.5)
+assert np.isclose(nbar, abs(alpha) ** 2) and np.isclose(varn, abs(alpha) ** 2) and np.isclose(ov, np.exp(-abs(alpha - beta) ** 2))
+DD = D_op(alpha, NB) @ D_op(beta, NB)
+assert np.allclose(DD[:40, :40], (np.exp((alpha * np.conj(beta) - np.conj(alpha) * beta) / 2) * D_op(alpha + beta, NB))[:40, :40], atol=1e-8)
+x0 = np.sqrt(2) * alpha.real
+Dfull = expm(alpha * adB - np.conj(alpha) * aB)
+xB = (aB + adB) / np.sqrt(2)
+assert np.allclose((Dfull.conj().T @ xB @ Dfull)[:60, :60], (xB + x0 * np.eye(NB))[:60, :60], atol=1e-8)
+print(f"α = {alpha.real} − {-alpha.imag}i: <x> = √2 Re α = {mx:.4f}, <p> = {mp:.4f}, Var x = {vx:.4f}; <n> = {nbar:.4f}, Var n = {varn:.4f}")
+print(f"|<β|α>|² = {ov:.6f} = exp(−|α − β|²) при β = −0.4 + 0.9i; D(α)D(β) = e^((αβ* − α*β)/2) D(α + β); D^† x D = x + x0")
+```
+
 
 ### 2.2. Сжатые состояния
 
@@ -97,7 +265,25 @@ $$
 $$
 S_{\text{дБ}} = -10\log_{10}\frac{\operatorname{Var}\hat x}{1/2} = 20r\log_{10}e\approx8{,}686\,r . \tag{2.5}
 $$
-Так $r = 0{,}5$ — $4{,}34$ дБ, $r = 1$ — $8{,}69$ дБ; 10 дБ соответствуют $r = 1{,}151$ ($\langle\hat n\rangle = 2{,}03$), 15 дБ — $r = 1{,}727$. Определение через отношение к вакууму от выбора $\hbar$ не зависит. Сжатый свет получают в нелинейной оптике (параметрическое преобразование); в лабораториях достигнуто сжатие около 15 дБ (Фальбрух и др., 2016).
+Так $r = 0{,}5$ — $4{,}34$ дБ, $r = 1$ — $8{,}69$ дБ; 10 дБ соответствуют $r = 1{,}151$ ($\langle\hat n\rangle = 2{,}02$), 15 дБ — $r = 1{,}727$. Определение через отношение к вакууму от выбора $\hbar$ не зависит. Сжатый свет получают в нелинейной оптике (параметрическое преобразование); в лабораториях достигнуто сжатие около 15 дБ (Фальбрух и др., 2016).
+
+```{python}
+r = 0.8
+sv = S_op(r, N) @ vac
+vx, vp = expect(x @ x, sv).real, expect(p @ p, sv).real
+m = np.arange(N // 2)
+c2m = (-np.tanh(r)) ** m * np.exp(0.5 * gammaln(2 * m + 1) - m * np.log(2) - gammaln(m + 1)) / np.sqrt(np.cosh(r))
+assert np.isclose(vx, np.exp(-2 * r) / 2) and np.isclose(vp, np.exp(2 * r) / 2)
+assert np.isclose(expect(ad @ a, sv).real, np.sinh(r) ** 2)
+assert np.allclose(sv[1::2], 0) and np.allclose(sv[::2], c2m, atol=1e-10)    # (2.4)
+print(f"r = {r}: Var x = {vx:.5f} = e^(−2r)/2, Var p = {vp:.5f} = e^(2r)/2, произведение {vx * vp:.4f}; "
+      f"<n> = sinh²r = {np.sinh(r) ** 2:.5f}; амплитуды — по (2.4)")
+print(f"S_дБ = 20 r log10 e = {20 * log10(E_):.3f} r:", ", ".join(f"r = {rr}: {dB(np.exp(-2 * rr) / 2):.2f} дБ" for rr in (0.5, 1.0)))
+r10, r15 = 10 / (20 * log10(E_)), 15 / (20 * log10(E_))
+assert abs(r10 - 1.1513) < 1e-4
+print(f"10 дБ: r = {r10:.3f}, <n> = {np.sinh(r10) ** 2:.2f};  15 дБ: r = {r15:.3f}")
+```
+
 
 ### 2.3. Тепловые состояния
 
@@ -106,6 +292,26 @@ $$
 \rho_{\text{th}}(\bar n) = \sum_n\frac{\bar n^n}{(\bar n + 1)^{n+1}}\lvert n\rangle\langle n\rvert,\qquad \operatorname{Var}\hat x = \operatorname{Var}\hat p = \bar n + \frac12,\qquad \operatorname{Tr}\rho_{\text{th}}^2 = \frac1{2\bar n + 1} \tag{2.6}
 $$
 (для $\bar n = 1{,}5$: дисперсия 2, чистота $0{,}25$). Так же выглядит мода, половина двухмодового сжатого состояния которой «потеряна» (§3.4).
+
+```{python}
+#| fig-cap: "Распределение числа фотонов: когерентное состояние ($\\lvert\\alpha\\rvert^2 = 2{,}18$, пуассоновское), сжатый вакуум ($r = 0{,}8$, только чётные $n$) и тепловое ($\\bar n = 1{,}5$, геометрическое)"
+nth = 1.5
+pth = nth ** nn / (nth + 1) ** (nn + 1)
+rho_th = np.diag(pth).astype(complex)
+vth = np.trace(rho_th @ x @ x).real
+assert np.isclose(pth.sum(), 1) and np.isclose(vth, nth + 0.5) and np.isclose(np.sum(pth ** 2), 1 / (2 * nth + 1))
+print(f"тепловое n̄ = {nth}: Var x = Var p = {vth:.4f} = n̄ + 1/2, чистота Tr ρ² = {np.sum(pth ** 2):.4f} = 1/(2n̄ + 1)")
+
+nmax = 11
+fig, ax = plt.subplots(figsize=(6.4, 3.4))
+for k, (lab, pr) in enumerate((("когерентное", pn), ("сжатый вакуум", np.abs(sv) ** 2), ("тепловое", pth))):
+    ax.bar(np.arange(nmax) + (k - 1) * 0.27, pr[:nmax], width=0.27, label=lab)
+ax.set_xticks(range(nmax))
+ax.set_xlabel("число фотонов $n$"); ax.set_ylabel("вероятность $P(n)$")
+ax.legend()
+plt.show()
+```
+
 
 ---
 
@@ -123,7 +329,21 @@ $$
 $$
 V + \frac i2\Omega\succeq0 . \tag{3.2}
 $$
-Для одной моды это $\det V\ge1/4$ (и $V\succ0$). Например, $V = \operatorname{diag}(0{,}2;\ 0{,}5)$ имеет $\det V = 0{,}1<1/4$ и нефизична (раздел 4 `примеры.py`).
+Для одной моды это $\det V\ge1/4$ (и $V\succ0$). Например, $V = \operatorname{diag}(0{,}2;\ 0{,}5)$ имеет $\det V = 0{,}1<1/4$ и нефизична. Проверим численно — моменты, вычисленные в базисе Фока:
+
+```{python}
+for name, st, Vth in (("когерентное", ca, np.eye(2) / 2),
+                      ("сжатый вакуум, r = 0,8", sv, np.diag([np.exp(-2 * r), np.exp(2 * r)]) / 2),
+                      ("тепловое, n̄ = 1,5", rho_th, (nth + 0.5) * np.eye(2))):
+    d, V = moments(st, [x, p])
+    assert np.allclose(V, Vth, atol=1e-9)
+    print(f"{name:24s} d = {np.round(d, 4) + 0}, V = {np.round(V, 4).tolist()}")
+Vbad = np.diag([0.2, 0.5])
+mn = np.linalg.eigvalsh(Vbad + 0.5j * Om1).min()
+assert mn < 0
+print(f"V = diag(0.2, 0.5): det V = {np.linalg.det(Vbad):.2f} < 1/4, min eig(V + iΩ/2) = {mn:.4f} < 0 — нефизична")
+```
+
 
 ### 3.2. Гауссовы унитарные и симплектическая группа
 
@@ -140,7 +360,38 @@ $$
 | светоделитель | $e^{\theta(a^\dagger b - ab^\dagger)}$ | $\begin{pmatrix}\cos\theta\,I&\sin\theta\,I\\-\sin\theta\,I&\cos\theta\,I\end{pmatrix}$ |
 | двухмодовое сжатие | $e^{r(ab - a^\dagger b^\dagger)}$ | $\begin{pmatrix}\cosh r\,I&-\sinh r\,Z\\-\sinh r\,Z&\cosh r\,I\end{pmatrix}$ |
 
-Здесь $Z = \operatorname{diag}(1,-1)$, пропускание светоделителя $\eta = \cos^2\theta$. Все строки проверены в `примеры.py` сравнением моментов, вычисленных в базисе Фока ($30^2$ уровней на две моды), с формулой (3.3).
+Здесь $Z = \operatorname{diag}(1,-1)$, пропускание светоделителя $\eta = \cos^2\theta$. Все строки проверим сравнением моментов, вычисленных в базисе Фока ($30^2$ уровней на две моды; экспоненты гамильтонианов применяются к вектору состояния через разреженные матрицы), с формулой (3.3):
+
+```{python}
+phi = 0.6                                              # поворот фазы и одномодовое сжатие
+_, Vs = moments(sv, [x, p])
+_, Vrot = moments(np.exp(-1j * phi * nn) * sv, [x, p])
+assert np.allclose(Vrot, R2(phi) @ Vs @ R2(phi).T, atol=1e-9)
+for Sm in (R2(phi), np.diag([np.exp(-r), np.exp(r)])):
+    assert np.allclose(Sm @ Om1 @ Sm.T, Om1)
+
+N2 = 30                                                # две моды
+a1, I_ = csr_matrix(ops(N2)[0]), sid(N2, format="csr")
+A, B = skron(a1, I_, format="csr"), skron(I_, a1, format="csr")
+Ad, Bd = A.conj().T, B.conj().T
+Q2 = [(A + Ad) / np.sqrt(2), (A - Ad) / (1j * np.sqrt(2)), (B + Bd) / np.sqrt(2), (B - Bd) / (1j * np.sqrt(2))]
+vac2 = fock(0, N2 * N2)
+psi_in = expm_multiply(0.5 * (Bd - B), expm_multiply(0.2 * (A @ A - Ad @ Ad), vac2))   # S(0,4) на моде 1, D(0,5) на моде 2
+th = 0.5
+d_in, V_in = moments(psi_in, Q2)
+d_out, V_out = moments(expm_multiply(th * (Ad @ B - A @ Bd), psi_in), Q2)       # светоделитель
+SB = bs_sym(th)
+assert np.allclose(SB @ Omega(2) @ SB.T, Omega(2))
+assert np.allclose(V_out, SB @ V_in @ SB.T, atol=1e-6) and np.allclose(d_out, SB @ d_in, atol=1e-6)
+print(f"светоделитель θ = {th} (η = cos²θ = {np.cos(th) ** 2:.3f}): V_out = S V_in S^T, d_out = S d_in — совпадает с базисом Фока")
+rt = 0.5
+tmsv = expm_multiply(rt * (A @ B - Ad @ Bd), vac2)                              # двухмодовое сжатие
+_, V_tm = moments(tmsv, Q2)
+ST = tms_sym(rt)
+assert np.allclose(ST @ Omega(2) @ ST.T, Omega(2)) and np.allclose(V_tm, ST @ ST.T / 2, atol=1e-6)
+print(f"двухмодовое сжатие r = {rt}: V = S S^T/2 =\n{np.round(ST @ ST.T / 2, 4)}")
+```
+
 
 ### 3.3. Теорема Уильямсона, чистота, запутанность
 
@@ -156,13 +407,60 @@ $$
 
 **Двухмодовое сжатое состояние** (TMSV) $e^{r(ab - a^\dagger b^\dagger)}\lvert00\rangle = \frac1{\cosh r}\sum_n(-\tanh r)^n\lvert nn\rangle$ — CV-аналог пары Белла. Это разложение Шмидта (I.4, §2), и каждая мода в отдельности тепловая с $\bar n = \sinh^2r$. Энтропия запутанности — $g(\sinh^2r)$: $0{,}9514$ бита при $r = 0{,}5$ и $2{,}3369$ бита при $r = 1$ (совпадает с расчётом по коэффициентам Шмидта). При $r\to\infty$ состояние стремится к ЭПР-состоянию с $x_1 - x_2\to0$ и $p_1 + p_2\to0$. Его можно получить и иначе: 50:50 светоделитель на $x$-сжатом и $p$-сжатом вакуумах даёт двухмодовое сжатое состояние (с точностью до поворота фазы одной моды; проверено).
 
+```{python}
+V_tm_th = ST @ ST.T / 2
+for name, V in (("сжатый вакуум", Vs), ("тепловое n̄ = 1,5", (nth + 0.5) * np.eye(2)),
+                ("TMSV, r = 0,5", V_tm_th), ("одна мода TMSV", V_tm_th[:2, :2])):
+    m_ = V.shape[0] // 2
+    nu = symp_eigs(V)
+    assert np.linalg.eigvalsh(V + 0.5j * Omega(m_)).min() > -1e-9 and np.all(nu > 0.5 - 1e-9)
+    print(f"{name:17s} ν = {np.round(nu, 4)}, чистота 1/(2^m √det V) = {1 / (2 ** m_ * np.sqrt(np.linalg.det(V))):.4f}")
+cf = np.array([tmsv[n * N2 + n] for n in range(N2)])                           # коэффициенты Шмидта
+assert np.allclose(cf[:10], (-np.tanh(rt)) ** np.arange(10) / np.cosh(rt), atol=1e-8)
+assert np.isclose(symp_eigs(V_tm_th[:2, :2])[0], np.sinh(rt) ** 2 + 0.5)
+for rr in (0.5, 1.0):
+    lam = (np.tanh(rr) ** np.arange(400)) ** 2 / np.cosh(rr) ** 2
+    if rr == 0.5:
+        lam = np.abs(cf) ** 2                                                  # из вектора в базисе Фока
+    E_s = -np.sum(lam[lam > 0] * np.log2(lam[lam > 0]))
+    assert abs(E_s - g(np.sinh(rr) ** 2)) < 1e-3
+    print(f"r = {rr}: n̄ = sinh²r = {np.sinh(rr) ** 2:.4f}, g(n̄) = {g(np.sinh(rr) ** 2):.4f} бита, по коэффициентам Шмидта {E_s:.4f}")
+c2, s2 = np.cosh(2 * rt), np.sinh(2 * rt)
+Vbs = bs_sym(np.pi / 4) @ np.diag([np.exp(-2 * rt), np.exp(2 * rt), np.exp(2 * rt), np.exp(-2 * rt)]) / 2 @ bs_sym(np.pi / 4).T
+F = np.diag([1, 1, -1, -1])                                                    # поворот фазы второй моды на π
+assert np.allclose(F @ Vbs @ F, V_tm_th)
+print("50:50 светоделитель на x- и p-сжатых вакуумах → TMSV (после поворота фазы второй моды на π)")
+```
+
+
 ### 3.4. Разложение Блоха–Мессии
 
 **Теорема (Блох–Мессия; формулировка).** Любая $S\in Sp(2m,\mathbb R)$ представима как
 $$
 S = O_1\Bigl(\bigoplus_{k=1}^m\operatorname{diag}(e^{-r_k}, e^{r_k})\Bigr)O_2 , \tag{3.6}
 $$
-где $O_1$, $O_2$ — ортогональные симплектические матрицы, т. е. **пассивные** преобразования (светоделители и повороты фазы, не меняющие числа фотонов). Любая гауссова схема — пассивная интерферометрия, слой одномодовых сжатий и снова интерферометрия; $e^{\pm r_k}$ — сингулярные числа $S$. Практический смысл: «дорогой» ресурс — только одномодовое сжатие, а его количество определяется схемой однозначно. В `примеры.py` для случайной двухмодовой $S$ разложение найдено через сингулярное разложение комплексного (боголюбовского) представления: сжатия $r = 0{,}5848$ и $0{,}3779$, и $e^{\pm r_k}$ совпали с сингулярными числами $S$.
+где $O_1$, $O_2$ — ортогональные симплектические матрицы, т. е. **пассивные** преобразования (светоделители и повороты фазы, не меняющие числа фотонов). Любая гауссова схема — пассивная интерферометрия, слой одномодовых сжатий и снова интерферометрия; $e^{\pm r_k}$ — сингулярные числа $S$. Практический смысл: «дорогой» ресурс — только одномодовое сжатие, а его количество определяется схемой однозначно. Ниже для случайной двухмодовой $S$ разложение найдено через сингулярное разложение комплексного (боголюбовского) представления: сжатия $r = 0{,}5848$ и $0{,}3779$, и $e^{\pm r_k}$ совпали с сингулярными числами $S$.
+
+```{python}
+Srand = rot_sym(0.3, 1.1) @ bs_sym(0.7) @ sq_sym(0.5, -0.2) @ bs_sym(0.2) @ rot_sym(-0.4, 0.9) @ sq_sym(0.1, 0.3) @ bs_sym(1.0)
+assert np.allclose(Srand @ Omega(2) @ Srand.T, Omega(2))
+M = np.zeros((4, 4), complex)                    # r = M ξ, ξ = (a1, a2, a1^†, a2^†)
+for k in range(2):
+    M[2 * k, k] = M[2 * k, 2 + k] = 1 / np.sqrt(2)
+    M[2 * k + 1, k], M[2 * k + 1, 2 + k] = 1 / (1j * np.sqrt(2)), -1 / (1j * np.sqrt(2))
+Sc = np.linalg.inv(M) @ Srand @ M                # [[A, B], [B*, A*]] — преобразование Боголюбова
+Ac, Bc = Sc[:2, :2], Sc[:2, 2:]
+assert np.allclose(Sc[2:, 2:], Ac.conj()) and np.allclose(Sc[2:, :2], Bc.conj())
+U1, ch, V1h = np.linalg.svd(Ac)                  # A = U ch(R) V^†
+Dm = U1.conj().T @ Bc @ V1h.T                    # B = U sh(R) e^{iθ} V^T — диагональна
+assert np.allclose(Dm - np.diag(np.diag(Dm)), 0, atol=1e-9) and np.allclose(np.abs(np.diag(Dm)), np.sqrt(ch ** 2 - 1))
+r_bm = np.arccosh(ch)
+sv_S = np.linalg.svd(Srand, compute_uv=False)
+assert np.allclose(np.sort(np.concatenate([np.exp(r_bm), np.exp(-r_bm)])), np.sort(sv_S))
+print(f"сжатия Блоха–Мессии r = {np.round(r_bm, 4)}; e^(±r) = {np.round(np.sort(np.exp(np.r_[r_bm, -r_bm]))[::-1], 4)}")
+print(f"сингулярные числа S          = {np.round(np.sort(sv_S)[::-1], 4)}")
+```
+
 
 ---
 
@@ -192,7 +490,49 @@ W_n(x,p) = \frac{(-1)^n}\pi\,e^{-(x^2+p^2)}L_n\bigl(2(x^2+p^2)\bigr) , \tag{4.4}
 $$
   $L_n$ — многочлены Лагерра; $W_n(0,0) = (-1)^n/\pi$.
 
-Раздел 5 `примеры.py` вычисляет (4.1) на сетке по функциям Эрмита и сверяет с (4.2)–(4.4), с маргиналами и с тепловым состоянием.
+Ячейка ниже вычисляет (4.1) на сетке по функциям Эрмита и сверяет с (4.2)–(4.4), с маргиналами и с тепловым состоянием:
+
+```{python}
+#| fig-cap: "Функции Вигнера: состояние Фока $\\lvert1\\rangle$ ($W<0$ в круге $x^2 + p^2<1/2$), чётная кошка $\\alpha = 2$ (пики в $x = \\pm2\\sqrt2$ и интерференционные полосы) и смещённое сжатое состояние (гауссово, $W\\ge0$). Красное — $W>0$, синее — $W<0$"
+W0, _ = wigner_pure(fock(0, NW))
+assert np.allclose(W0, np.exp(-XX ** 2 - PP ** 2) / np.pi, atol=1e-10) and abs(W0.sum() * dA - 1) < 1e-6
+for n in (1, 2, 3):                                              # (4.4)
+    Wn, psi_n = wigner_pure(fock(n, NW))
+    assert np.allclose(Wn, (-1) ** n / np.pi * np.exp(-XX ** 2 - PP ** 2) * eval_laguerre(n, 2 * (XX ** 2 + PP ** 2)), atol=1e-9)
+assert np.allclose(Wn.sum(1) * 0.1, np.abs(psi_n[2 * K + xi_idx]) ** 2, atol=1e-6)     # маргинал |3>: ∫W dp = |ψ(x)|²
+Par = np.diag((-1.0) ** np.arange(NB))                           # (4.2): смещённая чётность
+for xx, pp in ((0.5, -0.3), (1.2, 0.4)):
+    al = (xx + 1j * pp) / np.sqrt(2)
+    Df = expm(al * adB - np.conj(al) * aB)
+    c3 = fock(3, NB)
+    w_par = np.vdot(c3, Df @ Par @ Df.conj().T @ c3).real / np.pi
+    w_int = wigner_pure(fock(3, NW), [int(round(xx / 0.02))], np.array([pp]))[0][0, 0]
+    assert abs(w_par - w_int) < 1e-8
+    print(f"|3>, (x, p) = ({xx}, {pp}): по (4.1) W = {w_int:+.6f}, по чётности (4.2) {w_par:+.6f}")
+gs = D_op(0.8 + 0.3j, NW) @ S_op(0.5, NW) @ fock(0, NW)           # (4.3) для смещённого сжатого
+Wg, _ = wigner_pure(gs)
+dg, Vg = moments(gs, list(ops(NW)[2:]))
+Vi = np.linalg.inv(Vg)
+dX, dP = XX - dg[0], PP - dg[1]
+Wg_th = np.exp(-0.5 * (Vi[0, 0] * dX ** 2 + 2 * Vi[0, 1] * dX * dP + Vi[1, 1] * dP ** 2)) / (2 * np.pi * np.sqrt(np.linalg.det(Vg)))
+assert np.allclose(Wg, Wg_th, atol=1e-8) and Wg.min() > -1e-10
+Wth = wigner_rho(np.diag(nth ** np.arange(NW) / (nth + 1) ** (np.arange(NW) + 1)).astype(complex))
+assert np.allclose(Wth, np.exp(-(XX ** 2 + PP ** 2) / (2 * nth + 1)) / (np.pi * (2 * nth + 1)), atol=1e-6)
+print("вакуум и |1>, |2>, |3> совпадают с (4.4), маргинал — с |ψ(x)|², гауссово и тепловое — с (4.3); min W гауссова =", f"{Wg.min():.1e}")
+
+W1, _ = wigner_pure(fock(1, NW))
+Wcat, _ = wigner_pure(cat(2.0, +1, NW))
+fig, axs = plt.subplots(1, 3, figsize=(9.6, 3.3), sharey=True)
+for ax, Wp, ttl in zip(axs, (W1, Wcat, Wg), (r"$|1\rangle$", r"кошка $|C^+_2\rangle$", "сжатое когерентное")):
+    im = ax.contourf(XX, PP, Wp, levels=np.linspace(-1 / np.pi, 1 / np.pi, 42), cmap="RdBu_r")
+    ax.set_title(ttl); ax.set_xlabel("$x$"); ax.set_aspect("equal")
+    ax.set_xlim(-4.5, 4.5); ax.set_ylim(-4.5, 4.5)
+axs[0].set_ylabel("$p$")
+cb = fig.colorbar(im, ax=axs, shrink=0.85, ticks=[-1 / np.pi, 0, 1 / np.pi])
+cb.ax.set_yticklabels(["−1/π", "0", "1/π"])
+plt.show()
+```
+
 
 ### 4.2. Отрицательность как ресурс
 
@@ -212,6 +552,27 @@ $$
 | когерентное, сжатое, тепловое | $>0$ | 0 |
 
 Здесь **кошачьи состояния** $\lvert C^\pm_\alpha\rangle\propto\lvert\alpha\rangle\pm\lvert-\alpha\rangle$ — суперпозиции двух когерентных; чётная содержит только чётные $n$, нечётная — только нечётные, отсюда $W(0,0) = \pm1/\pi$ по (4.2). Функция Вигнера кошки — два гауссовых пика в $\pm\sqrt2\alpha$ по $x$ и интерференционные полосы между ними; при $\alpha = 2$ отрицательность почти одинакова для обеих чётностей. Для состояний Фока значения $\delta_W$ вычислены радиальным интегралом, для кошек — на сетке с шагом 0,1 (погрешность $\sim10^{-3}$). Кошки — основа cat-кодов (II.10).
+
+```{python}
+NEG = {}
+for n in (1, 2, 3):                                  # точно: δ_W = (∫_0^∞ e^{−u} |L_n(2u)| du − 1)/2
+    pts = np.concatenate([[0], np.sort(np.polynomial.laguerre.lagroots([0] * n + [1])) / 2, [60]])
+    tot = sum(quad(lambda u: np.exp(-u) * abs(eval_laguerre(n, 2 * u)), pts[i], pts[i + 1])[0] for i in range(len(pts) - 1))
+    Wn, _ = wigner_pure(fock(n, NW))
+    NEG[f"|{n}>"] = (Wn[60, 60], (tot - 1) / 2, -Wn[Wn < 0].sum() * dA)
+assert abs(NEG["|1>"][1] - (2 / np.sqrt(E_) - 1)) < 1e-10
+for al_ in (1.0, 2.0):
+    for sgn, nm in ((+1, "чётная"), (-1, "нечётная")):
+        Wc, _ = wigner_pure(cat(al_, sgn, NW))
+        assert abs(Wc.sum() * dA - 1) < 1e-5 and np.isclose(Wc[60, 60], sgn / np.pi, atol=1e-8)
+        NEG[f"{nm} кошка, α = {al_:g}"] = (Wc[60, 60], None, -Wc[Wc < 0].sum() * dA)
+print(f"{'состояние':22s} W(0,0)·π   δ_W точно   δ_W на сетке 0,1")
+for k, (w00, ex, gr) in NEG.items():
+    assert abs(abs(w00) * np.pi - 1) < 1e-8 and (ex is None or abs(ex - gr) < 2e-3)
+    print(f"{k:22s} {w00 * np.pi:+.0f}        {'' if ex is None else f'{ex:.4f}':10s}  {gr:.4f}")
+print(f"2/√e − 1 = {2 / np.sqrt(E_) - 1:.4f}")
+```
+
 
 ---
 
@@ -252,9 +613,84 @@ $$
 $$
 по (5.1) $V\mapsto\frac1\eta(\eta V + \frac{1-\eta}2I) + \frac{1/\eta - 1}2I = V + \frac{1-\eta}\eta I$. Так потери сводятся к гауссову шуму смещений (Но, Альберт, Цзян, 2019; ЛР15, задание 6).
 
-Раздел 6 `примеры.py` проверяет (5.3)–(5.5) операторами Крауса в базисе Фока (70 уровней) на смещённом сжатом состоянии.
+Ячейка ниже проверяет (5.3)–(5.5) операторами Крауса в базисе Фока (70 уровней) на смещённом сжатом состоянии, а также условие (5.2) и тождество (5.6):
+
+```{python}
+def loss_kraus(eta, Nn):
+    """K_k = Σ_n √(C(n,k) η^{n−k} (1−η)^k) |n−k><n| — потеря k фотонов."""
+    Ks = [np.zeros((Nn, Nn)) for _ in range(Nn)]
+    for k in range(Nn):
+        for n in range(k, Nn):
+            Ks[k][n - k, n] = np.sqrt(comb(n, k) * eta ** (n - k) * (1 - eta) ** k)
+    return Ks
+
+def amp_kraus(G, Nn):
+    Ks = [np.zeros((Nn, Nn)) for _ in range(Nn)]
+    for k in range(Nn):
+        for n in range(Nn - k):
+            Ks[k][n + k, n] = np.sqrt(comb(n + k, k) * (1 - 1 / G) ** k) * G ** (-(n + 1) / 2)
+    return Ks
+
+def channel(Ks, rho):
+    return sum(Kk @ rho @ Kk.T for Kk in Ks)
+
+def cp_ok(Xm, Ym):                                    # условие (5.2)
+    return np.linalg.eigvalsh(Ym + 0.5j * (Om1 - Xm @ Om1 @ Xm.T)).min() > -1e-12
+
+NC = 70
+qC = list(ops(NC)[2:])
+rhoC = dm(D_op(0.6 + 0.2j, NC) @ S_op(0.4, NC) @ fock(0, NC))
+d0, V0 = moments(rhoC, qC)
+eta = 0.7
+Kl = loss_kraus(eta, NC)
+assert np.allclose(sum(Kk.T @ Kk for Kk in Kl), np.eye(NC))
+d1, V1 = moments(channel(Kl, rhoC), qC)
+assert np.allclose(V1, eta * V0 + (1 - eta) / 2 * np.eye(2), atol=1e-8) and np.allclose(d1, np.sqrt(eta) * d0, atol=1e-8)
+print(f"потери η = {eta}: V → ηV + (1−η)/2·I, d → √η d — совпадает с Краусом в базисе Фока")
+Gm = 1.3
+rho_s = dm(D_op(0.3, NC) @ S_op(0.2, NC) @ fock(0, NC))
+d0s, V0s = moments(rho_s, qC)
+out = channel(amp_kraus(Gm, NC), rho_s)
+d2, V2 = moments(out, qC)
+assert abs(np.trace(out).real - 1) < 1e-6
+assert np.allclose(V2, Gm * V0s + (Gm - 1) / 2 * np.eye(2), atol=1e-5) and np.allclose(d2, np.sqrt(Gm) * d0s, atol=1e-6)
+print(f"усиление G = {Gm}: V → GV + (G−1)/2·I, d → √G d")
+s2n = 0.05                                            # случайные смещения N(0, σ²): квадратура Гаусса–Эрмита 12×12
+gx, gw = np.polynomial.hermite_e.hermegauss(12)
+rho_cl = sum(wx * wp * D_op(np.sqrt(s2n) * (ux + 1j * up) / np.sqrt(2), NC) @ rho_s @ D_op(np.sqrt(s2n) * (ux + 1j * up) / np.sqrt(2), NC).conj().T
+             for ux, wx in zip(gx, gw) for up, wp in zip(gx, gw)) / (2 * np.pi)
+assert np.allclose(moments(rho_cl, qC)[1], V0s + s2n * np.eye(2), atol=1e-8)
+print(f"случайные смещения с дисперсией σ² = {s2n}: V → V + σ² I")
+assert cp_ok(np.sqrt(eta) * np.eye(2), (1 - eta) / 2 * np.eye(2)) and cp_ok(np.sqrt(Gm) * np.eye(2), (Gm - 1) / 2 * np.eye(2))
+assert not cp_ok(np.sqrt(Gm) * np.eye(2), 0 * np.eye(2)) and not cp_ok(np.sqrt(Gm) * np.eye(2), 0.99 * (Gm - 1) / 2 * np.eye(2))
+print("(5.2): потери и усиление с шумом (G−1)/2 физичны; Y = 0 и Y = 0,99·(G−1)/2·I — нет")
+Vla = (1 / eta) * (eta * V0 + (1 - eta) / 2 * np.eye(2)) + (1 / eta - 1) / 2 * np.eye(2)
+assert np.allclose(Vla, V0 + (1 - eta) / eta * np.eye(2))
+print(f"(5.6): потери η = {eta}, затем усиление 1/η = шум смещений σ² = (1−η)/η = {(1 - eta) / eta:.4f}")
+```
+
 
 **Потери губят сжатие.** По (5.3) $\operatorname{Var}\hat x\mapsto\eta e^{-2r}/2 + (1-\eta)/2$. Сжатие 10 дБ после потерь $\eta = 0{,}9$ становится $7{,}21$ дБ, после $\eta = 0{,}5$ — $2{,}60$ дБ: при $\eta\le1/2$ сжатие не превышает 3 дБ при любом исходном $r$. Поэтому эффективность детекторов и потери в оптике — главная техническая проблема CV.
+
+```{python}
+#| fig-cap: "Сжатие после канала потерь в зависимости от пропускания $\\eta$; пунктир — 3 дБ: при $\\eta\\le1/2$ выше него не подняться при любом исходном сжатии"
+SQ = {}
+for et in (0.9, 0.5):
+    SQ[et] = dB(et * 0.1 / 2 + (1 - et) / 2)               # 10 дБ: Var x = 0,1·(1/2)
+    print(f"10 дБ после потерь η = {et}: {SQ[et]:.2f} дБ")
+assert SQ[0.5] < 10 * log10(2)
+etas = np.linspace(0.01, 0.995, 200)
+fig, ax = plt.subplots(figsize=(6.0, 3.6))
+for s0 in (3, 6, 10, 15, 30):
+    v0 = 10 ** (-s0 / 10) / 2
+    ax.plot(etas, [dB(e_ * v0 + (1 - e_) / 2) for e_ in etas], label=f"{s0} дБ")
+ax.plot(etas, [dB((1 - e_) / 2) for e_ in etas], "k-", lw=0.8, label="предел $r\\to\\infty$")
+ax.axhline(10 * log10(2), color="gray", ls=":"); ax.axvline(0.5, color="gray", ls=":")
+ax.set_xlabel("пропускание $\\eta$"); ax.set_ylabel("сжатие после потерь, дБ")
+ax.set_ylim(0, 16); ax.legend(title="исходное", fontsize=8)
+plt.show()
+```
+
 
 ---
 
@@ -268,11 +704,34 @@ V_A' = V_A - C(\Pi V_B\Pi)^{+}C^{\mathsf T},\qquad \mathbf d_A' = \mathbf d_A + 
 $$
 где $(\cdot)^+$ — псевдообратная матрица. Ковариация от результата не зависит, среднее — линейно по результату.
 
-Раздел 7 `примеры.py`: для TMSV с $r = 0{,}5$ и результата $x_2 = 0{,}7$ формула (6.1) даёт $\operatorname{Var}x_1 = 1/(2\cosh2r) = 0{,}32403$ (было $\cosh(2r)/2 = 0{,}77154$) и $\langle x_1\rangle = -\tanh(2r)\,x_2 = -0{,}53312$ — в точности как проекция в базисе Фока на $\langle x = 0{,}7\rvert$ второй моды. Измерение одной моды ЭПР-пары «сжимает» другую — основа CV-телепортации.
+Проверим численно: для TMSV с $r = 0{,}5$ и результата $x_2 = 0{,}7$ формула (6.1) даёт $\operatorname{Var}x_1 = 1/(2\cosh2r) = 0{,}32403$ (было $\cosh(2r)/2 = 0{,}77154$) и $\langle x_1\rangle = -\tanh(2r)\,x_2 = -0{,}53312$ — в точности как проекция в базисе Фока на $\langle x = 0{,}7\rvert$ второй моды. Измерение одной моды ЭПР-пары «сжимает» другую — основа CV-телепортации.
+
+```{python}
+VA, VB, Cc = V_tm_th[:2, :2], V_tm_th[2:, 2:], V_tm_th[:2, 2:]
+Pi = np.diag([1.0, 0.0])
+MP = np.linalg.pinv(Pi @ VB @ Pi)
+xm = 0.7
+VA_c, dA_c = VA - Cc @ MP @ Cc.T, Cc @ MP @ np.array([xm, 0.0])          # (6.1)
+psiA = tmsv.reshape(N2, N2) @ hermite_functions(N2, [xm])[:, 0]          # <x = x_m| на моде 2 в базисе Фока
+psiA /= np.linalg.norm(psiA)
+dA_f, VA_f = moments(psiA, list(ops(N2)[2:]))
+assert np.allclose(VA_f, VA_c, atol=1e-6) and np.allclose(dA_f, dA_c, atol=1e-6)
+assert np.isclose(VA_c[0, 0], 1 / (2 * np.cosh(2 * rt))) and np.isclose(dA_c[0], -np.tanh(2 * rt) * xm)
+print(f"(6.1):  V_A' = {np.round(VA_c, 5).tolist()}, d_A' = {np.round(dA_c, 5).tolist()}")
+print(f"Фок:    V_A' = {np.round(VA_f, 5).tolist()}, d_A' = {np.round(dA_f, 5).tolist()}")
+print(f"Var x_1: до измерения ch(2r)/2 = {VA[0, 0]:.5f}, после 1/(2 ch 2r) = {VA_c[0, 0]:.5f}")
+```
+
 
 ### 6.2. Теорема о классической моделируемости
 
 **Теорема** (Бартлетт, Сандерс, Браунштейн, Немото, 2002) — CV-аналог теоремы Готтесмана–Книлла (I.9, §4). Схема из гауссовых состояний, гауссовых унитарных, гауссовых каналов и гауссовых измерений (гомодинного, гетеродинного), в том числе с классической обратной связью по их результатам, моделируется классически за полиномиальное время: достаточно хранить $\mathbf d$ и $V$ ($O(m^2)$ чисел) и обновлять их по (3.3), (5.1), (6.1) за $O(m^3)$ операций. Для 100 мод это около $2\cdot10^4$ чисел — против $10^{100}$ амплитуд в базисе Фока даже при 10 уровнях на моду.
+
+```{python}
+for m_ in (10, 100):
+    print(f"{m_} мод: d и V — {2 * m_ + 2 * m_ * (2 * m_ + 1) // 2} чисел; базис Фока с 10 уровнями на моду — 10^{m_} амплитуд")
+```
+
 
 Обобщение (Мари, Айзерт, 2012): эффективно моделируются и схемы, в которых все состояния, операции и измерения имеют неотрицательные функции Вигнера. Значит, для квантового преимущества нужна **отрицательность** где-то в схеме. Не-гауссовы ресурсы:
 - **счёт фотонов** — не гауссово измерение: гауссовы состояния + интерферометр + счёт фотонов = гауссова бозонная выборка (I.10, §6), трудная для классического моделирования при естественных гипотезах;
@@ -325,7 +784,27 @@ $$
 11. (•••) Для TMSV выведите по (6.1) условное состояние моды 1 после измерения $x_2 = x_m$: дисперсии и среднее. При каком $r$ условная дисперсия $x_1$ соответствует сжатию 10 дБ?
 12. (••) Объясните, почему схема «гауссовы состояния + интерферометр + гомодинные измерения» моделируется классически, а «гауссовы состояния + интерферометр + счёт фотонов» (бозонная выборка) — по-видимому, нет. Сравните с теоремой Готтесмана–Книлла.
 
-### Ответы и указания
+Численная проверка ответов к задачам 1, 3, 6, 8, 9, 11 (задачи 2, 4, 5, 7, 10 — в ячейках выше):
+
+```{python}
+print(f"1: r = 1: {dB(np.exp(-2) / 2):.2f} дБ, <n> = sinh²1 = {np.sinh(1) ** 2:.4f}; 10 дБ: r = {r10:.4f}")
+print(f"3: |<β|α>|² = {ov:.6f}")
+print(f"6: E(r = 0,5) = {g(np.sinh(0.5) ** 2):.4f} бита, E(r = 1) = {g(np.sinh(1.0) ** 2):.4f} бита")
+al_ = 1.5                                            # задача 8: структура W кошки
+Wc, _ = wigner_pure(cat(al_, +1, NW))
+Nc2 = 1 / (2 * (1 + np.exp(-2 * al_ ** 2)))
+Wc_th = Nc2 / np.pi * (np.exp(-(XX - np.sqrt(2) * al_) ** 2 - PP ** 2) + np.exp(-(XX + np.sqrt(2) * al_) ** 2 - PP ** 2)
+                       + 2 * np.exp(-XX ** 2 - PP ** 2) * np.cos(2 * np.sqrt(2) * al_ * PP))
+assert np.allclose(Wc, Wc_th, atol=1e-8)
+print(f"8: кошка α = {al_}: W = пики в x = ±√2α + полосы 2e^(−x²−p²)cos(2√2αp) — совпадает; период по p {np.pi / (np.sqrt(2) * al_):.4f}")
+print(f"9: η = 0,9: {SQ[0.9]:.2f} дБ, η = 0,5: {SQ[0.5]:.2f} дБ")
+r11 = 0.5 * np.arccosh(10)
+assert np.isclose(dB(1 / (2 * np.cosh(2 * r11))), 10)
+print(f"11: r = 0,5: Var x_1 = {VA_c[0, 0]:.5f}; 10 дБ при r = {r11:.4f}")
+```
+
+::: {.callout-tip collapse="true"}
+## Ответы и указания
 - **1.** $V = \frac12\operatorname{diag}(e^{-2r}, e^{2r})$, $\langle\hat n\rangle = \sinh^2r$. $r = 1$: $8{,}69$ дБ, $\langle\hat n\rangle = 1{,}3811$. 10 дБ: $r = 10/(20\log_{10}e) = 1{,}1513$.
 - **2.** $[\hat x,\hat p] = \frac1{2i}[a + a^\dagger, a - a^\dagger] = \frac1{2i}\bigl(-[a, a^\dagger] + [a^\dagger, a]\bigr) = \frac{-2}{2i}[a, a^\dagger] = i[a, a^\dagger] = i$. В обрезке $[a, a^\dagger] = \operatorname{diag}(1,\dots,1, 1-N)$ (последний элемент: $0 - (N-1)$), отсюда $i(1-N)$ в углу; при $N = 80$ это $-79i$ (проверено).
 - **3.** $a\lvert\alpha\rangle = e^{-\lvert\alpha\rvert^2/2}\sum_{n\ge1}\frac{\alpha^n\sqrt n}{\sqrt{n!}}\lvert n-1\rangle = \alpha\lvert\alpha\rangle$. $\langle\hat n\rangle = \operatorname{Var}\hat n = \lvert\alpha\rvert^2$; $\lvert\langle\beta|\alpha\rangle\rvert^2 = e^{-\lvert\alpha-\beta\rvert^2}$ (для $\alpha = 1{,}3 - 0{,}7i$, $\beta = -0{,}4 + 0{,}9i$: $0{,}004296$).
@@ -339,11 +818,13 @@ $$
 - **11.** $V_A' = \operatorname{diag}\bigl(\frac1{2\cosh2r},\ \frac{\cosh2r}2\bigr)$, $\langle x_1\rangle = -\tanh(2r)\,x_m$, $\langle p_1\rangle = 0$ (при $r = 0{,}5$: $0{,}32403$, проверено в базисе Фока). 10 дБ: $1/\cosh2r = 0{,}1$, $r = \frac12\operatorname{arccosh}10 = 1{,}4966$.
 - **12.** В первой схеме всё время остаёмся в гауссовом классе: $\mathbf d$, $V$ обновляются за $O(m^3)$, распределение результатов гомодинного измерения — гауссово с известными параметрами. Счёт фотонов — проекция на $\lvert n\rangle$; вероятности выражаются через гафнианы (перманенты для фоковских входов), вычисление которых #P-трудно. Аналогия: клиффорды + паули-измерения моделируются, добавление $T$ (магии) — нет.
 
+:::
+
 ---
 
 ## Приложение. Численные иллюстрации
 
-`примеры.py` (около 10 с) проверяет:
+Ячейки на этой странице — короткие версии проверок; облегчений по существу нет, все числа совпадают с `примеры.py`. Только двухмодовые экспоненты на странице применяются к вектору состояния разреженными матрицами (в `примеры.py` — плотные экспоненты матриц $900\times900$, отсюда его время). Полный файл `примеры.py` (около 45 с в один поток) проверяет:
 1. операторы в обрезанном базисе Фока ($N = 80$), артефакт последнего уровня, функции Эрмита;
 2. когерентные состояния: (2.1)–(2.2), правило умножения смещений, $D^\dagger\hat xD = \hat x + x_0$;
 3. сжатый вакуум (2.3)–(2.4), децибелы (2.5), тепловое состояние (2.6);
